@@ -1,0 +1,19 @@
+# Data Base - Web Scraping Dependencies
+# Python 3.10+ required
+
+# HTTP requests
+requests>=2.31.0
+
+# HTML parsing
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Dynamic pages (optional, use chrome-devtools MCP when possible)
+playwright>=1.40.0
+
+# Data formats
+pandas>=2.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+tenacity>=8.2.0

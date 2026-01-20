@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <AssemblyName>Kode.Agent.WebApiAssistant</AssemblyName>
+    <RootNamespace>Kode.Agent.WebApiAssistant</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kode.Agent.Sdk\Kode.Agent.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Kode.Agent.Store.Json\Kode.Agent.Store.Json.csproj" />
+    <ProjectReference Include="..\..\src\Kode.Agent.Tools.Builtin\Kode.Agent.Tools.Builtin.csproj" />
+    <ProjectReference Include="..\..\src\Kode.Agent.Mcp\Kode.Agent.Mcp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNetEnv" />
+    <PackageReference Include="MailKit" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
+  </PropertyGroup>
+
+</Project>

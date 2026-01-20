@@ -1,0 +1,6 @@
+# data-files skill - No Python dependencies required
+# This skill routes files to appropriate analysis skills
+# Actual processing happens in:
+#   - data-analysis (pandas, numpy, scipy)
+#   - data-viz (matplotlib, seaborn, plotly)
+#   - data-base (requests, beautifulsoup4)

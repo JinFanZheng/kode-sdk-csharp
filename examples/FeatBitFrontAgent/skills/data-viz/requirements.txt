@@ -1,0 +1,19 @@
+# Data Viz - Visualization Dependencies
+# Python 3.10+ required
+
+# Core visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Interactive charts
+plotly>=5.18.0
+
+# Figure export
+kaleido>=0.2.0  # For static image export from plotly
+
+# Data handling
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Utilities
+python-dotenv>=1.0.0
