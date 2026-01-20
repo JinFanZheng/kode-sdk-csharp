@@ -68,7 +68,7 @@ public static class AssistantBuilder
             random[i] = chars[rand.Next(chars.Length)];
         }
 
-        return $"agt:{new string(timePart)}{new string(random)}";
+        return $"agt_{new string(timePart)}{new string(random)}";
     }
 
     /// <summary>

@@ -165,7 +165,39 @@ public sealed class JsonAgentStore : IAgentStore
         EnsureDirectoryExists(path);
 
         var line = JsonSerializer.Serialize(timeline, _eventJsonOptions);
-        await File.AppendAllTextAsync(path, line + Environment.NewLine, cancellationToken);
+        
+        // Use FileStream with FileShare.ReadWrite to allow concurrent reads/writes
+        // This prevents IOException when the file is being read by another process
+        const int maxRetries = 3;
+        const int retryDelayMs = 50;
+        
+        for (int attempt = 0; attempt < maxRetries; attempt++)
+        {
+            try
+            {
+                using var stream = new FileStream(
+                    path,
+                    FileMode.Append,
+                    FileAccess.Write,
+                    FileShare.ReadWrite, // Allow concurrent reads
+                    bufferSize: 4096,
+                    useAsync: true);
+                
+                using var writer = new StreamWriter(stream, leaveOpen: false);
+                await writer.WriteLineAsync(line);
+                await writer.FlushAsync();
+                return; // Success
+            }
+            catch (IOException) when (attempt < maxRetries - 1)
+            {
+                // Retry on file lock, with exponential backoff
+                await Task.Delay(retryDelayMs * (attempt + 1), cancellationToken);
+            }
+        }
+        
+        // If all retries failed, throw the last exception
+        // This will be caught by EventBus and handled appropriately
+        throw new IOException($"Failed to append event to {path} after {maxRetries} attempts");
     }
 
     public async IAsyncEnumerable<Timeline> ReadEventsAsync(
