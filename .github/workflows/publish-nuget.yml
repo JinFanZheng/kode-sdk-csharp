@@ -18,6 +18,9 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for creating releases
+      packages: write  # Required for publishing packages
     
     steps:
       - name: Checkout code
@@ -99,10 +102,13 @@ jobs:
           retention-days: 30
       
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: ./nupkgs/*.nupkg
+          files: |
+            ./nupkgs/*.nupkg
+            ./nupkgs/*.snupkg
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_unmatched_files: false
+          draft: false
+          prerelease: false

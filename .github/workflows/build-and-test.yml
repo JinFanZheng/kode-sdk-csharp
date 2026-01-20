@@ -14,6 +14,9 @@ env:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      checks: write  # For test results
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]

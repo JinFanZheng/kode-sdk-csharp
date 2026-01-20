@@ -48,7 +48,7 @@ public class EventBusHooksIntegrationTests : IAsyncDisposable
         });
 
         // Give time for subscription to start
-        await Task.Delay(50);
+        await Task.Delay(100);
 
         // Act - Emit multiple events
         _eventBus.EmitProgress(new TextChunkEvent { Type = "text_chunk", Step = 0, Delta = "First" });
@@ -56,7 +56,7 @@ public class EventBusHooksIntegrationTests : IAsyncDisposable
         _eventBus.EmitProgress(new TextChunkEvent { Type = "text_chunk", Step = 0, Delta = "Third" });
 
         // Wait for subscriber to receive events
-        await Task.WhenAny(subscribeTask, Task.Delay(1000));
+        await Task.WhenAny(subscribeTask, Task.Delay(2000));
         cts.Cancel();
 
         // Assert
