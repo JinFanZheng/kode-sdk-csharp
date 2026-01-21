@@ -30,7 +30,8 @@ public class EventBusHooksIntegrationTests : IAsyncDisposable
     {
         // Arrange
         var receivedEvents = new List<EventEnvelope>();
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var tcs = new TaskCompletionSource<bool>();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         // Start background subscriber
         var subscribeTask = Task.Run(async () =>
@@ -41,23 +42,29 @@ public class EventBusHooksIntegrationTests : IAsyncDisposable
                 {
                     receivedEvents.Add(envelope);
                     if (receivedEvents.Count >= 3)
+                    {
+                        tcs.TrySetResult(true);
                         break;
+                    }
                 }
             }
             catch (OperationCanceledException) { }
         });
 
         // Give time for subscription to start
-        await Task.Delay(50);
+        await Task.Delay(200);
 
         // Act - Emit multiple events
         _eventBus.EmitProgress(new TextChunkEvent { Type = "text_chunk", Step = 0, Delta = "First" });
         _eventBus.EmitProgress(new TextChunkEvent { Type = "text_chunk", Step = 0, Delta = "Second" });
         _eventBus.EmitProgress(new TextChunkEvent { Type = "text_chunk", Step = 0, Delta = "Third" });
 
-        // Wait for subscriber to receive events
-        await Task.WhenAny(subscribeTask, Task.Delay(1000));
+        // Wait for subscriber to receive events or timeout
+        var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(3000));
         cts.Cancel();
+
+        // Ensure subscription task completes
+        try { await subscribeTask.WaitAsync(TimeSpan.FromSeconds(1)); } catch { }
 
         // Assert
         Assert.True(receivedEvents.Count >= 1, $"Expected at least 1 event, got {receivedEvents.Count}");

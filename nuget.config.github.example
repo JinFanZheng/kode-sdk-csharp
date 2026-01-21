@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <!-- NuGet.org 公共源 -->
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
+    
+    <!-- GitHub Packages 源 -->
+    <add key="github" value="https://nuget.pkg.github.com/JinFanZheng/index.json" />
+  </packageSources>
+  
+  <packageSourceCredentials>
+    <github>
+      <add key="Username" value="YOUR_GITHUB_USERNAME" />
+      <!-- 请将 YOUR_GITHUB_TOKEN 替换为你的 GitHub Personal Access Token -->
+      <!-- Token 需要 read:packages 权限 -->
+      <add key="ClearTextPassword" value="YOUR_GITHUB_TOKEN" />
+    </github>
+  </packageSourceCredentials>
+  
+  <!-- 可选：配置包源映射以明确指定哪些包从哪个源安装 -->
+  <packageSourceMapping>
+    <!-- Kode.Agent.* 包优先从 GitHub 安装 -->
+    <packageSource key="github">
+      <package pattern="Kode.Agent.*" />
+    </packageSource>
+    
+    <!-- 其他包从 NuGet.org 安装 -->
+    <packageSource key="nuget.org">
+      <package pattern="*" />
+    </packageSource>
+  </packageSourceMapping>
+</configuration>

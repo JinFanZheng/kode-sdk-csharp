@@ -1,5 +1,6 @@
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Infrastructure.Sandbox;
+using Kode.Agent.Tests.Helpers;
 using Xunit;
 
 namespace Kode.Agent.Tests.Unit;
@@ -13,7 +14,7 @@ public class LocalSandboxTests
         await using var sandbox = new LocalSandbox();
         
         // Act
-        var result = await sandbox.ExecuteCommandAsync("echo Hello");
+        var result = await sandbox.ExecuteCommandAsync(PlatformCommands.Echo("Hello"));
         
         // Assert
         Assert.Equal(0, result.ExitCode);

@@ -6,6 +6,9 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <RootNamespace>Kode.Agent.Store.Redis</RootNamespace>
+    <PackageId>Kode.Agent.Store.Redis</PackageId>
+    <Description>Redis distributed storage implementation for Kode Agent SDK - High-performance state persistence and session management</Description>
+    <PackageTags>ai;agent;storage;redis;distributed;state-management</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

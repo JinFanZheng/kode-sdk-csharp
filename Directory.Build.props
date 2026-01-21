@@ -16,7 +16,40 @@
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
+  <!-- NuGet Package Metadata -->
+  <PropertyGroup>
+    <!-- Version Control -->
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    
+    <!-- Package Information -->
+    <PackageProjectUrl>https://github.com/JinFanZheng/kode-sdk-csharp</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/JinFanZheng/kode-sdk-csharp</RepositoryUrl>
+    <PackageReleaseNotes>Initial release of Kode Agent SDK for .NET - Event-driven AI Agent runtime with tool calling, state management, and multi-model support</PackageReleaseNotes>
+    
+    <!-- Symbol Packages -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedAllSources>true</EmbedAllSources>
+    
+    <!-- Deterministic Build -->
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+    
+    <!-- Packaging -->
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)nupkgs</PackageOutputPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <!-- Include README.md in packages -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildThisFileDirectory)README.md')" />
   </ItemGroup>
 </Project>

@@ -8,6 +8,15 @@
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <IsRoslynComponent>true</IsRoslynComponent>
         <IncludeBuildOutput>false</IncludeBuildOutput>
+        <PackageId>Kode.Agent.SourceGenerator</PackageId>
+        <Description>Roslyn source generator for Kode Agent SDK - Compile-time tool schema generation with zero reflection overhead</Description>
+        <PackageTags>ai;agent;source-generator;roslyn;code-generation;tools</PackageTags>
+        <DevelopmentDependency>true</DevelopmentDependency>
+        <!-- Suppress NU5128 warning for analyzer-only packages -->
+        <NoPackageAnalysis>true</NoPackageAnalysis>
+        <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+        <!-- Disable symbol package for source generators -->
+        <IncludeSymbols>false</IncludeSymbols>
     </PropertyGroup>
 
     <ItemGroup>

@@ -1,60 +1,128 @@
-node_modules/
-dist/
-*.log
+## User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio cache/options directory
+.vs/
+.vscode/
+
+## Rider
+.idea/
+*.sln.iml
+*.DotSettings.user
+
+## Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+## NuGet Packages
+*.nupkg
+*.snupkg
+nupkgs/
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+TestResults/
+coverage/
+coveragereport/
+
+## .NET Core
+project.lock.json
+project.fragment.lock.json
+
+## Environment & Secrets
 .env
 .env.*
-.envrc
 !.env.example
-data/
-test-data/
-test-workspace/
-.temp/
+*.pfx
+*.p12
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.json
+!appsettings.json
+secrets.json
+
+## OS Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+
+## Temporary files
+*.tmp
+*.temp
 *.swp
 *.swo
 *~
-.DS_Store
-apps/demo/fullstack-with-toc-min/
-test-cli.ts
-.env.test
-.env.mmm2
-release/
+.temp/
+.tmp/
 
-# Ignore all markdown files except README.md and files in doc/docs folders
-*.md
-!apps/**/*.md
-!README.md
-!README-zh.md
-!doc/**/*.md
-!docs/**/*.md
-!apps/docs/**/*.md
-!tests/**/*.md
-tests/integration/provider.config.json
-tests/integration/.store/
-tests/tmp/
-tests/.tmp/
+## Log files
 *.log
-*.txt
+
+## Agent runtime data
 .kode/
 .kode-apps/
-!csharp/docs/**/*.md
-!CLAUDE.md
-!*/**/skills/**/*.md
-!*/**/skills/**/requirements.txt
-
-# nextjs
-.next
-
-
-# assistant
 .assistant-store/
 .users/
+data/
+test-data/
+test-workspace/
 
+## Example/Test specific
+examples/**/.kode/
+examples/**/.env
+!examples/**/.env.example
 
-# 
-bin/
-obj/
-.idea/
+## Documentation (keep important markdown files)
+# We keep all markdown files for documentation
+# If you want to ignore specific markdown files, uncomment and customize:
+# *.md
+# !README.md
+# !README-zh.md
+# !docs/**/*.md
+# !CLAUDE.md
+# !PUBLISH_GUIDE.md
 
-
-# appsettings.json
-appsettings.Development.json
+## Backup files
+*.bak
+*.bakup
+*_backup
+*_old

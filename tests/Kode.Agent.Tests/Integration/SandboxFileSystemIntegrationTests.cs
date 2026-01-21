@@ -1,5 +1,6 @@
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Infrastructure.Sandbox;
+using Kode.Agent.Tests.Helpers;
 using Xunit;
 
 namespace Kode.Agent.Tests.Integration;
@@ -89,7 +90,7 @@ public class SandboxFileSystemIntegrationTests : IAsyncDisposable
         await _sandbox.DeleteDirectoryAsync(dirName);
     }
 
-    [Fact]
+    [UnixOnlyFact]
     public async Task CommandExecution_WithWorkingDirectory()
     {
         // Arrange
@@ -97,7 +98,7 @@ public class SandboxFileSystemIntegrationTests : IAsyncDisposable
         await _sandbox.CreateDirectoryAsync(subDir);
         await _sandbox.WriteFileAsync(Path.Combine(subDir, "marker.txt"), "exists");
 
-        // Act - Execute command in subdirectory
+        // Act - Execute command in subdirectory (Unix-specific: ls -la)
         var result = await _sandbox.ExecuteCommandAsync("ls -la", new CommandOptions
         {
             WorkingDirectory = Path.Combine(_testDir, subDir)
@@ -112,10 +113,10 @@ public class SandboxFileSystemIntegrationTests : IAsyncDisposable
         await _sandbox.DeleteDirectoryAsync(subDir);
     }
 
-    [Fact]
+    [UnixOnlyFact]
     public async Task CommandExecution_WithEnvironmentVariables()
     {
-        // Arrange & Act
+        // Arrange & Act (Unix-specific: $VAR syntax)
         var result = await _sandbox.ExecuteCommandAsync("echo $TEST_VAR", new CommandOptions
         {
             EnvironmentVariables = new Dictionary<string, string>
@@ -133,7 +134,7 @@ public class SandboxFileSystemIntegrationTests : IAsyncDisposable
     public async Task CommandExecution_WithTimeout_Completes()
     {
         // Act
-        var result = await _sandbox.ExecuteCommandAsync("echo fast", new CommandOptions
+        var result = await _sandbox.ExecuteCommandAsync(PlatformCommands.Echo("fast"), new CommandOptions
         {
             Timeout = TimeSpan.FromSeconds(5)
         });
@@ -143,10 +144,10 @@ public class SandboxFileSystemIntegrationTests : IAsyncDisposable
         Assert.Equal(0, result.ExitCode);
     }
 
-    [Fact]
+    [UnixOnlyFact]
     public async Task CommandExecution_CapturesStderr()
     {
-        // Act
+        // Act (Unix-specific: >&2 redirection)
         var result = await _sandbox.ExecuteCommandAsync("echo error >&2");
 
         // Assert

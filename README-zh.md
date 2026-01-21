@@ -4,13 +4,15 @@
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![NuGet](https://img.shields.io/badge/NuGet-coming%20soon-blue)](https://www.nuget.org/)
+[![NuGet](https://img.shields.io/nuget/v/Kode.Agent.Sdk?logo=nuget)](https://www.nuget.org/packages/Kode.Agent.Sdk)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/Kode.Agent.Sdk)](https://www.nuget.org/packages/Kode.Agent.Sdk)
+[![Build](https://github.com/JinFanZheng/kode-sdk-csharp/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/JinFanZheng/kode-sdk-csharp/actions/workflows/build-and-test.yml)
 
 一个强大的 AI Agent 运行时 SDK，基于 .NET 10 构建，支持 Anthropic Claude 和 OpenAI GPT 模型，提供完整的工具调用、状态管理、事件流等能力。专为构建生产级 AI 应用而设计。
 
 ## 🎯 项目背景
 
-Kode Agent SDK for .NET 是 [Kode SDK](../README.md) 的 C# 实现，与 TypeScript 版本功能对等，提供：
+Kode Agent SDK for .NET 是 [Kode SDK](https://github.com/shareAI-lab/kode-agent-sdk) 的 C# 实现，与 TypeScript 版本功能对等，提供：
 
 - **事件驱动架构** - 三通道事件系统（Progress、Control、Monitor）分离关注点
 - **完整状态管理** - 支持持久化、崩溃恢复、断点续传
@@ -164,8 +166,10 @@ sequenceDiagram
 
 ### 1. 安装包
 
+**从 NuGet.org 安装（推荐）**：
+
 ```bash
-# 使用 NuGet (即将发布)
+# 核心包
 dotnet add package Kode.Agent.Sdk
 dotnet add package Kode.Agent.Store.Json
 dotnet add package Kode.Agent.Tools.Builtin
@@ -176,6 +180,23 @@ dotnet add package Kode.Agent.Mcp
 # 可选：Redis 存储
 dotnet add package Kode.Agent.Store.Redis
 ```
+
+**从 GitHub Packages 安装**：
+
+```bash
+# 配置 GitHub Packages 源（首次设置）
+dotnet nuget add source \
+  --username YOUR_GITHUB_USERNAME \
+  --password YOUR_GITHUB_TOKEN \
+  --store-password-in-clear-text \
+  --name github \
+  "https://nuget.pkg.github.com/JinFanZheng/index.json"
+
+# 安装包
+dotnet add package Kode.Agent.Sdk --source github
+```
+
+> **📚 GitHub Packages 详细配置**，参见 [GitHub Packages 使用指南](.github/GITHUB_PACKAGES_GUIDE.md)
 
 或者直接引用项目：
 

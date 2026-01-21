@@ -6,7 +6,11 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <RootNamespace>Kode.Agent.Mcp</RootNamespace>
-    <Description>MCP (Model Context Protocol) integration for Kode Agent SDK</Description>
+    <PackageId>Kode.Agent.Mcp</PackageId>
+    <Description>MCP (Model Context Protocol) integration for Kode Agent SDK - Connect external tool ecosystems</Description>
+    <PackageTags>ai;agent;mcp;model-context-protocol;tools</PackageTags>
+    <!-- Suppress NU5104 warning for prerelease dependencies (ModelContextProtocol is still in preview) -->
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
