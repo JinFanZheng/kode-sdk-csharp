@@ -109,6 +109,33 @@
     background-color: var(--background);
     color: var(--foreground);
   }
+
+  /* Custom scrollbar styles */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: oklch(0.205 0 0 / 0.2);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.205 0 0 / 0.3);
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: oklch(0.922 0 0 / 0.2);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.922 0 0 / 0.3);
+  }
 }
 
 @theme inline {

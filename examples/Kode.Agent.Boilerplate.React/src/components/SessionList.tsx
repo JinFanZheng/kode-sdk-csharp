@@ -25,8 +25,7 @@ export function SessionList() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border p-4">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold text-primary">Chats</h2>
+          <h2 className="text-3xl font-semibold text-primary">Ask FeatBit</h2>
         </div>
         <Button
           variant="ghost"

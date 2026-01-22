@@ -259,6 +259,7 @@ static async Task LoadMcpToolsAsync(
             
             var mcpConfig = new McpConfig
             {
+                ServerName = serverName,
                 Transport = transportType,
                 Url = url
             };

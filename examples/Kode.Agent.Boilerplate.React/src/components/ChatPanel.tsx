@@ -171,10 +171,10 @@ export function ChatPanel() {
                 )}
                 <Card
                   className={cn(
-                    "max-w-[70%] p-4 shadow-sm",
+                    "p-4 shadow-sm",
                     message.role === "user"
-                      ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-sm"
-                      : "bg-card border border-border rounded-2xl rounded-tl-sm",
+                      ? "max-w-[70%] bg-primary text-primary-foreground rounded-2xl rounded-tr-sm"
+                      : "flex-1 bg-card border border-border rounded-2xl rounded-tl-sm",
                   )}
                 >
                   <div className="whitespace-pre-wrap break-words text-sm">
