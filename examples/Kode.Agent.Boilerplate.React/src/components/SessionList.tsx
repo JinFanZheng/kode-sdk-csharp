@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChat } from "@/contexts/ChatContext";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function SessionList() {
   const {
@@ -27,15 +28,18 @@ export function SessionList() {
         <div className="flex items-center gap-2">
           <h2 className="text-3xl font-semibold text-primary">Ask FeatBit</h2>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={createSession}
-          title="New Chat"
-          className="hover:bg-accent"
-        >
-          <Plus className="h-5 w-5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={createSession}
+            title="New Chat"
+            className="hover:bg-accent"
+          >
+            <Plus className="h-5 w-5" />
+          </Button>
+        </div>
       </div>
 
       {/* Session List */}

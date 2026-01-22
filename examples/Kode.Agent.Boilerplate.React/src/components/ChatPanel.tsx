@@ -8,6 +8,10 @@ import { useChat } from "@/contexts/ChatContext";
 import { ApiService } from "@/services/api";
 import type { Message } from "@/types";
 import { cn } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import "highlight.js/styles/github.css";
 
 export function ChatPanel() {
   const { currentSession, addMessage, updateLastMessage, setCurrentSessionId } =
@@ -177,8 +181,72 @@ export function ChatPanel() {
                       : "flex-1 bg-card border border-border rounded-2xl rounded-tl-sm",
                   )}
                 >
-                  <div className="whitespace-pre-wrap break-words text-sm">
-                    {message.content}
+                  <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
+                    {message.role === "assistant" ? (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeHighlight]}
+                        components={{
+                          code: ({
+                            node,
+                            inline,
+                            className,
+                            children,
+                            ...props
+                          }: any) => {
+                            return inline ? (
+                              <code
+                                className="px-1 py-0.5 rounded bg-muted text-foreground font-mono text-xs"
+                                {...props}
+                              >
+                                {children}
+                              </code>
+                            ) : (
+                              <code className={className} {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                          pre: ({ children, ...props }: any) => (
+                            <pre
+                              className="overflow-x-auto rounded-md bg-muted p-2 my-2 border border-border"
+                              {...props}
+                            >
+                              {children}
+                            </pre>
+                          ),
+                          p: ({ children, ...props }: any) => (
+                            <p className="mb-2 last:mb-0" {...props}>
+                              {children}
+                            </p>
+                          ),
+                          ul: ({ children, ...props }: any) => (
+                            <ul className="list-disc pl-4 mb-2" {...props}>
+                              {children}
+                            </ul>
+                          ),
+                          ol: ({ children, ...props }: any) => (
+                            <ol className="list-decimal pl-4 mb-2" {...props}>
+                              {children}
+                            </ol>
+                          ),
+                          a: ({ children, ...props }: any) => (
+                            <a
+                              className="text-primary hover:underline"
+                              {...props}
+                            >
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    ) : (
+                      <div className="whitespace-pre-wrap break-words">
+                        {message.content}
+                      </div>
+                    )}
                   </div>
                   <div
                     className={cn(

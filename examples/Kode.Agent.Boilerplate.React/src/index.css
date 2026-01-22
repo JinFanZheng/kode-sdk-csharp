@@ -186,3 +186,34 @@
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
 }
+
+/* Code highlighting adjustments for dark mode */
+.dark .hljs {
+  background: oklch(0.15 0 0) !important;
+  color: oklch(0.9 0 0) !important;
+}
+
+.dark .hljs-comment,
+.dark .hljs-quote {
+  color: oklch(0.5 0 0) !important;
+}
+
+.dark .hljs-keyword,
+.dark .hljs-selector-tag {
+  color: oklch(0.7 0.15 330) !important;
+}
+
+.dark .hljs-string,
+.dark .hljs-attr {
+  color: oklch(0.7 0.15 140) !important;
+}
+
+.dark .hljs-number,
+.dark .hljs-literal {
+  color: oklch(0.7 0.15 60) !important;
+}
+
+.dark .hljs-title,
+.dark .hljs-function {
+  color: oklch(0.7 0.15 250) !important;
+}
