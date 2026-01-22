@@ -42,14 +42,30 @@ public sealed class AssistantService
     {
         using var activity = _activitySource.StartActivity("HandleChatCompletion");
         activity?.SetTag("stream", request.Stream);
+        activity?.SetTag("request.path", httpContext.Request.Path);
+        activity?.SetTag("request.method", httpContext.Request.Method);
+
+        _logger.LogInformation("=== Chat Completion Request Started ===");
+        _logger.LogInformation("Request Path: {Path}, Method: {Method}, Stream: {Stream}",
+            httpContext.Request.Path, httpContext.Request.Method, request.Stream);
+        _logger.LogInformation("Request Headers: {Headers}",
+            string.Join(", ", httpContext.Request.Headers.Select(h => $"{h.Key}={h.Value}")));
+        _logger.LogInformation("Messages Count: {Count}", request.Messages?.Count ?? 0);
 
         try
         {
             // Extract system prompt and input
+            _logger.LogInformation("Extracting prompt and input from {MessageCount} messages", request.Messages?.Count ?? 0);
             var (systemPrompt, input) = ExtractPromptAndInput(request);
             activity?.SetTag("input_length", input.Length);
+            _logger.LogInformation("Extracted input length: {Length} chars", input.Length);
+            if (!string.IsNullOrEmpty(systemPrompt))
+            {
+                _logger.LogInformation("System prompt length: {Length} chars", systemPrompt.Length);
+            }
 
             // Get or create agent
+            _logger.LogInformation("Getting or creating agent...");
             var (agent, sessionId) = await GetOrCreateAgentAsync(
                 httpContext,
                 systemPrompt,
@@ -58,26 +74,35 @@ public sealed class AssistantService
                 httpContext.RequestAborted);
 
             activity?.SetTag("session_id", sessionId);
+            _logger.LogInformation("Agent ready with session ID: {SessionId}", sessionId);
 
             // Set response header
             httpContext.Response.Headers["X-Session-Id"] = sessionId;
+            _logger.LogInformation("Set X-Session-Id response header: {SessionId}", sessionId);
 
             // Execute agent
+            _logger.LogInformation("Executing agent, stream mode: {Stream}", request.Stream);
             await using (agent)
             {
                 if (request.Stream)
                 {
+                    _logger.LogInformation("Starting streaming response for session: {SessionId}", sessionId);
                     await StreamResponseAsync(httpContext, agent, input, sessionId);
+                    _logger.LogInformation("Streaming response completed for session: {SessionId}", sessionId);
                 }
                 else
                 {
+                    _logger.LogInformation("Starting non-streaming response for session: {SessionId}", sessionId);
                     await NonStreamResponseAsync(httpContext, agent, input);
+                    _logger.LogInformation("Non-streaming response completed for session: {SessionId}", sessionId);
                 }
             }
+            _logger.LogInformation("=== Chat Completion Request Completed Successfully ===");
         }
         catch (BadHttpRequestException ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            _logger.LogError(ex, "Bad request: {Message}, StatusCode: {StatusCode}", ex.Message, ex.StatusCode);
             httpContext.Response.StatusCode = ex.StatusCode;
             await httpContext.Response.WriteAsJsonAsync(new
             {
@@ -87,20 +112,38 @@ public sealed class AssistantService
                     type = "invalid_request_error"
                 }
             }, JsonOptions);
+            _logger.LogInformation("=== Chat Completion Request Failed (Bad Request) ===");
+        }
+        catch (OperationCanceledException ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "Request cancelled");
+            _logger.LogWarning(ex, "Request cancelled by client");
+            _logger.LogInformation("=== Chat Completion Request Cancelled ===");
         }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            _logger.LogError(ex, "Error handling chat completion");
-            httpContext.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-            await httpContext.Response.WriteAsJsonAsync(new
+            _logger.LogError(ex, "Unhandled error handling chat completion: {Message}\nStackTrace: {StackTrace}", 
+                ex.Message, ex.StackTrace);
+            
+            if (!httpContext.Response.HasStarted)
             {
-                error = new
+                httpContext.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+                await httpContext.Response.WriteAsJsonAsync(new
                 {
-                    message = "Internal server error",
-                    type = "server_error"
-                }
-            }, JsonOptions);
+                    error = new
+                    {
+                        message = "Internal server error",
+                        type = "server_error",
+                        details = ex.Message
+                    }
+                }, JsonOptions);
+            }
+            else
+            {
+                _logger.LogError("Cannot send error response, response already started");
+            }
+            _logger.LogInformation("=== Chat Completion Request Failed (Internal Error) ===");
         }
     }
 
@@ -231,6 +274,9 @@ public sealed class AssistantService
         int? maxTokens,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation("Creating/Resuming agent with Model: {Model}, Temperature: {Temp}, MaxTokens: {Max}",
+            _options.DefaultModel, temperature, maxTokens);
+            
         var config = new AgentConfig
         {
             Model = _options.DefaultModel,
@@ -248,9 +294,13 @@ public sealed class AssistantService
             }
         };
 
+        _logger.LogDebug("Agent Config: SystemPrompt length={Length}, Tools={Tools}, WorkDir={WorkDir}",
+            config.SystemPrompt?.Length ?? 0, string.Join(",", config.Tools), config.SandboxOptions?.WorkingDirectory);
+
         // Resume if exists, otherwise create new
         if (await _globalDeps.Store.ExistsAsync(sessionId, cancellationToken))
         {
+            _logger.LogInformation("Session exists, resuming agent: {SessionId}", sessionId);
             return await AgentImpl.ResumeFromStoreAsync(
                 sessionId,
                 _globalDeps,
@@ -270,11 +320,14 @@ public sealed class AssistantService
         }
         else
         {
-            return await AgentImpl.CreateNewAsync(
+            _logger.LogInformation("Session does not exist, creating new agent: {SessionId}", sessionId);
+            var agent = await AgentImpl.CreateAsync(
                 sessionId,
                 config,
                 _globalDeps,
                 cancellationToken);
+            _logger.LogInformation("New agent created successfully: {SessionId}", sessionId);
+            return agent;
         }
     }
 
@@ -322,7 +375,9 @@ public sealed class AssistantService
         string sessionId)
     {
         using var activity = _activitySource.StartActivity("StreamResponse");
+        activity?.SetTag("session_id", sessionId);
 
+        _logger.LogInformation("[Stream] Setting up SSE response headers");
         httpContext.Response.StatusCode = (int)HttpStatusCode.OK;
         httpContext.Response.ContentType = "text/event-stream";
         httpContext.Response.Headers["Cache-Control"] = "no-cache";
@@ -330,31 +385,74 @@ public sealed class AssistantService
 
         var streamId = $"chatcmpl-{Guid.NewGuid():N}";
         var created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        
+        _logger.LogInformation("[Stream] Starting agent chat stream, StreamId: {StreamId}", streamId);
+        var chunkCount = 0;
+        var totalChars = 0;
 
-        await foreach (var chunk in agent.StreamAsync(input, httpContext.RequestAborted))
+        await foreach (var envelope in agent.ChatStreamAsync(input, null, httpContext.RequestAborted))
         {
-            var sseChunk = new OpenAiStreamChunk
+            // Only process text chunk events for streaming response
+            if (envelope.Event is TextChunkEvent textChunk)
             {
-                Id = streamId,
-                Created = created,
-                Model = _options.DefaultModel,
-                Choices =
-                [
-                    new OpenAiStreamChoice
-                    {
-                        Index = 0,
-                        Delta = new OpenAiStreamDelta { Content = chunk },
-                        FinishReason = null
-                    }
-                ]
-            };
+                chunkCount++;
+                totalChars += textChunk.Delta?.Length ?? 0;
+                
+                var sseChunk = new OpenAiStreamChunk
+                {
+                    Id = streamId,
+                    Created = created,
+                    Model = _options.DefaultModel,
+                    Choices =
+                    [
+                        new OpenAiStreamChoice
+                        {
+                            Index = 0,
+                            Delta = new OpenAiStreamDelta { Content = textChunk.Delta },
+                            FinishReason = null
+                        }
+                    ]
+                };
 
-            var json = JsonSerializer.Serialize(sseChunk, JsonOptions);
-            await httpContext.Response.WriteAsync($"data: {json}\n\n", httpContext.RequestAborted);
-            await httpContext.Response.Body.FlushAsync(httpContext.RequestAborted);
+                var json = JsonSerializer.Serialize(sseChunk, JsonOptions);
+                var sseData = $"data: {json}\n\n";
+                
+                // Log first few chunks to verify content
+                if (chunkCount <= 3)
+                {
+                    _logger.LogInformation("[Stream] Chunk #{Count} content: {Content}", chunkCount, textChunk.Delta);
+                    _logger.LogDebug("[Stream] SSE data: {SSE}", sseData.Replace("\n", "\\n"));
+                }
+                
+                await httpContext.Response.WriteAsync(sseData, httpContext.RequestAborted);
+                await httpContext.Response.Body.FlushAsync(httpContext.RequestAborted);
+                
+                if (chunkCount % 10 == 0)
+                {
+                    _logger.LogInformation("[Stream] Progress: {Count} chunks, {Chars} total chars", chunkCount, totalChars);
+                }
+            }
+            // TextChunkEndEvent marks the end of text streaming (optional event)
+            else if (envelope.Event is TextChunkEndEvent)
+            {
+                _logger.LogDebug("[Stream] Received TextChunkEndEvent");
+            }
+            // Break on done event
+            else if (envelope.Event is DoneEvent)
+            {
+                _logger.LogInformation("[Stream] Received DoneEvent, breaking stream loop");
+                break;
+            }
+            else
+            {
+                _logger.LogDebug("[Stream] Received event type: {EventType}", envelope.Event?.GetType().Name ?? "NULL");
+            }
         }
+        
+        _logger.LogInformation("[Stream] Stream completed: {Count} chunks, {Chars} total chars", chunkCount, totalChars);
 
         // Send final chunk
+        _logger.LogInformation("[Stream] Sending final chunk and [DONE] marker");
         var finalChunk = new OpenAiStreamChunk
         {
             Id = streamId,
@@ -375,6 +473,7 @@ public sealed class AssistantService
         await httpContext.Response.WriteAsync($"data: {finalJson}\n\n", httpContext.RequestAborted);
         await httpContext.Response.WriteAsync("data: [DONE]\n\n", httpContext.RequestAborted);
         await httpContext.Response.Body.FlushAsync(httpContext.RequestAborted);
+        _logger.LogInformation("[Stream] SSE stream finalized");
     }
 
     /// <summary>
@@ -387,7 +486,16 @@ public sealed class AssistantService
     {
         using var activity = _activitySource.StartActivity("NonStreamResponse");
 
+        _logger.LogInformation("[NonStream] Calling agent.RunAsync with input length: {Length}", input.Length);
         var result = await agent.RunAsync(input, httpContext.RequestAborted);
+        
+        _logger.LogInformation("[NonStream] Agent.RunAsync completed, StopReason: {Reason}, Response length: {Length}",
+            result.StopReason, result.Response?.Length ?? 0);
+        
+        if (string.IsNullOrEmpty(result.Response))
+        {
+            _logger.LogWarning("[NonStream] Agent returned empty response!");
+        }
 
         var response = new OpenAiChatCompletionResponse
         {
@@ -415,13 +523,19 @@ public sealed class AssistantService
             }
         };
 
+        _logger.LogInformation("[NonStream] Sending JSON response, ResponseId: {Id}, MessageLength: {Length}",
+            response.Id, response.Choices?[0].Message?.Content?.Length ?? 0);
         await httpContext.Response.WriteAsJsonAsync(response, JsonOptions);
+        _logger.LogInformation("[NonStream] JSON response sent successfully");
     }
 
-    private static string MapFinishReason(string? stopReason) => stopReason switch
+    private static string MapFinishReason(StopReason stopReason) => stopReason switch
     {
-        "max_tokens" => "length",
-        "end_turn" => "stop",
+        StopReason.EndTurn => "stop",
+        StopReason.MaxIterations => "length",
+        StopReason.AwaitingApproval => "stop",
+        StopReason.Cancelled => "stop",
+        StopReason.Error => "stop",
         _ => "stop"
     };
 }

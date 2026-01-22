@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Kode.Agent.Boilerplate;
+using Kode.Agent.Boilerplate.Middleware;
 using Kode.Agent.Boilerplate.Models;
 using Kode.Agent.Mcp;
 using Kode.Agent.Sdk.Core.Abstractions;
@@ -13,18 +14,18 @@ using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Events;
 
-// Configure Serilog
+// Configure Serilog - will be configured from appsettings.json
 Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Information()
+    .MinimumLevel.Debug()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Information)
     .Enrich.FromLogContext()
     .WriteTo.Console(
-        outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+        outputTemplate: "[{Timestamp:HH:mm:ss.fff} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
     .WriteTo.File(
         "logs/kode-.log",
         rollingInterval: RollingInterval.Day,
-        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}",
         retainedFileCountLimit: 7)
     .CreateLogger();
 
@@ -39,6 +40,18 @@ try
 
     // Add controllers
     builder.Services.AddControllers();
+
+    // Add CORS
+    builder.Services.AddCors(options =>
+    {
+        options.AddDefaultPolicy(policy =>
+        {
+            policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
+                .AllowAnyMethod()
+                .AllowAnyHeader()
+                .WithExposedHeaders("X-Session-Id"); // 重要：暴露自定义header给前端
+        });
+    });
 
     // Configure options
     builder.Services.AddSingleton(_ =>
@@ -64,11 +77,27 @@ try
     {
         var options = sp.GetRequiredService<BoilerplateOptions>();
         var configuration = sp.GetRequiredService<IConfiguration>();
+        var logger = sp.GetRequiredService<ILogger<Program>>();
 
-        return ModelProviderFactory.CreateFromConfiguration(
+        logger.LogInformation("Creating Model Provider: Provider={Provider}, DefaultModel={Model}",
+            options.DefaultProvider, options.DefaultModel);
+        
+        // Log Anthropic config
+        var anthropicKey = configuration["Anthropic:ApiKey"];
+        var anthropicUrl = configuration["Anthropic:BaseUrl"];
+        var anthropicModel = configuration["Anthropic:ModelId"];
+        logger.LogInformation("Anthropic Config: ApiKey={Key}, BaseUrl={Url}, ModelId={Model}",
+            string.IsNullOrEmpty(anthropicKey) ? "EMPTY" : $"{anthropicKey[..8]}...",
+            anthropicUrl ?? "NULL",
+            anthropicModel ?? "NULL");
+
+        var provider = ModelProviderFactory.CreateFromConfiguration(
             configuration, 
             options.DefaultProvider,
             options.DefaultModel);
+            
+        logger.LogInformation("Model Provider created successfully: {Type}", provider.GetType().Name);
+        return provider;
     });
 
     builder.Services.AddSingleton(sp => new AgentDependencies
@@ -130,10 +159,17 @@ try
 
     var app = builder.Build();
 
+    // Use CORS - 必须在其他中间件之前
+    app.UseCors();
+
+    // Add request/response logging middleware
+    app.UseRequestResponseLogging();
+
     // Load MCP tools
     var mcpManager = app.Services.GetRequiredService<McpClientManager>();
     var toolRegistry = app.Services.GetRequiredService<IToolRegistry>();
-    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
+    var logger = loggerFactory.CreateLogger("Program");
     
     await LoadMcpToolsAsync(app.Configuration, mcpManager, toolRegistry, logger);
 
@@ -189,7 +225,7 @@ static async Task LoadMcpToolsAsync(
     IConfiguration configuration,
     McpClientManager mcpManager,
     IToolRegistry toolRegistry,
-    ILogger logger)
+    Microsoft.Extensions.Logging.ILogger logger)
 {
     var mcpServersSection = configuration.GetSection("McpServers");
     if (!mcpServersSection.Exists())
@@ -213,10 +249,17 @@ static async Task LoadMcpToolsAsync(
 
         try
         {
+            var transportType = transport.ToLowerInvariant() switch
+            {
+                "stdio" => McpTransportType.Stdio,
+                "sse" => McpTransportType.Sse,
+                "streamablehttp" => McpTransportType.StreamableHttp,
+                _ => throw new InvalidOperationException($"Unknown transport type: {transport}")
+            };
+            
             var mcpConfig = new McpConfig
             {
-                Name = serverName,
-                Transport = transport,
+                Transport = transportType,
                 Url = url
             };
 
