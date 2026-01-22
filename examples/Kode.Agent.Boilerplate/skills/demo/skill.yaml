@@ -1,0 +1,55 @@
+name: demo
+version: "1.0"
+description: A demo skill that shows how to create custom skills
+author: Kode.Agent Team
+
+instructions: |
+  This is a demo skill. It provides example functions that you can call.
+  
+  Available functions:
+  - greet(name: string): Returns a greeting message
+  - calculate(a: number, b: number, operation: string): Performs basic math operations
+  
+  Use these as examples for creating your own skills.
+
+functions:
+  - name: greet
+    description: Greets a person by name
+    parameters:
+      - name: name
+        type: string
+        description: The name of the person to greet
+        required: true
+    code: |
+      return `Hello, ${name}! Welcome to Kode.Agent.`;
+
+  - name: calculate
+    description: Performs basic math operations
+    parameters:
+      - name: a
+        type: number
+        description: First number
+        required: true
+      - name: b
+        type: number
+        description: Second number
+        required: true
+      - name: operation
+        type: string
+        description: Operation to perform (add, subtract, multiply, divide)
+        required: true
+    code: |
+      const ops = {
+        add: (a, b) => a + b,
+        subtract: (a, b) => a - b,
+        multiply: (a, b) => a * b,
+        divide: (a, b) => a / b
+      };
+      
+      const op = ops[operation];
+      if (!op) {
+        throw new Error(`Unknown operation: ${operation}`);
+      }
+      
+      const result = op(a, b);
+      return `${a} ${operation} ${b} = ${result}`;

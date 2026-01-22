@@ -1,0 +1,25 @@
+# Build results
+bin/
+obj/
+logs/
+
+# Kode Agent data
+.kode/
+workspace/
+
+# User secrets
+appsettings.*.local.json
+*.user
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS
+.DS_Store
+Thumbs.db
