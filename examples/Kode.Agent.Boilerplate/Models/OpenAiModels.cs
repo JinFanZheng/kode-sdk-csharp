@@ -158,4 +158,55 @@ public sealed record OpenAiStreamDelta
 
     [JsonPropertyName("content")]
     public string? Content { get; init; }
+
+    [JsonPropertyName("tool_calls")]
+    public List<OpenAiToolCall>? ToolCalls { get; init; }
+}
+
+public sealed record OpenAiToolCall
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("type")]
+    public string Type { get; init; } = "function";
+
+    [JsonPropertyName("function")]
+    public required OpenAiToolFunction Function { get; init; }
+}
+
+public sealed record OpenAiToolFunction
+{
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+
+    [JsonPropertyName("arguments")]
+    public string? Arguments { get; init; }
+}
+
+public sealed record OpenAiToolEvent
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("event")]
+    public required string Event { get; init; } // "tool:start" | "tool:end" | "tool:error"
+
+    [JsonPropertyName("tool_call_id")]
+    public required string ToolCallId { get; init; }
+
+    [JsonPropertyName("tool_name")]
+    public required string ToolName { get; init; }
+
+    [JsonPropertyName("state")]
+    public required string State { get; init; }
+
+    [JsonPropertyName("error")]
+    public string? Error { get; init; }
+
+    [JsonPropertyName("duration_ms")]
+    public long? DurationMs { get; init; }
+
+    [JsonPropertyName("timestamp")]
+    public required long Timestamp { get; init; }
 }

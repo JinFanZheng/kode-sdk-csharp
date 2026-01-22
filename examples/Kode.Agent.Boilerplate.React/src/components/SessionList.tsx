@@ -26,7 +26,7 @@ export function SessionList() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border p-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-3xl font-semibold text-primary">Ask FeatBit</h2>
+          <h2 className="text-3xl font-semibold text-primary">Ask GLM</h2>
         </div>
         <div className="flex items-center gap-1">
           <ThemeToggle />
@@ -86,9 +86,7 @@ export function SessionList() {
 
       {/* Footer */}
       <div className="border-t border-border p-4">
-        <p className="text-xs text-muted-foreground">
-          Powered by FeatBit & Kode-SDK-C#
-        </p>
+        <p className="text-xs text-muted-foreground">Powered by Kode-SDK-C#</p>
       </div>
     </div>
   );

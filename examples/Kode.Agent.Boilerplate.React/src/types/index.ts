@@ -3,6 +3,7 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  toolCalls?: ToolCall[];
 }
 
 export interface Session {
@@ -59,4 +60,25 @@ export interface OpenAIStreamChunk {
     };
     finish_reason?: string;
   }>;
+}
+
+export interface ToolEvent {
+  id: string;
+  event: 'tool:start' | 'tool:end' | 'tool:error';
+  tool_call_id: string;
+  tool_name: string;
+  state: string;
+  error?: string;
+  duration_ms?: number;
+  timestamp: number;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  state: 'start' | 'running' | 'completed' | 'error';
+  startTime: number;
+  endTime?: number;
+  duration?: number;
+  error?: string;
 }

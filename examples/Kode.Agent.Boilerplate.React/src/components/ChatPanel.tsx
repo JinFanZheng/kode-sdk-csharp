@@ -1,12 +1,21 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Sparkles, User, Bot } from "lucide-react";
+import {
+  Send,
+  Loader2,
+  Sparkles,
+  User,
+  Bot,
+  Wrench,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
 import { useChat } from "@/contexts/ChatContext";
 import { ApiService } from "@/services/api";
-import type { Message } from "@/types";
+import type { Message, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -18,6 +27,8 @@ export function ChatPanel() {
     useChat();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  const toolCallsRef = useRef<ToolCall[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -47,6 +58,8 @@ export function ChatPanel() {
     addMessage(userMessage);
     setInput("");
     setIsLoading(true);
+    setToolCalls([]);
+    toolCallsRef.current = []; // Clear previous tool calls
 
     // Create assistant message placeholder
     const assistantMessage: Message = {
@@ -57,17 +70,14 @@ export function ChatPanel() {
     };
     addMessage(assistantMessage);
 
-    // Prepare messages for API (exclude empty assistant messages)
-    const apiMessages = [...currentSession.messages, userMessage]
-      .filter(
-        (msg) =>
-          msg.role === "user" ||
-          (msg.role === "assistant" && msg.content.trim()),
-      )
-      .map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+    // Prepare messages for API - only send the last user message
+    // The API maintains conversation history via sessionId
+    const apiMessages = [
+      {
+        role: userMessage.role,
+        content: userMessage.content,
+      },
+    ];
 
     try {
       // Determine session ID for API call
@@ -83,20 +93,100 @@ export function ChatPanel() {
         (content) => {
           updateLastMessage(content);
         },
+        // onToolEvent
+        (event) => {
+          console.log("[ChatPanel] Tool event:", event);
+          setToolCalls((prev) => {
+            const existing = prev.find((t) => t.id === event.tool_call_id);
+
+            let updated: ToolCall[];
+
+            if (event.event === "tool:start") {
+              if (existing) {
+                updated = prev;
+              } else {
+                updated = [
+                  ...prev,
+                  {
+                    id: event.tool_call_id,
+                    name: event.tool_name,
+                    state: "running",
+                    startTime: event.timestamp,
+                  },
+                ];
+              }
+            } else if (event.event === "tool:end") {
+              // Check if the tool execution failed
+              const isFailed = (event as any).state === "Failed";
+              const errorMsg = event.error || (event as any).error_message;
+              updated = prev.map((t) =>
+                t.id === event.tool_call_id
+                  ? {
+                      ...t,
+                      state: isFailed ? "error" : "completed",
+                      endTime: event.timestamp,
+                      duration: event.duration_ms,
+                      error: isFailed ? errorMsg : undefined,
+                    }
+                  : t,
+              );
+            } else if (event.event === "tool:error") {
+              updated = prev.map((t) =>
+                t.id === event.tool_call_id
+                  ? {
+                      ...t,
+                      state: "error",
+                      endTime: event.timestamp,
+                      duration: event.duration_ms,
+                      error: event.error,
+                    }
+                  : t,
+              );
+            } else {
+              updated = prev;
+            }
+
+            toolCallsRef.current = updated;
+            console.log("[ChatPanel] Updated toolCallsRef:", updated);
+            return updated;
+          });
+        },
         // onComplete
         (sessionId) => {
           if (sessionId && sessionId !== currentSession.id) {
             // Update session with backend-generated ID
             setCurrentSessionId(sessionId);
           }
+          // Save tool calls to the last message (use ref to get latest value)
+          const finalToolCalls = toolCallsRef.current;
+          if (finalToolCalls.length > 0) {
+            console.log(
+              "[ChatPanel] Saving tool calls to message:",
+              finalToolCalls,
+            );
+            updateLastMessage("", finalToolCalls);
+          }
           setIsLoading(false);
+          setToolCalls([]);
+          toolCallsRef.current = [];
         },
         // onError
         (error) => {
           console.error("Error sending message:", error);
-          // Update last message with error
-          updateLastMessage(`\n\n[Error: ${error.message}]`);
+          // Save tool calls even on error
+          const finalToolCalls = toolCallsRef.current;
+          if (finalToolCalls.length > 0) {
+            console.log(
+              "[ChatPanel] Saving tool calls on error:",
+              finalToolCalls,
+            );
+            updateLastMessage(`\n\n[Error: ${error.message}]`, finalToolCalls);
+          } else {
+            updateLastMessage(`\n\n[Error: ${error.message}]`);
+          }
           setIsLoading(false);
+          setToolCalls([]);
+          toolCallsRef.current = [];
         },
       );
     } catch (error) {
@@ -181,6 +271,59 @@ export function ChatPanel() {
                       : "flex-1 bg-card border border-border rounded-2xl rounded-tl-sm",
                   )}
                 >
+                  {/* Tool Calls Display */}
+                  {message.role === "assistant" &&
+                    message.toolCalls &&
+                    message.toolCalls.length > 0 && (
+                      <div className="mb-3">
+                        <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                          <Wrench className="w-3 h-3" />
+                          <span>Tool Calls</span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {message.toolCalls.map((tool) => (
+                            <div
+                              key={tool.id}
+                              className={cn(
+                                "flex items-center gap-2 text-xs p-2 rounded-lg border",
+                                tool.state === "running" &&
+                                  "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800",
+                                tool.state === "completed" &&
+                                  "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800",
+                                tool.state === "error" &&
+                                  "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800",
+                              )}
+                            >
+                              {tool.state === "running" && (
+                                <Loader2 className="w-3 h-3 animate-spin text-blue-600 dark:text-blue-400" />
+                              )}
+                              {tool.state === "completed" && (
+                                <CheckCircle2 className="w-3 h-3 text-green-600 dark:text-green-400" />
+                              )}
+                              {tool.state === "error" && (
+                                <XCircle className="w-3 h-3 text-red-600 dark:text-red-400" />
+                              )}
+                              <span className="font-mono flex-1 truncate text-gray-900 dark:text-gray-100 font-semibold">
+                                {tool.name}
+                              </span>
+                              {tool.state === "completed" && tool.duration && (
+                                <span className="text-gray-900 dark:text-gray-100">
+                                  {tool.duration}ms
+                                </span>
+                              )}
+                              {tool.state === "error" && tool.error && (
+                                <span
+                                  className="text-red-600 dark:text-red-400 truncate max-w-[200px]"
+                                  title={tool.error}
+                                >
+                                  {tool.error}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
                     {message.role === "assistant" ? (
                       <ReactMarkdown
@@ -232,7 +375,7 @@ export function ChatPanel() {
                           ),
                           a: ({ children, ...props }: any) => (
                             <a
-                              className="text-primary hover:underline"
+                              className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300"
                               {...props}
                             >
                               {children}
@@ -266,6 +409,53 @@ export function ChatPanel() {
                 )}
               </div>
             ))
+          )}
+          {isLoading && toolCalls.length > 0 && (
+            <div className="flex flex-col gap-2 ml-11">
+              <div className="text-xs text-gray-700 dark:text-gray-200 font-semibold mb-1">
+                🔧 Tool Calls:
+              </div>
+              {toolCalls.map((tool) => (
+                <Card
+                  key={tool.id}
+                  className={cn(
+                    "p-3 shadow-sm border-l-4 transition-colors",
+                    tool.state === "running" &&
+                      "border-l-blue-500 bg-blue-50 dark:bg-blue-950/20",
+                    tool.state === "completed" &&
+                      "border-l-green-500 bg-green-50 dark:bg-green-950/20",
+                    tool.state === "error" &&
+                      "border-l-red-500 bg-red-50 dark:bg-red-950/20",
+                  )}
+                >
+                  <div className="flex items-center gap-2 text-sm">
+                    {tool.state === "running" && (
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
+                    )}
+                    {tool.state === "completed" && (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    )}
+                    {tool.state === "error" && (
+                      <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                    )}
+                    <Wrench className="h-3 w-3 text-gray-600 dark:text-gray-300" />
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      {tool.name}
+                    </span>
+                    {tool.duration && (
+                      <span className="text-xs text-gray-900 dark:text-gray-100 ml-auto">
+                        {tool.duration}ms
+                      </span>
+                    )}
+                  </div>
+                  {tool.error && (
+                    <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+                      Error: {tool.error}
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
           )}
           {isLoading && (
             <div className="flex items-center gap-3">

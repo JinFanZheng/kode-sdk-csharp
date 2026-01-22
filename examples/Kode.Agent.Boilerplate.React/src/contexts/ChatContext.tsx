@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import type { Session, Message } from '@/types';
+import type { Session, Message, ToolCall } from '@/types';
 
 interface ChatContextType {
   sessions: Session[];
@@ -8,7 +8,7 @@ interface ChatContextType {
   selectSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   addMessage: (message: Message) => void;
-  updateLastMessage: (content: string) => void;
+  updateLastMessage: (content: string, toolCalls?: ToolCall[]) => void;
   setCurrentSessionId: (sessionId: string | null) => void;
 }
 
@@ -116,7 +116,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const updateLastMessage = (content: string) => {
+  const updateLastMessage = (content: string, toolCalls?: ToolCall[]) => {
     if (!currentSession) return;
 
     setSessions((prev) =>
@@ -129,6 +129,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             messages[messages.length - 1] = {
               ...lastMessage,
               content: lastMessage.content + content,
+              toolCalls: toolCalls !== undefined ? toolCalls : lastMessage.toolCalls,
             };
           }
 

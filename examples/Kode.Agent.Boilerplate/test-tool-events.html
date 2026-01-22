@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tool Events 测试</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        #input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #response {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            min-height: 200px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        #toolEvents {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .tool-event {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 4px solid;
+            background: #f9f9f9;
+        }
+        .tool-start {
+            border-left-color: #0066cc;
+            background: #e6f2ff;
+        }
+        .tool-end {
+            border-left-color: #28a745;
+            background: #e6f9e6;
+        }
+        .tool-error {
+            border-left-color: #dc3545;
+            background: #ffe6e6;
+        }
+        .tool-event-header {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .tool-event-body {
+            font-size: 12px;
+            color: #666;
+        }
+        .duration {
+            color: #888;
+            font-size: 11px;
+        }
+        .session-id {
+            background: #e9ecef;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 Tool Events 实时测试</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>发送消息</h2>
+            <div class="session-id" id="sessionInfo">Session: <span id="sessionId">未创建</span></div>
+            <input 
+                type="text" 
+                id="input" 
+                placeholder="输入你的问题，例如：列出当前目录的文件" 
+                value="tell me how to use featbit .net sdk">
+            <button id="sendBtn" onclick="sendMessage()">发送</button>
+            <button onclick="clearAll()">清空</button>
+            
+            <h3>AI 响应:</h3>
+            <div id="response"></div>
+        </div>
+        
+        <div class="panel">
+            <h2>Tool 调用事件</h2>
+            <div id="toolEvents"></div>
+        </div>
+    </div>
+
+    <script>
+        let sessionId = null;
+        const API_BASE = 'http://localhost:5149';
+        
+        async function sendMessage() {
+            const input = document.getElementById('input').value;
+            if (!input.trim()) return;
+            
+            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('response').textContent = '';
+            
+            try {
+                const url = sessionId 
+                    ? `${API_BASE}/${sessionId}/v1/chat/completions`
+                    : `${API_BASE}/v1/chat/completions`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4',
+                        messages: [{ role: 'user', content: input }],
+                        stream: true
+                    })
+                });
+                
+                // 获取 session ID
+                const newSessionId = response.headers.get('X-Session-Id');
+                if (newSessionId && !sessionId) {
+                    sessionId = newSessionId;
+                    document.getElementById('sessionId').textContent = sessionId;
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6).trim();
+                            if (data === '[DONE]') continue;
+                            
+                            try {
+                                const json = JSON.parse(data);
+                                
+                                // Tool 事件
+                                if (json.event) {
+                                    addToolEvent(json);
+                                }
+                                // 文本内容
+                                else if (json.choices) {
+                                    const content = json.choices[0]?.delta?.content;
+                                    if (content) {
+                                        document.getElementById('response').textContent += content;
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('Failed to parse:', data, e);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                document.getElementById('response').textContent = '❌ Error: ' + error.message;
+            } finally {
+                document.getElementById('sendBtn').disabled = false;
+            }
+        }
+        
+        function addToolEvent(event) {
+            const container = document.getElementById('toolEvents');
+            const div = document.createElement('div');
+            div.className = `tool-event tool-${event.event.split(':')[1]}`;
+            
+            let emoji = '🔧';
+            if (event.event === 'tool:start') emoji = '▶️';
+            if (event.event === 'tool:end') emoji = '✅';
+            if (event.event === 'tool:error') emoji = '❌';
+            
+            let body = `
+                <div class="tool-event-header">
+                    ${emoji} ${event.event.toUpperCase()}
+                </div>
+                <div class="tool-event-body">
+                    Tool: <strong>${event.tool_name}</strong><br>
+                    ID: ${event.tool_call_id}<br>
+                    State: ${event.state}
+            `;
+            
+            if (event.duration_ms) {
+                body += `<br><span class="duration">Duration: ${event.duration_ms}ms</span>`;
+            }
+            
+            if (event.error) {
+                body += `<br>Error: <span style="color: #dc3545">${event.error}</span>`;
+            }
+            
+            body += '</div>';
+            div.innerHTML = body;
+            
+            container.insertBefore(div, container.firstChild);
+        }
+        
+        function clearAll() {
+            document.getElementById('response').textContent = '';
+            document.getElementById('toolEvents').innerHTML = '';
+            document.getElementById('input').value = '';
+        }
+        
+        // 回车发送
+        document.getElementById('input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>

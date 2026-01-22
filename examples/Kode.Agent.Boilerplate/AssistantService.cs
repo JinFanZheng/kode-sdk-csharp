@@ -5,6 +5,7 @@ using System.Text.Json;
 using Kode.Agent.Boilerplate.Models;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
+using static Kode.Agent.Sdk.Core.Abstractions.IEventBus;
 using AgentImpl = Kode.Agent.Sdk.Core.Agent.Agent;
 
 namespace Kode.Agent.Boilerplate;
@@ -389,10 +390,14 @@ public sealed class AssistantService
         _logger.LogInformation("[Stream] Starting agent chat stream, StreamId: {StreamId}", streamId);
         var chunkCount = 0;
         var totalChars = 0;
+        var toolEventCount = 0;
 
         await foreach (var envelope in agent.ChatStreamAsync(input, null, httpContext.RequestAborted))
         {
-            // Only process text chunk events for streaming response
+            // Log ALL event types received
+            _logger.LogDebug("[Stream] Received event: {EventType}", envelope.Event?.GetType().Name ?? "NULL");
+            
+            // Process text chunk events
             if (envelope.Event is TextChunkEvent textChunk)
             {
                 chunkCount++;
@@ -432,6 +437,75 @@ public sealed class AssistantService
                     _logger.LogInformation("[Stream] Progress: {Count} chunks, {Chars} total chars", chunkCount, totalChars);
                 }
             }
+            // Process tool start events
+            else if (envelope.Event is ToolStartEvent toolStart)
+            {
+                toolEventCount++;
+                _logger.LogInformation("[Stream] ✅ Tool started: {ToolName} (ID: {CallId})", 
+                    toolStart.Call.Name, toolStart.Call.Id);
+                
+                var toolEvent = new OpenAiToolEvent
+                {
+                    Id = streamId,
+                    Event = "tool:start",
+                    ToolCallId = toolStart.Call.Id,
+                    ToolName = toolStart.Call.Name,
+                    State = toolStart.Call.State.ToString(),
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+
+                var json = JsonSerializer.Serialize(toolEvent, JsonOptions);
+                _logger.LogInformation("[Stream] Sending tool:start event: {Json}", json);
+                await httpContext.Response.WriteAsync($"data: {json}\n\n", httpContext.RequestAborted);
+                await httpContext.Response.Body.FlushAsync(httpContext.RequestAborted);
+            }
+            // Process tool end events
+            else if (envelope.Event is ToolEndEvent toolEnd)
+            {
+                toolEventCount++;
+                _logger.LogInformation("[Stream] ✅ Tool completed: {ToolName} (ID: {CallId}, Duration: {Duration}ms)", 
+                    toolEnd.Call.Name, toolEnd.Call.Id, toolEnd.Call.DurationMs ?? 0);
+                
+                var toolEvent = new OpenAiToolEvent
+                {
+                    Id = streamId,
+                    Event = "tool:end",
+                    ToolCallId = toolEnd.Call.Id,
+                    ToolName = toolEnd.Call.Name,
+                    State = toolEnd.Call.State.ToString(),
+                    DurationMs = toolEnd.Call.DurationMs,
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+
+                var json = JsonSerializer.Serialize(toolEvent, JsonOptions);
+                _logger.LogInformation("[Stream] Sending tool:end event: {Json}", json);
+                await httpContext.Response.WriteAsync($"data: {json}\n\n", httpContext.RequestAborted);
+                await httpContext.Response.Body.FlushAsync(httpContext.RequestAborted);
+            }
+            // Process tool error events
+            else if (envelope.Event is ToolErrorEvent toolError)
+            {
+                toolEventCount++;
+                _logger.LogWarning("[Stream] ❌ Tool error: {ToolName} (ID: {CallId}) - {Error}", 
+                    toolError.Call.Name, toolError.Call.Id, toolError.Error);
+                
+                var toolEvent = new OpenAiToolEvent
+                {
+                    Id = streamId,
+                    Event = "tool:error",
+                    ToolCallId = toolError.Call.Id,
+                    ToolName = toolError.Call.Name,
+                    State = toolError.Call.State.ToString(),
+                    Error = toolError.Error,
+                    DurationMs = toolError.Call.DurationMs,
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+
+                var json = JsonSerializer.Serialize(toolEvent, JsonOptions);
+                _logger.LogInformation("[Stream] Sending tool:error event: {Json}", json);
+                await httpContext.Response.WriteAsync($"data: {json}\n\n", httpContext.RequestAborted);
+                await httpContext.Response.Body.FlushAsync(httpContext.RequestAborted);
+            }
             // TextChunkEndEvent marks the end of text streaming (optional event)
             else if (envelope.Event is TextChunkEndEvent)
             {
@@ -445,11 +519,12 @@ public sealed class AssistantService
             }
             else
             {
-                _logger.LogDebug("[Stream] Received event type: {EventType}", envelope.Event?.GetType().Name ?? "NULL");
+                _logger.LogWarning("[Stream] ⚠️ Unhandled event type: {EventType}", envelope.Event?.GetType().Name ?? "NULL");
             }
         }
         
-        _logger.LogInformation("[Stream] Stream completed: {Count} chunks, {Chars} total chars", chunkCount, totalChars);
+        _logger.LogInformation("[Stream] Stream completed: {TextChunks} text chunks ({Chars} chars), {ToolEvents} tool events", 
+            chunkCount, totalChars, toolEventCount);
 
         // Send final chunk
         _logger.LogInformation("[Stream] Sending final chunk and [DONE] marker");

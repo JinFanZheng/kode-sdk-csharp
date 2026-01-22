@@ -51,6 +51,7 @@ export class ApiService {
     sessionId: string | null,
     messages: Array<{ role: string; content: string }>,
     onChunk: (content: string) => void,
+    onToolEvent: (event: import('@/types').ToolEvent) => void,
     onComplete: (sessionId: string | null) => void,
     onError: (error: Error) => void
   ): Promise<void> {
@@ -128,11 +129,19 @@ export class ApiService {
             try {
               const jsonStr = trimmedLine.slice(6);
               const chunk = JSON.parse(jsonStr);
-              const content = chunk.choices?.[0]?.delta?.content;
               
-              if (content) {
-                chunkCount++;
-                onChunk(content);
+              // Check if it's a tool event
+              if (chunk.event) {
+                console.log('[API] Tool event received:', chunk);
+                onToolEvent(chunk);
+              }
+              // Otherwise it's a text chunk
+              else {
+                const content = chunk.choices?.[0]?.delta?.content;
+                if (content) {
+                  chunkCount++;
+                  onChunk(content);
+                }
               }
             } catch (e) {
               console.error('[API] Failed to parse chunk:', e, 'Line:', trimmedLine);
