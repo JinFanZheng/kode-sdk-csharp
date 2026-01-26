@@ -69,7 +69,7 @@ public static class McpToolProvider
         
         foreach (var mcpTool in filtered)
         {
-            var tool = CreateDynamicTool(client, serverName, mcpTool, config, logger);
+            var tool = CreateDynamicTool(manager, serverName, mcpTool, config, logger);
             tools.Add(tool);
             logger?.LogDebug("Registered MCP tool: {ToolName} from {ServerName}", mcpTool.Name, serverName);
         }
@@ -80,7 +80,7 @@ public static class McpToolProvider
     }
 
     private static DynamicTool CreateDynamicTool(
-        McpClient client,
+        McpClientManager manager,
         string serverName,
         McpClientTool mcpTool,
         McpConfig config,
@@ -103,6 +103,9 @@ public static class McpToolProvider
                 {
                     logger?.LogDebug("Calling MCP tool: {ToolName} with args: {Args}", mcpTool.Name, args);
                     
+                    // Get fresh client connection (reconnect if needed)
+                    var client = await manager.GetOrReconnectAsync(serverName, config, ct);
+                    
                     // Parse arguments
                     var arguments = args.Deserialize<Dictionary<string, object?>>();
                     
@@ -122,6 +125,37 @@ public static class McpToolProvider
                     logger?.LogDebug("MCP tool {ToolName} returned: IsError={IsError}", mcpTool.Name, mcpResult.IsError);
                     
                     return JsonSerializer.SerializeToElement(mcpResult);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    // Connection may have expired, try to reconnect once
+                    logger?.LogWarning("MCP tool call failed with 404, attempting reconnect: {ToolName}", mcpTool.Name);
+                    
+                    try
+                    {
+                        // Force reconnect
+                        var client = await manager.ReconnectAsync(serverName, config, ct);
+                        var arguments = args.Deserialize<Dictionary<string, object?>>();
+                        
+                        var result = await client.CallToolAsync(
+                            mcpTool.Name,
+                            arguments,
+                            cancellationToken: ct);
+                        
+                        var mcpResult = new McpToolResult
+                        {
+                            Content = result.Content.ToList(),
+                            IsError = result.IsError ?? false
+                        };
+                        
+                        logger?.LogInformation("MCP tool call succeeded after reconnect: {ToolName}", mcpTool.Name);
+                        return JsonSerializer.SerializeToElement(mcpResult);
+                    }
+                    catch (Exception retryEx)
+                    {
+                        logger?.LogError(retryEx, "MCP tool execution failed after reconnect: {ToolName}", mcpTool.Name);
+                        throw new InvalidOperationException($"MCP tool execution failed: {ex.Message}", ex);
+                    }
                 }
                 catch (Exception ex)
                 {

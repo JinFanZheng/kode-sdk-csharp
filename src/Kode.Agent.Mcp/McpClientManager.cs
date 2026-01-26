@@ -10,6 +10,7 @@ namespace Kode.Agent.Mcp;
 public sealed class McpClientManager : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, McpClient> _clients = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _reconnectLocks = new();
     private readonly ILogger<McpClientManager>? _logger;
     private bool _disposed;
 
@@ -107,6 +108,85 @@ public sealed class McpClientManager : IAsyncDisposable
 
         _logger?.LogInformation("Connected to MCP server: {ServerName}", serverName);
         return client;
+    }
+
+    /// <summary>
+    /// Gets an existing client or reconnects if the connection is stale.
+    /// For HTTP-based transports, this ensures a fresh connection is available.
+    /// </summary>
+    /// <param name="serverName">The name of the server.</param>
+    /// <param name="config">The MCP configuration (used if reconnection is needed).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A connected MCP client.</returns>
+    public async Task<McpClient> GetOrReconnectAsync(
+        string serverName,
+        McpConfig config,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // For now, just return existing client if available
+        // The actual reconnection happens on 404 errors in the tool executor
+        if (_clients.TryGetValue(serverName, out var existingClient))
+        {
+            return existingClient;
+        }
+
+        // No existing client, connect new one
+        return await ConnectAsync(serverName, config, cancellationToken);
+    }
+
+    /// <summary>
+    /// Forces a reconnection to an MCP server, disposing the old connection first.
+    /// Uses a lock to prevent concurrent reconnection attempts.
+    /// </summary>
+    /// <param name="serverName">The name of the server.</param>
+    /// <param name="config">The MCP configuration.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A newly connected MCP client.</returns>
+    public async Task<McpClient> ReconnectAsync(
+        string serverName,
+        McpConfig config,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // Get or create a lock for this server to prevent concurrent reconnections
+        var reconnectLock = _reconnectLocks.GetOrAdd(serverName, _ => new SemaphoreSlim(1, 1));
+
+        await reconnectLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Double-check: another thread may have already reconnected
+            if (_clients.TryGetValue(serverName, out var existingClient))
+            {
+                // Client was reconnected by another thread, return it
+                _logger?.LogDebug("MCP server already reconnected by another thread: {ServerName}", serverName);
+                return existingClient;
+            }
+
+            _logger?.LogInformation("Reconnecting to MCP server: {ServerName}", serverName);
+
+            // Remove and dispose old client (if still present)
+            if (_clients.TryRemove(serverName, out var oldClient))
+            {
+                try
+                {
+                    await oldClient.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "Error disposing old MCP client during reconnect: {ServerName}", serverName);
+                }
+            }
+
+            // Connect fresh client
+            return await ConnectAsync(serverName, config, cancellationToken);
+        }
+        finally
+        {
+            reconnectLock.Release();
+        }
     }
 
     /// <summary>
