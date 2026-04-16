@@ -772,7 +772,10 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         }
         finally
         {
+            // Mirror the interrupt path (line ~933): reset both runtime state AND breakpoint state
+            // so that a failed run never leaves the agent stuck at StreamingModel / PreModel.
             TransitionState(AgentRuntimeState.Ready);
+            _breakpointManager.TransitionTo(BreakpointState.Ready);
             await SaveStateAsync();
         }
     }
@@ -1187,7 +1190,22 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             };
         }
 
-        // Defensive recovery: seal dangling tool calls and sanitize orphan tool_result blocks before calling the model.
+        // Defensive recovery: remove dangling user turns from a previous failed run, then seal
+        // orphan tool calls.  Order matters: user-turn cleanup must come first so the orphan
+        // sanitizers don't act on messages that are about to be dropped.
+        var danglingRemoved = SanitizeDanglingUserTurns();
+        if (danglingRemoved > 0)
+        {
+            _eventBus.EmitMonitor(new AgentRecoveredEvent
+            {
+                Type = "agent_recovered",
+                Reason = "dangling_user_turn",
+                Detail = new { removed = danglingRemoved }
+            });
+            await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
+            await SaveStateAsync(cancellationToken);
+        }
+
         await AutoSealDanglingToolUsesAsync("Sealed missing tool_result before model call.", cancellationToken);
         if (await SanitizeOrphanToolResultsAsync(cancellationToken) > 0)
         {
@@ -3804,6 +3822,50 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         }
 
         return converted;
+    }
+
+    /// <summary>
+    /// Removes trailing user turns that were flushed but never answered by the model.
+    /// These arise when a run fails (e.g. empty response, network error) after
+    /// <see cref="MessageQueue.FlushAsync"/> has already appended the user message but
+    /// before an assistant response was produced.  If not cleaned up, every subsequent
+    /// request carries the un-answered turn, causing models to see consecutive user
+    /// messages and often producing more empty or malformed responses.
+    ///
+    /// Rule: collect non-tool-result User messages that appear after the last Assistant
+    /// message.  If there are two or more, the earlier ones are dangling — remove them
+    /// and keep only the latest (the current request that was just flushed).
+    /// Tool-result messages (User role, <see cref="ToolResultContent"/> blocks) are
+    /// excluded to avoid breaking tool_use / tool_result pairing.
+    /// </summary>
+    /// <returns>Number of messages removed.</returns>
+    private int SanitizeDanglingUserTurns()
+    {
+        // Index of the first message after the last assistant response (0 when no assistant exists).
+        var afterLastAssistant = _messages.FindLastIndex(m => m.Role == MessageRole.Assistant) + 1;
+
+        // Collect indices of non-tool-result User messages after the last assistant.
+        var candidateIndices = new List<int>();
+        for (var i = afterLastAssistant; i < _messages.Count; i++)
+        {
+            var msg = _messages[i];
+            if (msg.Role == MessageRole.User && !msg.Content.Any(c => c is ToolResultContent))
+                candidateIndices.Add(i);
+        }
+
+        // Need at least 2: the dangling one(s) + the current request (keep the last, remove the rest).
+        if (candidateIndices.Count < 2) return 0;
+
+        // Remove in reverse-index order to keep indices valid.
+        var toRemove = candidateIndices
+            .Take(candidateIndices.Count - 1)
+            .OrderByDescending(i => i)
+            .ToList();
+
+        foreach (var idx in toRemove)
+            _messages.RemoveAt(idx);
+
+        return toRemove.Count;
     }
 
     private static string PreviewToolResult(object? value, int limit)
