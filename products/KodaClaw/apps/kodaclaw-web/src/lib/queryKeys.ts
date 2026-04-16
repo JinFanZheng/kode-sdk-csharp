@@ -3,6 +3,7 @@
  * 所有 useQuery / invalidateQueries 统一引用此处，避免字符串散落各处。
  */
 export const queryKeys = {
+  providerAccounts: ['providerAccounts'] as const,
   models: ['models'] as const,
 
   settings: ['settings'] as const,

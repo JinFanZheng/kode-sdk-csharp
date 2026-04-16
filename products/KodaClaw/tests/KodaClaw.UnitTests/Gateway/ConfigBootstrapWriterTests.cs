@@ -22,11 +22,44 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
 
     private ConfigBootstrapWriter CreateWriter()
     {
-        var registry = new JsonModelRegistryRepository(_tempDir);
+        var registry = new JsonProviderAccountRepository(_tempDir);
         return new ConfigBootstrapWriter(registry, _secretStore);
     }
 
-    private JsonModelRegistryRepository CreateRegistry() => new(_tempDir);
+    private JsonProviderAccountRepository CreateRegistry() => new(_tempDir);
+
+    private static async Task SeedAccountAsync(
+        JsonProviderAccountRepository repo,
+        string id,
+        ModelProviderKind provider,
+        bool isDefault = false)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var account = new ProviderAccount(
+            Id: id,
+            DisplayName: "test",
+            ProviderKind: provider,
+            BaseUrl: null,
+            ApiKeySecretRef: null,
+            ApiKeyEnvironmentVariable: null,
+            AccessMode: "api",
+            Enabled: true,
+            CreatedAt: now,
+            UpdatedAt: now);
+        var model = new AccountModel(
+            Id: $"{id}-model",
+            AccountId: id,
+            DisplayName: "test",
+            ModelId: "test-model",
+            Capabilities: ModelCapabilitySet.Text,
+            IsDefaultForAccount: true,
+            IsGlobalDefault: isDefault,
+            Enabled: true,
+            CreatedAt: now,
+            UpdatedAt: now);
+        await repo.AddAccountAsync(account);
+        await repo.AddModelAsync(model);
+    }
 
     // ── ENV-var path: no-op guards ───────────────────────────────────────────
 
@@ -34,13 +67,12 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
     public async Task WriteIfAbsent_skips_when_registry_already_has_endpoints()
     {
         var registry = CreateRegistry();
-        var existing = BuildEndpoint("already-exists", ModelProviderKind.Anthropic, isDefault: true);
-        await registry.AddAsync(existing);
+        await SeedAccountAsync(registry, "already-exists", ModelProviderKind.Anthropic, isDefault: true);
 
         var writer = new ConfigBootstrapWriter(registry, _secretStore);
         await writer.WriteIfAbsentAsync("sk-ant-NEW", null);
 
-        var all = await registry.ListAsync();
+        var all = await registry.ListAccountsAsync();
         all.Should().HaveCount(1, because: "WriteIfAbsent must not add when registry is nonempty");
         all[0].Id.Should().Be("already-exists");
     }
@@ -51,7 +83,7 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
         var writer = CreateWriter();
         await writer.WriteIfAbsentAsync(null, null);
 
-        var all = await CreateRegistry().ListAsync();
+        var all = await CreateRegistry().ListAccountsAsync();
         all.Should().BeEmpty();
         _secretStore.StoredSecrets.Should().BeEmpty();
     }
@@ -62,28 +94,31 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
         var writer = CreateWriter();
         await writer.WriteIfAbsentAsync("   ", "  ");
 
-        var all = await CreateRegistry().ListAsync();
+        var all = await CreateRegistry().ListAccountsAsync();
         all.Should().BeEmpty();
     }
 
     // ── ENV-var path: Anthropic key ──────────────────────────────────────────
 
     [Fact]
-    public async Task WriteIfAbsent_creates_anthropic_endpoint_and_marks_default()
+    public async Task WriteIfAbsent_creates_anthropic_account_and_marks_default()
     {
         var writer = CreateWriter();
         await writer.WriteIfAbsentAsync("sk-ant-test", null);
 
         var registry = CreateRegistry();
-        var all = await registry.ListAsync();
-        all.Should().HaveCount(1);
+        var accounts = await registry.ListAccountsAsync();
+        accounts.Should().HaveCount(1);
 
-        var ep = all[0];
-        ep.Provider.Should().Be(ModelProviderKind.Anthropic);
-        ep.IsDefault.Should().BeTrue();
-        ep.Enabled.Should().BeTrue();
-        ep.ApiKeySecretRef.Should().NotBeNullOrWhiteSpace();
-        ep.ApiKeyEnvironmentVariable.Should().BeNull();
+        var account = accounts[0];
+        account.ProviderKind.Should().Be(ModelProviderKind.Anthropic);
+        account.Enabled.Should().BeTrue();
+        account.ApiKeySecretRef.Should().NotBeNullOrWhiteSpace();
+        account.ApiKeyEnvironmentVariable.Should().BeNull();
+
+        var models = await registry.ListAllModelsAsync();
+        models.Should().HaveCount(1);
+        models[0].IsGlobalDefault.Should().BeTrue();
     }
 
     [Fact]
@@ -98,15 +133,19 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
     // ── ENV-var path: OpenAI key ─────────────────────────────────────────────
 
     [Fact]
-    public async Task WriteIfAbsent_creates_openai_endpoint_when_only_openai_key_provided()
+    public async Task WriteIfAbsent_creates_openai_account_when_only_openai_key_provided()
     {
         var writer = CreateWriter();
         await writer.WriteIfAbsentAsync(null, "sk-openai-test");
 
-        var all = await CreateRegistry().ListAsync();
-        all.Should().HaveCount(1);
-        all[0].Provider.Should().Be(ModelProviderKind.OpenAI);
-        all[0].IsDefault.Should().BeTrue();
+        var registry = CreateRegistry();
+        var accounts = await registry.ListAccountsAsync();
+        accounts.Should().HaveCount(1);
+        accounts[0].ProviderKind.Should().Be(ModelProviderKind.OpenAI);
+
+        var models = await registry.ListAllModelsAsync();
+        models.Should().HaveCount(1);
+        models[0].IsGlobalDefault.Should().BeTrue();
     }
 
     [Fact]
@@ -126,9 +165,9 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
         var writer = CreateWriter();
         await writer.WriteIfAbsentAsync("sk-ant-test", "sk-openai-test");
 
-        var all = await CreateRegistry().ListAsync();
-        all.Should().HaveCount(1);
-        all[0].Provider.Should().Be(ModelProviderKind.Anthropic,
+        var accounts = await CreateRegistry().ListAccountsAsync();
+        accounts.Should().HaveCount(1);
+        accounts[0].ProviderKind.Should().Be(ModelProviderKind.Anthropic,
             because: "Anthropic takes precedence over OpenAI when both keys are provided");
 
         _secretStore.StoredSecrets.Values
@@ -149,7 +188,7 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
     // ── Setup Wizard path (provider overload) ────────────────────────────────
 
     [Fact]
-    public async Task WriteIfAbsent_provider_creates_endpoint_and_marks_default()
+    public async Task WriteIfAbsent_provider_creates_account_and_marks_default()
     {
         var writer = CreateWriter();
         await writer.WriteIfAbsentAsync(
@@ -159,15 +198,19 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
             baseUrl:     "https://open.bigmodel.cn/api/paas/v4",
             displayName: "GLM-4 Flash");
 
-        var all = await CreateRegistry().ListAsync();
-        all.Should().HaveCount(1);
+        var registry = CreateRegistry();
+        var accounts = await registry.ListAccountsAsync();
+        accounts.Should().HaveCount(1);
 
-        var ep = all[0];
-        ep.Provider.Should().Be(ModelProviderKind.OpenAICompatible);
-        ep.ModelId.Should().Be("glm-4-flash");
-        ep.BaseUrl.Should().Be("https://open.bigmodel.cn/api/paas/v4");
-        ep.IsDefault.Should().BeTrue();
-        ep.DisplayName.Should().Be("GLM-4 Flash");
+        var account = accounts[0];
+        account.ProviderKind.Should().Be(ModelProviderKind.OpenAICompatible);
+        account.BaseUrl.Should().Be("https://open.bigmodel.cn/api/paas/v4");
+        account.DisplayName.Should().Be("GLM-4 Flash");
+
+        var models = await registry.ListAllModelsAsync();
+        models.Should().HaveCount(1);
+        models[0].ModelId.Should().Be("glm-4-flash");
+        models[0].IsGlobalDefault.Should().BeTrue();
         _secretStore.StoredSecrets.Should().ContainValue("glm-key-test");
     }
 
@@ -175,7 +218,7 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
     public async Task WriteIfAbsent_provider_skips_when_registry_nonempty()
     {
         var registry = CreateRegistry();
-        await registry.AddAsync(BuildEndpoint("existing", ModelProviderKind.Anthropic, isDefault: true));
+        await SeedAccountAsync(registry, "existing", ModelProviderKind.Anthropic, isDefault: true);
 
         var writer = new ConfigBootstrapWriter(registry, _secretStore);
         await writer.WriteIfAbsentAsync(
@@ -185,9 +228,9 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
             baseUrl:  null,
             displayName: null);
 
-        var all = await registry.ListAsync();
-        all.Should().HaveCount(1, because: "WriteIfAbsent must not overwrite existing registry");
-        all[0].Id.Should().Be("existing");
+        var accounts = await registry.ListAccountsAsync();
+        accounts.Should().HaveCount(1, because: "WriteIfAbsent must not overwrite existing registry");
+        accounts[0].Id.Should().Be("existing");
     }
 
     [Fact]
@@ -201,10 +244,14 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
             baseUrl:     "http://localhost:11434/v1",
             displayName: null);
 
-        var all = await CreateRegistry().ListAsync();
-        all.Should().HaveCount(1);
-        all[0].ModelId.Should().Be("llama3.2");
-        all[0].ApiKeySecretRef.Should().BeNull(because: "no key was provided");
+        var registry = CreateRegistry();
+        var accounts = await registry.ListAccountsAsync();
+        accounts.Should().HaveCount(1);
+        accounts[0].ApiKeySecretRef.Should().BeNull(because: "no key was provided");
+
+        var models = await registry.ListAllModelsAsync();
+        models.Should().HaveCount(1);
+        models[0].ModelId.Should().Be("llama3.2");
         _secretStore.StoredSecrets.Should().BeEmpty();
     }
 
@@ -220,8 +267,8 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
             displayName: null);
 
         _secretStore.StoredSecrets.Values.Should().ContainSingle().Which.Should().Be("sk-ds-padded");
-        var ep = (await CreateRegistry().ListAsync())[0];
-        ep.BaseUrl.Should().Be("https://api.deepseek.com/v1");
+        var accounts = await CreateRegistry().ListAccountsAsync();
+        accounts[0].BaseUrl.Should().Be("https://api.deepseek.com/v1");
     }
 
     [Fact]
@@ -235,28 +282,8 @@ public sealed class ConfigBootstrapWriterTests : IDisposable
             baseUrl:     null,
             displayName: null);
 
-        var ep = (await CreateRegistry().ListAsync())[0];
-        ep.DisplayName.Should().Contain("OpenAI").And.Contain("gpt-4o");
-    }
-
-    // ── helpers ──────────────────────────────────────────────────────────────
-
-    private static ModelEndpoint BuildEndpoint(string id, ModelProviderKind provider, bool isDefault = false)
-    {
-        var now = DateTimeOffset.UtcNow;
-        return new ModelEndpoint(
-            Id: id,
-            DisplayName: "test",
-            Provider: provider,
-            ModelId: "test-model",
-            BaseUrl: null,
-            ApiKeyEnvironmentVariable: null,
-            ApiKeySecretRef: null,
-            Enabled: true,
-            Capabilities: ModelCapabilitySet.Text,
-            IsDefault: isDefault,
-            CreatedAt: now,
-            UpdatedAt: now);
+        var accounts = await CreateRegistry().ListAccountsAsync();
+        accounts[0].DisplayName.Should().Contain("OpenAI").And.Contain("gpt-4o");
     }
 }
 

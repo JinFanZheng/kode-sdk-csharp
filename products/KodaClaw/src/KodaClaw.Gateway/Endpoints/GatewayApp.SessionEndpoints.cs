@@ -213,7 +213,7 @@ public static partial class GatewayApp
             IConfiguration configuration,
             IWorkspaceService workspaceService,
             IDiagnosticsService diagnosticsService,
-            IModelRegistryRepository modelRegistryRepository,
+            IProviderAccountRepository accountRepository,
             CancellationToken cancellationToken) =>
         {
             if (!TryAuthorize(context, configuration, diagnosticsService))
@@ -246,10 +246,10 @@ public static partial class GatewayApp
                     Message: "Session was not found."));
             }
 
-            ModelEndpoint? chatModel = null;
+            ResolvedModel? resolvedModel = null;
             try
             {
-                chatModel = await modelRegistryRepository.ResolveDefaultForAsync(
+                resolvedModel = await accountRepository.ResolveDefaultForAsync(
                     ModelCapabilitySet.Text, cancellationToken);
             }
             catch (Exception ex)
@@ -259,9 +259,9 @@ public static partial class GatewayApp
 
             var enrichedSession = session with
             {
-                ModelEndpointId = chatModel?.Id,
-                ModelEndpointName = chatModel?.DisplayName,
-                ModelCapabilities = (int)(chatModel?.Capabilities ?? ModelCapabilitySet.None),
+                AccountModelId = resolvedModel?.Model.Id,
+                AccountModelName = resolvedModel?.Model.DisplayName,
+                ModelCapabilities = (int)(resolvedModel?.Model.Capabilities ?? ModelCapabilitySet.None),
             };
 
             return Results.Ok(enrichedSession);

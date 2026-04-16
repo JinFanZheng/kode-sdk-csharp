@@ -19,7 +19,7 @@ public static class ServiceCollectionExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
 
         services.TryAddSingleton<ISettingsRepository>(_ => new JsonSettingsRepository(workspaceRoot));
-        services.TryAddSingleton<IModelRegistryRepository>(_ => new JsonModelRegistryRepository(workspaceRoot));
+        services.TryAddSingleton<IProviderAccountRepository>(_ => new JsonProviderAccountRepository(workspaceRoot));
         services.TryAddSingleton<IPluginRegistryRepository>(_ => new JsonPluginRegistryRepository(workspaceRoot));
         services.TryAddSingleton<IAutomationDefinitionRepository>(_ => new JsonAutomationDefinitionRepository(workspaceRoot));
         services.TryAddSingleton<IAutomationRunRepository>(_ => new JsonAutomationRunRepository(workspaceRoot));

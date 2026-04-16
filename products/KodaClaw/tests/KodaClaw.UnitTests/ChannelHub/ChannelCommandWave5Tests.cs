@@ -44,18 +44,28 @@ public sealed class ChannelCommandWave5Tests
         CreatedAt: DateTimeOffset.UtcNow,
         UpdatedAt: DateTimeOffset.UtcNow);
 
-    private static ModelEndpoint BuildEndpoint(string modelId, string displayName, bool isDefault = false, int index = 0) =>
-        new ModelEndpoint(
+    private static ProviderAccount BuildAccount(string id, ModelProviderKind kind) => new ProviderAccount(
+        Id:                        id,
+        DisplayName:               id,
+        ProviderKind:              kind,
+        BaseUrl:                   null,
+        ApiKeySecretRef:           null,
+        ApiKeyEnvironmentVariable: null,
+        AccessMode:                "api",
+        Enabled:                   true,
+        CreatedAt:                 DateTimeOffset.UtcNow,
+        UpdatedAt:                 DateTimeOffset.UtcNow);
+
+    private static AccountModel BuildEndpoint(string modelId, string displayName, bool isDefault = false, int index = 0) =>
+        new AccountModel(
             Id: Guid.NewGuid().ToString(),
+            AccountId: "acc-test",
             DisplayName: displayName,
-            Provider: ModelProviderKind.OpenAICompatible,
             ModelId: modelId,
-            BaseUrl: "https://api.example.com",
-            ApiKeyEnvironmentVariable: null,
-            ApiKeySecretRef: null,
-            Enabled: true,
             Capabilities: ModelCapabilitySet.Text,
-            IsDefault: isDefault,
+            IsDefaultForAccount: isDefault,
+            IsGlobalDefault: isDefault,
+            Enabled: true,
             CreatedAt: DateTimeOffset.UtcNow.AddMinutes(index),
             UpdatedAt: DateTimeOffset.UtcNow);
 
@@ -125,14 +135,14 @@ public sealed class ChannelCommandWave5Tests
             .Setup(s => s.GetSessionModelAsync("session-abc", It.IsAny<CancellationToken>()))
             .ReturnsAsync("kimi-k2.5");
 
-        var registry = new Mock<IModelRegistryRepository>();
+        var registry = new Mock<IProviderAccountRepository>();
         registry
-            .Setup(r => r.ListAsync(It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListAllModelsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([BuildEndpoint("kimi-k2.5", "Kimi K2.5")]);
 
         var dispatcher = new ChannelCommandDispatcher(
             sessionService.Object, BuildDispatchService(),
-            modelRegistryRepository: registry.Object);
+            providerAccountRepository: registry.Object);
         var parsed = ChannelCommandParser.Parse("/model");
 
         var result = await dispatcher.DispatchAsync(
@@ -170,24 +180,27 @@ public sealed class ChannelCommandWave5Tests
             .Setup(s => s.GetSessionModelAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("claude-sonnet-4-6");
 
-        var registry = new Mock<IModelRegistryRepository>();
+        var registry = new Mock<IProviderAccountRepository>();
         registry
-            .Setup(r => r.ListAsync(It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListAllModelsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([
                 BuildEndpoint("claude-sonnet-4-6", "Claude Sonnet 4.6", isDefault: true, index: 0),
                 BuildEndpoint("kimi-k2.5", "Kimi K2.5", isDefault: false, index: 1),
             ]);
+        registry
+            .Setup(r => r.ListAccountsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([BuildAccount("acc-test", ModelProviderKind.OpenAICompatible)]);
 
         var dispatcher = new ChannelCommandDispatcher(
             sessionService.Object, BuildDispatchService(),
-            modelRegistryRepository: registry.Object);
+            providerAccountRepository: registry.Object);
 
         var parsed = ChannelCommandParser.Parse("/model list");
         var result = await dispatcher.DispatchAsync(
             parsed, "session-abc", BuildAccount(), BuildBinding(), CancellationToken.None);
 
         result.Should().BeTrue();
-        registry.Verify(r => r.ListAsync(It.IsAny<CancellationToken>()), Times.Once);
+        registry.Verify(r => r.ListAllModelsAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -201,17 +214,20 @@ public sealed class ChannelCommandWave5Tests
             .Setup(s => s.GetSessionModelAsync("session-abc", It.IsAny<CancellationToken>()))
             .ReturnsAsync("kimi-k2.5");
 
-        var registry = new Mock<IModelRegistryRepository>();
+        var registry = new Mock<IProviderAccountRepository>();
         registry
-            .Setup(r => r.ListAsync(It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListAllModelsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([
                 BuildEndpoint("claude-sonnet-4-6", "Claude Sonnet 4.6", isDefault: true, index: 0),
                 BuildEndpoint("kimi-k2.5", "Kimi K2.5", isDefault: false, index: 1),
             ]);
+        registry
+            .Setup(r => r.ListAccountsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([BuildAccount("acc-test", ModelProviderKind.OpenAICompatible)]);
 
         var dispatcher = new ChannelCommandDispatcher(
             sessionService.Object, BuildDispatchService(),
-            modelRegistryRepository: registry.Object);
+            providerAccountRepository: registry.Object);
 
         var parsed = ChannelCommandParser.Parse("/model list");
         var result = await dispatcher.DispatchAsync(
@@ -232,9 +248,9 @@ public sealed class ChannelCommandWave5Tests
             .Setup(s => s.RotateSessionAsync(It.IsAny<ThreadBinding>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("new-session-id");
 
-        var registry = new Mock<IModelRegistryRepository>();
+        var registry = new Mock<IProviderAccountRepository>();
         registry
-            .Setup(r => r.ListAsync(It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListAllModelsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([
                 BuildEndpoint("claude-sonnet-4-6", "Claude Sonnet 4.6", isDefault: true, index: 0),
                 BuildEndpoint("kimi-k2.5", "Kimi K2.5", isDefault: false, index: 1),
@@ -242,7 +258,7 @@ public sealed class ChannelCommandWave5Tests
 
         var dispatcher = new ChannelCommandDispatcher(
             sessionService.Object, BuildDispatchService(),
-            modelRegistryRepository: registry.Object);
+            providerAccountRepository: registry.Object);
 
         var parsed = ChannelCommandParser.Parse("/new 2");
         var result = await dispatcher.DispatchAsync(
@@ -263,9 +279,9 @@ public sealed class ChannelCommandWave5Tests
             .Setup(s => s.RotateSessionAsync(It.IsAny<ThreadBinding>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("new-session-id");
 
-        var registry = new Mock<IModelRegistryRepository>();
+        var registry = new Mock<IProviderAccountRepository>();
         registry
-            .Setup(r => r.ListAsync(It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListAllModelsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([
                 BuildEndpoint("claude-sonnet-4-6", "Claude Sonnet 4.6", isDefault: true, index: 0),
                 BuildEndpoint("kimi-k2.5", "Kimi K2.5", isDefault: false, index: 1),
@@ -273,7 +289,7 @@ public sealed class ChannelCommandWave5Tests
 
         var dispatcher = new ChannelCommandDispatcher(
             sessionService.Object, BuildDispatchService(),
-            modelRegistryRepository: registry.Object);
+            providerAccountRepository: registry.Object);
 
         var parsed = ChannelCommandParser.Parse("/new kimi-k2.5");
         var result = await dispatcher.DispatchAsync(
@@ -291,16 +307,16 @@ public sealed class ChannelCommandWave5Tests
     {
         var sessionService = new Mock<IChannelSessionService>();
 
-        var registry = new Mock<IModelRegistryRepository>();
+        var registry = new Mock<IProviderAccountRepository>();
         registry
-            .Setup(r => r.ListAsync(It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListAllModelsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([
                 BuildEndpoint("claude-sonnet-4-6", "Claude Sonnet 4.6", isDefault: true, index: 0),
             ]);
 
         var dispatcher = new ChannelCommandDispatcher(
             sessionService.Object, BuildDispatchService(),
-            modelRegistryRepository: registry.Object);
+            providerAccountRepository: registry.Object);
 
         var parsed = ChannelCommandParser.Parse("/new 99");
         var result = await dispatcher.DispatchAsync(
@@ -316,16 +332,16 @@ public sealed class ChannelCommandWave5Tests
     {
         var sessionService = new Mock<IChannelSessionService>();
 
-        var registry = new Mock<IModelRegistryRepository>();
+        var registry = new Mock<IProviderAccountRepository>();
         registry
-            .Setup(r => r.ListAsync(It.IsAny<CancellationToken>()))
+            .Setup(r => r.ListAllModelsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([
                 BuildEndpoint("claude-sonnet-4-6", "Claude Sonnet 4.6", isDefault: true, index: 0),
             ]);
 
         var dispatcher = new ChannelCommandDispatcher(
             sessionService.Object, BuildDispatchService(),
-            modelRegistryRepository: registry.Object);
+            providerAccountRepository: registry.Object);
 
         var parsed = ChannelCommandParser.Parse("/new 不存在的模型");
         var result = await dispatcher.DispatchAsync(

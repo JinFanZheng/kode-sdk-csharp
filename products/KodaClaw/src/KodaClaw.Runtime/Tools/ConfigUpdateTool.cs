@@ -6,22 +6,22 @@ using Kode.Agent.Sdk.Tools;
 namespace KodaClaw.Runtime;
 
 /// <summary>
-/// Agent tool for managing model endpoint configuration at runtime.
-/// Supports listing, adding, setting a default, and deleting model endpoints.
+/// Agent tool for managing provider accounts and models at runtime.
+/// Supports listing, adding accounts, setting a default model, and deleting accounts.
 /// API keys are stored securely in the OS keychain via ISecretStore.
 /// </summary>
 public sealed class ConfigUpdateTool : ToolBase<ConfigUpdateArgs>
 {
-    private readonly IModelRegistryRepository _registry;
+    private readonly IProviderAccountRepository _repo;
     private readonly ISecretStore _secretStore;
     private readonly IDiagnosticsService? _diagnosticsService;
 
     public ConfigUpdateTool(
-        IModelRegistryRepository registry,
+        IProviderAccountRepository repo,
         ISecretStore secretStore,
         IDiagnosticsService? diagnosticsService = null)
     {
-        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _repo = repo ?? throw new ArgumentNullException(nameof(repo));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
         _diagnosticsService = diagnosticsService;
     }
@@ -29,11 +29,11 @@ public sealed class ConfigUpdateTool : ToolBase<ConfigUpdateArgs>
     public override string Name => "config_update";
 
     public override string Description =>
-        "Manage KodaClaw model endpoint configuration. " +
-        "Use action='list' to see all configured model endpoints. " +
-        "Use action='add' to add a new model endpoint (provider, modelId, and apiKey required). " +
-        "Use action='set_default' to change which endpoint is used by default (endpointId required). " +
-        "Use action='delete' to remove an endpoint (endpointId required).\n\n" +
+        "Manage KodaClaw model provider configuration. " +
+        "Use action='list' to see all configured provider accounts and their models. " +
+        "Use action='add' to add a new provider account with a model (provider, modelId, and apiKey required). " +
+        "Use action='set_default' to change which model is used by default (modelId required). " +
+        "Use action='delete' to remove a provider account (accountId required).\n\n" +
         "Provider values: 'Anthropic', 'AnthropicCompatible', 'OpenAI', 'OpenAICompatible'.\n" +
         "API keys are stored securely in the OS keychain and never appear in plain text on disk.";
 
@@ -60,28 +60,33 @@ public sealed class ConfigUpdateTool : ToolBase<ConfigUpdateArgs>
         };
     }
 
-    // ── list ───────────────────────────────────────────────────────────────────
-
     private async Task<ToolResult> ListAsync(CancellationToken ct)
     {
-        var endpoints = await _registry.ListAsync(ct);
-        var result = endpoints.Select(e => new
+        var accounts = await _repo.ListAccountsAsync(ct);
+        var allModels = await _repo.ListAllModelsAsync(ct);
+        var modelsByAccount = allModels.ToLookup(m => m.AccountId);
+
+        var result = accounts.Select(a => new
         {
-            id = e.Id,
-            displayName = e.DisplayName,
-            provider = e.Provider.ToString(),
-            modelId = e.ModelId,
-            baseUrl = e.BaseUrl,
-            isDefault = e.IsDefault,
-            enabled = e.Enabled,
-            capabilities = e.Capabilities.ToString(),
-            contextWindowSize = e.ContextWindowSize,
+            id = a.Id,
+            displayName = a.DisplayName,
+            providerKind = a.ProviderKind.ToString(),
+            baseUrl = a.BaseUrl,
+            accessMode = a.AccessMode,
+            enabled = a.Enabled,
+            models = modelsByAccount[a.Id].Select(m => new
+            {
+                id = m.Id,
+                displayName = m.DisplayName,
+                modelId = m.ModelId,
+                isGlobalDefault = m.IsGlobalDefault,
+                capabilities = m.Capabilities.ToString(),
+                contextWindowSize = m.ContextWindowSize,
+            }).ToList(),
         }).ToList();
 
-        return ToolResult.Ok(new { endpoints = result, count = result.Count });
+        return ToolResult.Ok(new { accounts = result, count = result.Count });
     }
-
-    // ── add ────────────────────────────────────────────────────────────────────
 
     private async Task<ToolResult> AddAsync(ConfigUpdateArgs args, CancellationToken ct)
     {
@@ -99,137 +104,123 @@ public sealed class ConfigUpdateTool : ToolBase<ConfigUpdateArgs>
             ? args.DisplayName.Trim()
             : $"{args.Provider} / {args.ModelId}";
 
-        var id = Slugify($"{args.Provider}-{args.ModelId}");
-
-        // Ensure uniqueness — append random suffix when id already exists.
-        var existing = await _registry.GetByIdAsync(id, ct);
-        if (existing is not null)
-            id = $"{id}-{Guid.NewGuid():N}"[..Math.Min(64, id.Length + 9)];
+        var accountId = $"account-{Guid.NewGuid():N}";
+        var modelId = $"model-{Guid.NewGuid():N}";
 
         // Store the API key in the OS keychain.
-        var secretRef = new SecretRef("keychain", "model-endpoint", id);
+        var secretRef = new SecretRef("keychain", "accounts", accountId);
         await _secretStore.UpsertAsync(secretRef, args.ApiKey.Trim(), ct);
 
         var now = DateTimeOffset.UtcNow;
-        var endpoint = new ModelEndpoint(
-            Id: id,
+        var account = new ProviderAccount(
+            Id: accountId,
             DisplayName: displayName,
-            Provider: providerKind,
-            ModelId: args.ModelId.Trim(),
+            ProviderKind: providerKind,
             BaseUrl: string.IsNullOrWhiteSpace(args.BaseUrl) ? null : args.BaseUrl.Trim().TrimEnd('/'),
-            ApiKeyEnvironmentVariable: null,
             ApiKeySecretRef: secretRef.ToReferenceString(),
+            ApiKeyEnvironmentVariable: null,
+            AccessMode: "api",
             Enabled: true,
+            CreatedAt: now,
+            UpdatedAt: now);
+
+        await _repo.AddAccountAsync(account, ct);
+
+        // If no global default exists, set this model as default.
+        var existingModels = await _repo.ListAllModelsAsync(ct);
+        var hasDefault = existingModels.Any(m => m.IsGlobalDefault);
+
+        var model = new AccountModel(
+            Id: modelId,
+            AccountId: accountId,
+            DisplayName: displayName,
+            ModelId: args.ModelId.Trim(),
             Capabilities: ModelCapabilitySet.Text,
-            IsDefault: false,
+            IsDefaultForAccount: true,
+            IsGlobalDefault: !hasDefault,
+            Enabled: true,
             CreatedAt: now,
             UpdatedAt: now,
             ContextWindowSize: args.ContextWindowSize ?? 128_000);
 
-        await _registry.AddAsync(endpoint, ct);
-
-        // If no default exists, set this one as default automatically.
-        var all = await _registry.ListAsync(ct);
-        if (!all.Any(m => m.IsDefault))
-            await _registry.SetDefaultAsync(id, DateTimeOffset.UtcNow, ct);
+        await _repo.AddModelAsync(model, ct);
 
         _diagnosticsService?.Record(new DiagnosticEvent(
             Id: Guid.NewGuid().ToString("N"),
             Source: "runtime.config_update",
-            EventType: "model_endpoint.added",
+            EventType: "provider_account.added",
             Level: "info",
-            Message: $"Model endpoint '{displayName}' (id={id}) added by agent.",
+            Message: $"Provider account '{displayName}' (id={accountId}) with model '{args.ModelId}' added by agent.",
             Timestamp: DateTimeOffset.UtcNow));
 
         return ToolResult.Ok(new
         {
             ok = true,
-            id,
+            accountId,
+            modelId,
             displayName,
             provider = providerKind.ToString(),
-            modelId = endpoint.ModelId,
+            model = args.ModelId.Trim(),
         });
     }
 
-    // ── set_default ────────────────────────────────────────────────────────────
-
     private async Task<ToolResult> SetDefaultAsync(ConfigUpdateArgs args, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(args.EndpointId))
-            return ToolResult.Fail("'endpointId' is required for action='set_default'.");
+        var targetModelId = args.EndpointId?.Trim(); // reuse endpointId parameter for modelId
+        if (string.IsNullOrWhiteSpace(targetModelId))
+            return ToolResult.Fail("'endpointId' (model ID) is required for action='set_default'.");
 
-        var success = await _registry.SetDefaultAsync(args.EndpointId.Trim(), DateTimeOffset.UtcNow, ct);
+        var success = await _repo.SetGlobalDefaultAsync(targetModelId, DateTimeOffset.UtcNow, ct);
         if (!success)
-            return ToolResult.Fail($"Endpoint '{args.EndpointId}' not found.");
+            return ToolResult.Fail($"Model '{targetModelId}' not found.");
 
         _diagnosticsService?.Record(new DiagnosticEvent(
             Id: Guid.NewGuid().ToString("N"),
             Source: "runtime.config_update",
-            EventType: "model_endpoint.default_changed",
+            EventType: "provider_account.default_changed",
             Level: "info",
-            Message: $"Default model endpoint changed to '{args.EndpointId}' by agent.",
+            Message: $"Default model changed to '{targetModelId}' by agent.",
             Timestamp: DateTimeOffset.UtcNow));
 
-        return ToolResult.Ok(new { ok = true, defaultEndpointId = args.EndpointId.Trim() });
+        return ToolResult.Ok(new { ok = true, defaultModelId = targetModelId });
     }
-
-    // ── delete ─────────────────────────────────────────────────────────────────
 
     private async Task<ToolResult> DeleteAsync(ConfigUpdateArgs args, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(args.EndpointId))
-            return ToolResult.Fail("'endpointId' is required for action='delete'.");
+        var id = args.EndpointId?.Trim(); // reuse endpointId parameter for accountId
+        if (string.IsNullOrWhiteSpace(id))
+            return ToolResult.Fail("'endpointId' (account ID) is required for action='delete'.");
 
-        var id = args.EndpointId.Trim();
-        var success = await _registry.DeleteAsync(id, ct);
-        if (!success)
-            return ToolResult.Fail($"Endpoint '{id}' not found.");
+        var account = await _repo.GetAccountByIdAsync(id, ct);
+        if (account is null)
+            return ToolResult.Fail($"Provider account '{id}' not found.");
 
-        // Best-effort: delete the associated keychain secret if it follows our naming convention.
+        // Cascade delete handled by repository
+        await _repo.DeleteAccountAsync(id, ct);
+
+        // Best-effort: delete the associated keychain secret.
         try
         {
-            var secretRef = new SecretRef("keychain", "model-endpoint", id);
-            await _secretStore.DeleteAsync(secretRef, ct);
+            if (!string.IsNullOrWhiteSpace(account.ApiKeySecretRef) &&
+                SecretRef.TryParse(account.ApiKeySecretRef, out var secretRef))
+            {
+                await _secretStore.DeleteAsync(secretRef, ct);
+            }
         }
         catch
         {
-            // Secret may not exist (e.g., endpoint was using an env-var key); ignore.
+            // Secret may not exist; ignore.
         }
 
         _diagnosticsService?.Record(new DiagnosticEvent(
             Id: Guid.NewGuid().ToString("N"),
             Source: "runtime.config_update",
-            EventType: "model_endpoint.deleted",
+            EventType: "provider_account.deleted",
             Level: "info",
-            Message: $"Model endpoint '{id}' deleted by agent.",
+            Message: $"Provider account '{account.DisplayName}' (id={id}) deleted by agent.",
             Timestamp: DateTimeOffset.UtcNow));
 
-        return ToolResult.Ok(new { ok = true, deletedId = id });
-    }
-
-    // ── utilities ──────────────────────────────────────────────────────────────
-
-    private static string Slugify(string input)
-    {
-        // lowercase, non-alphanumeric → '-', collapse consecutive '-', trim, max 64 chars
-        var sb = new StringBuilder();
-        var prevDash = true; // start true to strip leading dashes
-        foreach (var c in input.ToLowerInvariant())
-        {
-            if (char.IsLetterOrDigit(c))
-            {
-                sb.Append(c);
-                prevDash = false;
-            }
-            else if (!prevDash)
-            {
-                sb.Append('-');
-                prevDash = true;
-            }
-        }
-
-        var slug = sb.ToString().TrimEnd('-');
-        return slug.Length > 64 ? slug[..64] : (slug.Length == 0 ? "endpoint" : slug);
+        return ToolResult.Ok(new { ok = true, deletedAccountId = id });
     }
 }
 
@@ -241,13 +232,13 @@ public sealed class ConfigUpdateArgs
     [ToolParameter(Description = "Action to perform: 'list', 'add', 'set_default', or 'delete'.")]
     public required string Action { get; init; }
 
-    [ToolParameter(Description = "Human-readable display name for the endpoint. Used for 'add'.", Required = false)]
+    [ToolParameter(Description = "Human-readable display name for the provider account. Used for 'add'.", Required = false)]
     public string? DisplayName { get; init; }
 
     [ToolParameter(Description = "Provider kind: 'Anthropic', 'AnthropicCompatible', 'OpenAI', 'OpenAICompatible'. Required for 'add'.", Required = false)]
     public string? Provider { get; init; }
 
-    [ToolParameter(Description = "Model identifier (e.g. 'claude-sonnet-4-20250514', 'gpt-4o'). Required for 'add'.", Required = false)]
+    [ToolParameter(Description = "Model identifier (e.g. 'claude-sonnet-4-6', 'gpt-4o'). Required for 'add'.", Required = false)]
     public string? ModelId { get; init; }
 
     [ToolParameter(Description = "API key value. Stored securely in the OS keychain. Required for 'add'.", Required = false)]
@@ -256,7 +247,7 @@ public sealed class ConfigUpdateArgs
     [ToolParameter(Description = "Base URL for compatible providers (e.g. 'https://my-proxy.com/v1'). Omit for official Anthropic/OpenAI endpoints.", Required = false)]
     public string? BaseUrl { get; init; }
 
-    [ToolParameter(Description = "Endpoint ID. Required for 'set_default' and 'delete'.", Required = false)]
+    [ToolParameter(Description = "Account or model ID. Required for 'set_default' (model ID) and 'delete' (account ID).", Required = false)]
     public string? EndpointId { get; init; }
 
     [ToolParameter(Description = "Context window size in tokens. Defaults to 128000.", Required = false)]

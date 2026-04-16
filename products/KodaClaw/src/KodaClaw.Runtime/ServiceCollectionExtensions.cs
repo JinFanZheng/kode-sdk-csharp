@@ -60,7 +60,7 @@ public static class ServiceCollectionExtensions
             .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
         services.TryAddSingleton<IRuntimeModelProviderFactory, DefaultRuntimeModelProviderFactory>();
         services.TryAddSingleton<DynamicModelProvider>();
-        services.TryAddSingleton<IModelProvider, RegistryAwareModelProvider>();
+        services.TryAddSingleton<IModelProvider, AccountAwareModelProvider>();
 
         services.AddAgentSdk();
 
@@ -126,12 +126,12 @@ public static class ServiceCollectionExtensions
             toolRegistry.Register("workspace_read",
                 _ => new WorkspaceReadTool(workspaceService, bindingRepository));
 
-            var modelRegistry = sp.GetService<IModelRegistryRepository>();
+            var accountRepository = sp.GetService<IProviderAccountRepository>();
             var secretStore = sp.GetService<ISecretStore>();
-            if (modelRegistry is not null && secretStore is not null)
+            if (accountRepository is not null && secretStore is not null)
             {
                 toolRegistry.Register("config_update",
-                    _ => new ConfigUpdateTool(modelRegistry, secretStore, diagnosticsService));
+                    _ => new ConfigUpdateTool(accountRepository, secretStore, diagnosticsService));
             }
 
             var channelSendService = sp.GetService<IChannelSendService>();

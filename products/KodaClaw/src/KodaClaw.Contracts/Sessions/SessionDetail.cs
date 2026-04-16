@@ -15,6 +15,6 @@ public sealed record SessionDetail(
     PromptReportDelta? PromptReportDelta = null,
     IReadOnlyList<PromptReport>? RecentPromptReports = null,
     string? Title = null,
-    string? ModelEndpointId = null,
-    string? ModelEndpointName = null,
+    string? AccountModelId = null,
+    string? AccountModelName = null,
     int ModelCapabilities = 0);

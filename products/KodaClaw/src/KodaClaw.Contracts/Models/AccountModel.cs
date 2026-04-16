@@ -1,20 +1,21 @@
 namespace KodaClaw.Contracts;
 
-public sealed record ModelEndpoint(
+/// <summary>
+/// An individual model bound to a <see cref="ProviderAccount"/>.
+/// </summary>
+public sealed record AccountModel(
     string Id,
+    string AccountId,
     string DisplayName,
-    ModelProviderKind Provider,
     string ModelId,
-    string? BaseUrl,
-    string? ApiKeyEnvironmentVariable,
-    string? ApiKeySecretRef,
-    bool Enabled,
     ModelCapabilitySet Capabilities,
-    bool IsDefault,
+    bool IsDefaultForAccount,
+    bool IsGlobalDefault,
+    bool Enabled,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     int ContextWindowSize = 128_000,
     int MaxOutputTokens = 8192,
     bool IsReasoning = false,
     bool SupportsToolCalling = true,
-    IReadOnlyDictionary<string, string>? CustomHeaders = null);
+    ModelPricing? Pricing = null);

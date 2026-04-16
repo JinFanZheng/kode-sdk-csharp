@@ -118,9 +118,9 @@ public sealed class AutomationContractsTests
     }
 
     [Fact]
-    public void Settings_default_should_have_AutomationsEnabled_false()
+    public void Settings_default_should_have_AutomationsEnabled_true()
     {
-        KodaClawSettings.Default.AutomationsEnabled.Should().BeFalse();
+        KodaClawSettings.Default.AutomationsEnabled.Should().BeTrue();
     }
 
     [Fact]

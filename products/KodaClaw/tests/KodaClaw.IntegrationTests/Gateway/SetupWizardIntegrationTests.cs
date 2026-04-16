@@ -237,12 +237,14 @@ public sealed class SetupWizardIntegrationTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var registry  = new JsonModelRegistryRepository(workspace.Path);
-        var endpoints = await registry.ListAsync();
-        endpoints.Should().HaveCount(1);
-        endpoints[0].Provider.Should().Be(ModelProviderKind.Anthropic);
-        endpoints[0].IsDefault.Should().BeTrue();
-        endpoints[0].ModelId.Should().Be("claude-sonnet-4-20250514");
+        var registry = new JsonProviderAccountRepository(workspace.Path);
+        var accounts = await registry.ListAccountsAsync();
+        var models   = await registry.ListAllModelsAsync();
+        accounts.Should().HaveCount(1);
+        accounts[0].ProviderKind.Should().Be(ModelProviderKind.Anthropic);
+        models.Should().HaveCount(1);
+        models[0].IsGlobalDefault.Should().BeTrue();
+        models[0].ModelId.Should().Be("claude-sonnet-4-20250514");
         fakeSecret.StoredValues.Should().ContainValue("sk-ant-integration-test");
     }
 
@@ -274,10 +276,10 @@ public sealed class SetupWizardIntegrationTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var registry  = new JsonModelRegistryRepository(workspace.Path);
-        var endpoints = await registry.ListAsync();
-        endpoints.Should().HaveCount(1);
-        endpoints[0].Provider.Should().Be(ModelProviderKind.OpenAI);
+        var registry = new JsonProviderAccountRepository(workspace.Path);
+        var accounts = await registry.ListAccountsAsync();
+        accounts.Should().HaveCount(1);
+        accounts[0].ProviderKind.Should().Be(ModelProviderKind.OpenAI);
         fakeSecret.StoredValues.Should().ContainValue("sk-openai-integration-test");
     }
 
@@ -311,12 +313,14 @@ public sealed class SetupWizardIntegrationTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var registry  = new JsonModelRegistryRepository(workspace.Path);
-        var endpoints = await registry.ListAsync();
-        endpoints.Should().HaveCount(1);
-        endpoints[0].Provider.Should().Be(ModelProviderKind.OpenAICompatible);
-        endpoints[0].ModelId.Should().Be("glm-4-flash");
-        endpoints[0].BaseUrl.Should().Be("https://open.bigmodel.cn/api/paas/v4");
+        var registry = new JsonProviderAccountRepository(workspace.Path);
+        var accounts = await registry.ListAccountsAsync();
+        var models   = await registry.ListAllModelsAsync();
+        accounts.Should().HaveCount(1);
+        accounts[0].ProviderKind.Should().Be(ModelProviderKind.OpenAICompatible);
+        accounts[0].BaseUrl.Should().Be("https://open.bigmodel.cn/api/paas/v4");
+        models.Should().HaveCount(1);
+        models[0].ModelId.Should().Be("glm-4-flash");
         fakeSecret.StoredValues.Should().ContainValue("glm-api-key-test");
     }
 
@@ -350,11 +354,13 @@ public sealed class SetupWizardIntegrationTests
         // Local providers (localhost base URL) don't need an API key
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var registry  = new JsonModelRegistryRepository(workspace.Path);
-        var endpoints = await registry.ListAsync();
-        endpoints.Should().HaveCount(1);
-        endpoints[0].Provider.Should().Be(ModelProviderKind.OpenAICompatible);
-        endpoints[0].ModelId.Should().Be("llama3.2");
+        var registry = new JsonProviderAccountRepository(workspace.Path);
+        var accounts = await registry.ListAccountsAsync();
+        var models   = await registry.ListAllModelsAsync();
+        accounts.Should().HaveCount(1);
+        accounts[0].ProviderKind.Should().Be(ModelProviderKind.OpenAICompatible);
+        models.Should().HaveCount(1);
+        models[0].ModelId.Should().Be("llama3.2");
         fakeSecret.StoredValues.Should().BeEmpty(because: "Ollama requires no API key");
     }
 
@@ -365,21 +371,30 @@ public sealed class SetupWizardIntegrationTests
         var fakeSecret = new SetupFakeSecretStore(new Dictionary<string, string?>());
 
         // Pre-populate registry
-        var registry = new JsonModelRegistryRepository(workspace.Path);
+        var registry = new JsonProviderAccountRepository(workspace.Path);
         var now      = DateTimeOffset.UtcNow;
-        await registry.AddAsync(new ModelEndpoint(
-            Id:                      "existing-endpoint",
-            DisplayName:             "Existing",
-            Provider:                ModelProviderKind.Anthropic,
-            ModelId:                 "existing-model",
-            BaseUrl:                 null,
+        await registry.AddAccountAsync(new ProviderAccount(
+            Id:                        "existing-account",
+            DisplayName:               "Existing",
+            ProviderKind:              ModelProviderKind.Anthropic,
+            BaseUrl:                   null,
+            ApiKeySecretRef:           null,
             ApiKeyEnvironmentVariable: "ANTHROPIC_API_KEY",
-            ApiKeySecretRef:         null,
-            Enabled:                 true,
-            Capabilities:            ModelCapabilitySet.Text,
-            IsDefault:               true,
-            CreatedAt:               now,
-            UpdatedAt:               now));
+            AccessMode:                "api",
+            Enabled:                   true,
+            CreatedAt:                 now,
+            UpdatedAt:                 now));
+        await registry.AddModelAsync(new AccountModel(
+            Id:                  "existing-model",
+            AccountId:           "existing-account",
+            DisplayName:         "Existing",
+            ModelId:             "existing-model",
+            Capabilities:        ModelCapabilitySet.Text,
+            IsDefaultForAccount: true,
+            IsGlobalDefault:     true,
+            Enabled:             true,
+            CreatedAt:           now,
+            UpdatedAt:           now));
 
         await using var hosted = await HostedGateway.StartAsync(
             gatewayToken: "test-token",
@@ -403,10 +418,10 @@ public sealed class SetupWizardIntegrationTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var endpoints = await registry.ListAsync();
-        endpoints.Should().HaveCount(1,
-            because: "WriteIfAbsent must not add a second endpoint when registry is already populated");
-        endpoints[0].Id.Should().Be("existing-endpoint");
+        var accounts = await registry.ListAccountsAsync();
+        accounts.Should().HaveCount(1,
+            because: "WriteIfAbsent must not add a second account when registry is already populated");
+        accounts[0].Id.Should().Be("existing-account");
     }
 
     [Fact]
@@ -469,9 +484,9 @@ public sealed class SetupWizardIntegrationTests
                 }),
             useTestWorkspaceService: false);
 
-        var registry  = new JsonModelRegistryRepository(workspace.Path);
-        var endpoints = await registry.ListAsync();
-        endpoints.Should().BeEmpty(
+        var registry = new JsonProviderAccountRepository(workspace.Path);
+        var accounts = await registry.ListAccountsAsync();
+        accounts.Should().BeEmpty(
             because: "registry must remain empty when no KODACLAW_*_API_KEY is set");
     }
 
@@ -495,12 +510,14 @@ public sealed class SetupWizardIntegrationTests
                 }),
             useTestWorkspaceService: false);
 
-        var registry  = new JsonModelRegistryRepository(workspace.Path);
-        var endpoints = await registry.ListAsync();
-        endpoints.Should().HaveCount(1,
-            because: "ConfigBootstrapService should seed one endpoint from KODACLAW_ANTHROPIC_API_KEY");
-        endpoints[0].Provider.Should().Be(ModelProviderKind.Anthropic);
-        endpoints[0].IsDefault.Should().BeTrue();
+        var registry = new JsonProviderAccountRepository(workspace.Path);
+        var accounts = await registry.ListAccountsAsync();
+        var models   = await registry.ListAllModelsAsync();
+        accounts.Should().HaveCount(1,
+            because: "ConfigBootstrapService should seed one account from KODACLAW_ANTHROPIC_API_KEY");
+        accounts[0].ProviderKind.Should().Be(ModelProviderKind.Anthropic);
+        models.Should().HaveCount(1);
+        models[0].IsGlobalDefault.Should().BeTrue();
         fakeSecret.StoredValues.Should().ContainValue("sk-ant-env-test");
     }
 

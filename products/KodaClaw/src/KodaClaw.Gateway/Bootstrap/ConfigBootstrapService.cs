@@ -13,7 +13,7 @@ namespace KodaClaw.Gateway;
 /// (POST /setup/complete) calls ConfigBootstrapWriter directly.
 ///
 /// Registration order matters: must start BEFORE ModelRegistrySeedService so the
-/// keychain-backed endpoint is in place before the env-var SeedService runs.
+/// keychain-backed account is in place before the env-var SeedService runs.
 /// </summary>
 internal sealed class ConfigBootstrapService : IHostedService
 {

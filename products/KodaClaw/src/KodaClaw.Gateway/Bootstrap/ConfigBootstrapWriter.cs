@@ -8,25 +8,27 @@ namespace KodaClaw.Gateway;
 /// Shared writer used by both the ENV-var bootstrap path (ConfigBootstrapService)
 /// and the Setup Wizard path (POST /setup/complete).
 ///
-/// Writes a default model endpoint into the registry if and only if the registry
-/// is currently empty. Keys are stored in the OS Keychain via ISecretStore rather
-/// than on disk in plaintext.
+/// Writes a default provider account + model into the repository if and only if
+/// the repository is currently empty. Keys are stored in the OS Keychain via
+/// ISecretStore rather than on disk in plaintext.
 /// </summary>
 internal sealed class ConfigBootstrapWriter
 {
-    private const string AnthropicDefaultId = "anthropic-default";
-    private const string OpenAIDefaultId = "openai-default";
+    private const string AnthropicDefaultAccountId = "anthropic-default";
+    private const string AnthropicDefaultModelId = "anthropic-default-model";
+    private const string OpenAIDefaultAccountId = "openai-default";
+    private const string OpenAIDefaultModelId = "openai-default-model";
 
-    private readonly IModelRegistryRepository _registry;
+    private readonly IProviderAccountRepository _repo;
     private readonly ISecretStore _secretStore;
     private readonly ILogger<ConfigBootstrapWriter>? _logger;
 
     public ConfigBootstrapWriter(
-        IModelRegistryRepository registry,
+        IProviderAccountRepository repo,
         ISecretStore secretStore,
         ILogger<ConfigBootstrapWriter>? logger = null)
     {
-        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _repo = repo ?? throw new ArgumentNullException(nameof(repo));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
         _logger = logger;
     }
@@ -34,10 +36,10 @@ internal sealed class ConfigBootstrapWriter
     // ── ENV-var bootstrap path ─────────────────────────────────────────────────
 
     /// <summary>
-    /// If the model registry is empty, writes a default endpoint for the first
-    /// non-null API key provided and marks it as the default.
+    /// If the provider account repository is empty, writes a default account + model
+    /// for the first non-null API key provided and marks the model as the global default.
     /// Anthropic key takes precedence over OpenAI when both are supplied.
-    /// No-op if the registry already contains at least one endpoint.
+    /// No-op if the repository already contains at least one account.
     /// Used by <see cref="ConfigBootstrapService"/> for ENV-var seeding.
     /// </summary>
     public async Task WriteIfAbsentAsync(
@@ -45,25 +47,26 @@ internal sealed class ConfigBootstrapWriter
         string? openaiKey,
         CancellationToken cancellationToken = default)
     {
-        var existing = await _registry.ListAsync(cancellationToken);
+        var existing = await _repo.ListAccountsAsync(cancellationToken);
         if (existing.Count > 0)
         {
             _logger?.LogDebug(
-                "ConfigBootstrapWriter: registry has {Count} endpoint(s), skipping.", existing.Count);
+                "ConfigBootstrapWriter: repository has {Count} account(s), skipping.", existing.Count);
             return;
         }
 
-        ModelEndpoint? endpoint = null;
+        (ProviderAccount Account, AccountModel Model)? pair = null;
 
         if (!string.IsNullOrWhiteSpace(anthropicKey))
         {
             var secretRef = new SecretRef("keychain", "config-bootstrap", "anthropic");
             await _secretStore.UpsertAsync(secretRef, anthropicKey.Trim(), cancellationToken);
-            endpoint = BuildEndpoint(
-                id: AnthropicDefaultId,
+            pair = BuildAccountAndModel(
+                accountId: AnthropicDefaultAccountId,
+                modelId: AnthropicDefaultModelId,
                 displayName: "Claude Sonnet (default)",
                 provider: ModelProviderKind.Anthropic,
-                modelId: "claude-sonnet-4-20250514",
+                modelIdValue: "claude-sonnet-4-20250514",
                 secretRef: secretRef.ToReferenceString());
 
             _logger?.LogDebug("ConfigBootstrapWriter: stored Anthropic key in secret store.");
@@ -72,37 +75,42 @@ internal sealed class ConfigBootstrapWriter
         {
             var secretRef = new SecretRef("keychain", "config-bootstrap", "openai");
             await _secretStore.UpsertAsync(secretRef, openaiKey.Trim(), cancellationToken);
-            endpoint = BuildEndpoint(
-                id: OpenAIDefaultId,
+            pair = BuildAccountAndModel(
+                accountId: OpenAIDefaultAccountId,
+                modelId: OpenAIDefaultModelId,
                 displayName: "GPT-4o (default)",
                 provider: ModelProviderKind.OpenAI,
-                modelId: "gpt-4o",
+                modelIdValue: "gpt-4o",
                 secretRef: secretRef.ToReferenceString());
 
             _logger?.LogDebug("ConfigBootstrapWriter: stored OpenAI key in secret store.");
         }
 
-        if (endpoint is null)
+        if (pair is null)
         {
             _logger?.LogDebug("ConfigBootstrapWriter: no API key provided, nothing to write.");
             return;
         }
 
-        await _registry.AddAsync(endpoint, cancellationToken);
-        await _registry.SetDefaultAsync(endpoint.Id, DateTimeOffset.UtcNow, cancellationToken);
+        var (account, model) = pair.Value;
+
+        await _repo.AddAccountAsync(account, cancellationToken);
+        await _repo.AddModelAsync(model, cancellationToken);
+        await _repo.SetGlobalDefaultAsync(model.Id, DateTimeOffset.UtcNow, cancellationToken);
 
         _logger?.LogInformation(
-            "ConfigBootstrapWriter: wrote endpoint '{DisplayName}' " +
-            "(provider={Provider}, modelId={ModelId}) and set as default.",
-            endpoint.DisplayName, endpoint.Provider, endpoint.ModelId);
+            "ConfigBootstrapWriter: wrote account '{DisplayName}' " +
+            "(provider={Provider}, modelId={ModelId}) and set model as global default.",
+            account.DisplayName, account.ProviderKind, model.ModelId);
     }
 
     // ── Setup Wizard path ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// If the model registry is empty, writes a single endpoint for the specified
-    /// provider / model combination and marks it as the default.
-    /// No-op if the registry already contains at least one endpoint.
+    /// If the provider account repository is empty, writes a single account + model
+    /// for the specified provider / model combination and marks the model as the
+    /// global default.
+    /// No-op if the repository already contains at least one account.
     /// Used by the Setup Wizard POST /setup/complete path.
     /// </summary>
     public async Task WriteIfAbsentAsync(
@@ -113,15 +121,16 @@ internal sealed class ConfigBootstrapWriter
         string? displayName,
         CancellationToken cancellationToken = default)
     {
-        var existing = await _registry.ListAsync(cancellationToken);
+        var existing = await _repo.ListAccountsAsync(cancellationToken);
         if (existing.Count > 0)
         {
             _logger?.LogDebug(
-                "ConfigBootstrapWriter: registry has {Count} endpoint(s), skipping.", existing.Count);
+                "ConfigBootstrapWriter: repository has {Count} account(s), skipping.", existing.Count);
             return;
         }
 
-        var id = Slugify($"{provider}-{modelId}");
+        var accountId = Slugify($"{provider}-{modelId}");
+        var accountModelId = Slugify($"{provider}-{modelId}-model");
         var name = !string.IsNullOrWhiteSpace(displayName)
             ? displayName.Trim()
             : $"{provider} / {modelId}";
@@ -129,53 +138,66 @@ internal sealed class ConfigBootstrapWriter
         string? secretRef = null;
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            var secret = new SecretRef("keychain", "config-bootstrap", id);
+            var secret = new SecretRef("keychain", "config-bootstrap", accountId);
             await _secretStore.UpsertAsync(secret, apiKey.Trim(), cancellationToken);
             secretRef = secret.ToReferenceString();
-            _logger?.LogDebug("ConfigBootstrapWriter: stored API key for '{Id}' in secret store.", id);
+            _logger?.LogDebug("ConfigBootstrapWriter: stored API key for '{Id}' in secret store.", accountId);
         }
 
-        var endpoint = BuildEndpoint(
-            id: id,
+        var (account, model) = BuildAccountAndModel(
+            accountId: accountId,
+            modelId: accountModelId,
             displayName: name,
             provider: provider,
-            modelId: modelId,
+            modelIdValue: modelId,
             secretRef: secretRef,
             baseUrl: string.IsNullOrWhiteSpace(baseUrl) ? null : baseUrl.Trim());
 
-        await _registry.AddAsync(endpoint, cancellationToken);
-        await _registry.SetDefaultAsync(id, DateTimeOffset.UtcNow, cancellationToken);
+        await _repo.AddAccountAsync(account, cancellationToken);
+        await _repo.AddModelAsync(model, cancellationToken);
+        await _repo.SetGlobalDefaultAsync(model.Id, DateTimeOffset.UtcNow, cancellationToken);
 
         _logger?.LogInformation(
-            "ConfigBootstrapWriter: wrote endpoint '{DisplayName}' " +
-            "(provider={Provider}, modelId={ModelId}) and set as default.",
+            "ConfigBootstrapWriter: wrote account '{DisplayName}' " +
+            "(provider={Provider}, modelId={ModelId}) and set model as global default.",
             name, provider, modelId);
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────
 
-    private static ModelEndpoint BuildEndpoint(
-        string id,
+    private static (ProviderAccount Account, AccountModel Model) BuildAccountAndModel(
+        string accountId,
+        string modelId,
         string displayName,
         ModelProviderKind provider,
-        string modelId,
+        string modelIdValue,
         string? secretRef,
         string? baseUrl = null)
     {
         var now = DateTimeOffset.UtcNow;
-        return new ModelEndpoint(
-            Id: id,
+        var account = new ProviderAccount(
+            Id: accountId,
             DisplayName: displayName,
-            Provider: provider,
-            ModelId: modelId,
+            ProviderKind: provider,
             BaseUrl: baseUrl,
-            ApiKeyEnvironmentVariable: null,
             ApiKeySecretRef: secretRef,
+            ApiKeyEnvironmentVariable: null,
+            AccessMode: "api",
             Enabled: true,
-            Capabilities: ModelCapabilitySet.Text,
-            IsDefault: false,   // SetDefaultAsync is called right after AddAsync
             CreatedAt: now,
             UpdatedAt: now);
+        var model = new AccountModel(
+            Id: modelId,
+            AccountId: accountId,
+            DisplayName: displayName,
+            ModelId: modelIdValue,
+            Capabilities: ModelCapabilitySet.Text,
+            IsDefaultForAccount: true,
+            IsGlobalDefault: false, // SetGlobalDefaultAsync is called right after AddModelAsync
+            Enabled: true,
+            CreatedAt: now,
+            UpdatedAt: now);
+        return (account, model);
     }
 
     private static string Slugify(string input)

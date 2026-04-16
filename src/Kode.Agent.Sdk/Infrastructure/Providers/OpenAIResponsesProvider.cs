@@ -23,6 +23,7 @@ namespace Kode.Agent.Sdk.Infrastructure.Providers;
 public sealed class OpenAIResponsesProvider : IModelProvider
 {
     private readonly HttpClient _httpClient;
+    private readonly RetryPolicy _retryPolicy;
     private readonly ILogger<OpenAIResponsesProvider>? _logger;
     private readonly string _endpoint;
 
@@ -40,6 +41,7 @@ public sealed class OpenAIResponsesProvider : IModelProvider
     public OpenAIResponsesProvider(HttpClient httpClient, OpenAIResponsesOptions options, ILogger<OpenAIResponsesProvider>? logger = null)
     {
         _logger = logger;
+        _retryPolicy = options.RetryPolicy ?? RetryPolicy.Default;
         var baseUrl = options.BaseUrl?.TrimEnd('/') ?? "https://api.openai.com/v1";
         _endpoint = baseUrl + "/responses";
         _httpClient = httpClient;
@@ -55,6 +57,7 @@ public sealed class OpenAIResponsesProvider : IModelProvider
     internal OpenAIResponsesProvider(HttpMessageHandler handler, OpenAIResponsesOptions options, ILogger<OpenAIResponsesProvider>? logger = null)
     {
         _logger = logger;
+        _retryPolicy = options.RetryPolicy ?? RetryPolicy.Default;
         var baseUrl = options.BaseUrl?.TrimEnd('/') ?? "https://api.openai.com/v1";
         _endpoint = baseUrl + "/responses";
         _httpClient = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
@@ -80,6 +83,18 @@ public sealed class OpenAIResponsesProvider : IModelProvider
         ModelRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        await foreach (var chunk in ProviderRetryHelper.StreamWithRetryAsync(
+            ct => StreamCoreAsync(request, ct),
+            _retryPolicy, _logger, ProviderName, cancellationToken))
+        {
+            yield return chunk;
+        }
+    }
+
+    private async IAsyncEnumerable<StreamChunk> StreamCoreAsync(
+        ModelRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         _logger?.LogDebug("OpenAI Responses stream: model={Model}, tools={ToolCount}",
             request.Model, request.Tools?.Count ?? 0);
 
@@ -98,7 +113,9 @@ public sealed class OpenAIResponsesProvider : IModelProvider
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger?.LogError("OpenAI Responses API error {Status}: {Body}", (int)response.StatusCode, errorBody);
             throw new HttpRequestException(
-                $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}). Body: {errorBody}");
+                $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}). Body: {errorBody}",
+                inner: null,
+                statusCode: response.StatusCode);
         }
 
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -107,20 +124,25 @@ public sealed class OpenAIResponsesProvider : IModelProvider
             yield return chunk;
     }
 
-    public async Task<ModelResponse> CompleteAsync(
+    public Task<ModelResponse> CompleteAsync(
         ModelRequest request, CancellationToken cancellationToken = default)
     {
-        var body = BuildRequestBody(request, stream: false);
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint)
-        {
-            Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json")
-        };
+        return ProviderRetryHelper.ExecuteWithRetryAsync(
+            async ct =>
+            {
+                var body = BuildRequestBody(request, stream: false);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _endpoint)
+                {
+                    Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json")
+                };
 
-        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-        response.EnsureSuccessStatusCode();
+                using var response = await _httpClient.SendAsync(httpRequest, ct);
+                response.EnsureSuccessStatusCode();
 
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        return ParseCompleteResponse(json);
+                var json = await response.Content.ReadAsStringAsync(ct);
+                return ParseCompleteResponse(json);
+            },
+            _retryPolicy, _logger, ProviderName, cancellationToken);
     }
 
     public async Task<bool> ValidateAsync(CancellationToken cancellationToken = default)
@@ -621,4 +643,10 @@ public class OpenAIResponsesOptions
 
     /// <summary>Additional HTTP headers sent with every request.</summary>
     public IReadOnlyDictionary<string, string>? CustomHeaders { get; init; }
+
+    /// <summary>
+    /// Retry policy for transient errors (rate limits, overload, timeouts).
+    /// Defaults to <see cref="RetryPolicy.Default"/> when null.
+    /// </summary>
+    public RetryPolicy? RetryPolicy { get; init; }
 }

@@ -35,6 +35,7 @@ internal sealed class DefaultRuntimeModelProviderFactory : IRuntimeModelProvider
                     ApiKey = snapshot.OpenAIApiKey!,
                     BaseUrl = snapshot.OpenAIBaseUrl,
                     CustomHeaders = snapshot.CustomHeaders,
+                    RetryPolicy = RetryPolicy.Default,
                 },
                 _loggerFactory?.CreateLogger<OpenAIProvider>()),
             RuntimeProviderKind.OpenAIResponses => new OpenAIResponsesProvider(
@@ -44,6 +45,7 @@ internal sealed class DefaultRuntimeModelProviderFactory : IRuntimeModelProvider
                     ApiKey = snapshot.OpenAIApiKey!,
                     BaseUrl = snapshot.OpenAIBaseUrl,
                     CustomHeaders = snapshot.CustomHeaders,
+                    RetryPolicy = RetryPolicy.Default,
                 },
                 _loggerFactory?.CreateLogger<OpenAIResponsesProvider>()),
             RuntimeProviderKind.Anthropic => new AnthropicProvider(
@@ -54,6 +56,7 @@ internal sealed class DefaultRuntimeModelProviderFactory : IRuntimeModelProvider
                     BaseUrl = snapshot.AnthropicBaseUrl,
                     ModelId = snapshot.DefaultModel,
                     CustomHeaders = snapshot.CustomHeaders,
+                    RetryPolicy = RetryPolicy.Default,
                 },
                 _loggerFactory?.CreateLogger<AnthropicProvider>()),
             _ => throw new InvalidOperationException("KodaClaw chat is not configured. Set KODACLAW_DEFAULT_MODEL and one provider API key."),

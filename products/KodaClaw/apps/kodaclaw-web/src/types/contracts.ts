@@ -346,7 +346,7 @@ export interface MediaMeta {
 }
 
 export interface ChatStreamEvent {
-  type: "text_chunk" | "done" | "error" | "tool_warning" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working" | "session_rotated" | "subagent_start" | "subagent_working" | "subagent_tool_done";
+  type: "text_chunk" | "done" | "error" | "tool_warning" | "model_retrying" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working" | "session_rotated" | "subagent_start" | "subagent_working" | "subagent_tool_done";
   sessionId: string;
   step?: number | null;
   sequence?: number | null;
@@ -511,8 +511,8 @@ export interface SessionDetail {
   promptReportDelta?: PromptReportDelta | null;
   recentPromptReports?: PromptReport[] | null;
   title?: string | null;
-  modelEndpointId?: string | null;
-  modelEndpointName?: string | null;
+  accountModelId?: string | null;
+  accountModelName?: string | null;
   modelCapabilities?: number;
 }
 
@@ -628,29 +628,48 @@ export interface UpsertCanvasArtifactRequest {
   metadataJson?: string | null;
 }
 
-export interface ModelEndpoint {
+export interface ModelPricing {
+  inputTokenPrice?: number | null;
+  outputTokenPrice?: number | null;
+  currency: string;
+  pricingModel: string;
+  pricingNote?: string | null;
+}
+
+export interface AccountModelResponse {
+  id: string;
+  accountId: string;
+  displayName: string;
+  modelId: string;
+  capabilities: number;
+  isDefaultForAccount: boolean;
+  isGlobalDefault: boolean;
+  enabled: boolean;
+  contextWindowSize: number;
+  maxOutputTokens: number;
+  isReasoning: boolean;
+  supportsToolCalling: boolean;
+  pricing?: ModelPricing | null;
+}
+
+export interface ProviderAccountResponse {
   id: string;
   displayName: string;
-  provider: ModelProviderKind;
-  modelId: string;
+  providerKind: ModelProviderKind;
   baseUrl?: string | null;
-  apiKeyEnvironmentVariable?: string | null;
-  apiKeySecretRef?: string | null;
+  accessMode?: string | null;
   enabled: boolean;
-  capabilities: number;
-  isDefault: boolean;
+  hasApiKey: boolean;
   createdAt: string;
   updatedAt: string;
-  contextWindowSize?: number;
-  maxOutputTokens?: number;
-  isReasoning?: boolean;
-  supportsToolCalling?: boolean;
+  models: AccountModelResponse[];
+  /** Non-sensitive account fields exposed for the "edit endpoint" modal. */
+  apiKeyEnvironmentVariable?: string | null;
   customHeaders?: Record<string, string> | null;
 }
 
-export interface ModelsQueryResponse {
-  items: ModelEndpoint[];
-}
+/** @deprecated Use ProviderAccountResponse + AccountModelResponse instead */
+export type ModelEndpoint = AccountModelResponse;
 
 export interface PluginRuntimeSpec {
   transport: PluginTransportKind;
@@ -999,38 +1018,49 @@ export interface PatchChannelAccountRequest {
   configurationJson?: string | null;
 }
 
-export interface CreateModelEndpointRequest {
+export interface CreateAccountModelRequest {
   displayName: string;
-  provider: ModelProviderKind;
   modelId: string;
-  baseUrl?: string | null;
-  apiKeyEnvironmentVariable?: string | null;
-  apiKeySecretRef?: string | null;
-  enabled?: boolean;
   capabilities?: number;
   contextWindowSize?: number;
   maxOutputTokens?: number;
   isReasoning?: boolean;
   supportsToolCalling?: boolean;
+  isDefaultForAccount?: boolean;
+  isGlobalDefault?: boolean;
+  pricing?: ModelPricing | null;
+}
+
+export interface CreateProviderAccountRequest {
+  displayName: string;
+  providerKind: ModelProviderKind;
+  baseUrl?: string | null;
   apiKeyValue?: string | null;
+  apiKeyEnvironmentVariable?: string | null;
+  accessMode?: string | null;
+  customHeaders?: Record<string, string> | null;
+  models: CreateAccountModelRequest[];
+}
+
+export interface UpdateProviderAccountRequest {
+  displayName?: string | null;
+  baseUrl?: string | null;
+  apiKeyValue?: string | null;
+  apiKeyEnvironmentVariable?: string | null;
+  enabled?: boolean | null;
   customHeaders?: Record<string, string> | null;
 }
 
-export interface UpdateModelEndpointRequest {
-  displayName: string;
-  provider: ModelProviderKind;
-  modelId: string;
-  baseUrl?: string | null;
-  apiKeyEnvironmentVariable?: string | null;
-  apiKeySecretRef?: string | null;
-  enabled?: boolean;
-  capabilities?: number;
-  contextWindowSize?: number;
-  maxOutputTokens?: number;
-  isReasoning?: boolean;
-  supportsToolCalling?: boolean;
-  apiKeyValue?: string | null;
-  customHeaders?: Record<string, string> | null;
+export interface UpdateAccountModelRequest {
+  displayName?: string | null;
+  modelId?: string | null;
+  capabilities?: number | null;
+  contextWindowSize?: number | null;
+  maxOutputTokens?: number | null;
+  isReasoning?: boolean | null;
+  supportsToolCalling?: boolean | null;
+  enabled?: boolean | null;
+  pricing?: ModelPricing | null;
 }
 
 export interface KodaClawSettings {
@@ -1145,10 +1175,12 @@ export interface ModelPreset {
   tier: 'Recommended' | 'Advanced' | 'Fast' | 'Reasoning' | 'Local';
   description: string;
   costHint?: string;
+  pricing?: ModelPricing | null;
   requiresBaseUrl: boolean;
   defaultCapabilities: number;
   accessMode?: 'api' | 'coding-plan';
   anthropicBaseUrl?: string;
+  group?: string;
 }
 
 export interface ModelConnectionTestRequest {
@@ -1157,7 +1189,7 @@ export interface ModelConnectionTestRequest {
   baseUrl?: string;
   apiKey: string;
   provider?: ModelProviderKind;
-  endpointId?: string;
+  accountId?: string;
 }
 
 export interface ModelConnectionTestResponse {

@@ -361,6 +361,28 @@ public record ErrorEvent : MonitorEvent
 }
 
 /// <summary>
+/// Model provider is retrying after a transient error (rate limit, overload, timeout).
+/// Emitted before each retry delay so consumers can notify users or send typing indicators.
+/// </summary>
+public record ModelRetryingEvent : MonitorEvent
+{
+    /// <summary>Provider name, e.g. "anthropic" or "openai".</summary>
+    public required string Provider { get; init; }
+
+    /// <summary>1-based retry attempt number.</summary>
+    public required int Attempt { get; init; }
+
+    /// <summary>Maximum retries configured for this policy.</summary>
+    public required int MaxRetries { get; init; }
+
+    /// <summary>Back-off delay (seconds) before the next attempt.</summary>
+    public required double DelaySeconds { get; init; }
+
+    /// <summary>Truncated error message that triggered the retry.</summary>
+    public required string Reason { get; init; }
+}
+
+/// <summary>
 /// Event store persistence failure (aligned with TS monitor storage_failure; degraded, may be in-memory only).
 /// </summary>
 public record StorageFailureEvent : MonitorEvent

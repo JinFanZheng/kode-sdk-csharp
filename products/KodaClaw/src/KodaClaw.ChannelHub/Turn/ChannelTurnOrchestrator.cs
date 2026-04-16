@@ -466,9 +466,11 @@ public sealed class ChannelTurnOrchestrator
             return "⚠️ 消息可能触发了内容安全过滤，请调整后重试。";
         if (errorMessage != null && (
                 errorMessage.Contains("访问量过大") ||
+                errorMessage.Contains("您的账户已达到速率限制") ||
                 errorMessage.Contains("overloaded", StringComparison.OrdinalIgnoreCase) ||
                 errorMessage.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
-                errorMessage.Contains("429")))
+                errorMessage.Contains("429") ||
+                errorMessage.Contains("529")))
             return "⚠️ 模型当前访问量过大，请稍后重试。";
         if (errorMessage != null && (
                 errorMessage.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||

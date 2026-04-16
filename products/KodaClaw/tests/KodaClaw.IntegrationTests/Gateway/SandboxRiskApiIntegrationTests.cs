@@ -41,7 +41,7 @@ public sealed class SandboxRiskApiIntegrationTests
         payload.ExecutionProfiles.Should().Contain(item => item.Key == "docker-isolation" && !item.Active && item.Supported);
         payload.PluginRisk.TotalCount.Should().Be(0);
         payload.ChannelRisk.TotalThreads.Should().Be(0);
-        payload.ApprovalPosture.RequireApprovalForExternalActions.Should().BeTrue();
+        payload.ApprovalPosture.RequireApprovalForExternalActions.Should().BeFalse();
         payload.OperatorWarnings.Should().Contain(item => item.Contains("Local sandbox", StringComparison.Ordinal));
     }
 

@@ -24,7 +24,7 @@ public static partial class GatewayApp
         app.MapPost("/setup/complete", async (
             SetupCompleteRequest request,
             ConfigBootstrapWriter writer,
-            IModelRegistryRepository registry,
+            IProviderAccountRepository accountRepo,
             OnboardingStateService onboardingStateService,
             IWorkspaceService workspaceService,
             CancellationToken cancellationToken) =>
@@ -79,12 +79,12 @@ public static partial class GatewayApp
                     cancellationToken);
             }
 
-            var endpoints = await registry.ListAsync(cancellationToken);
+            var accounts = await accountRepo.ListAccountsAsync(cancellationToken);
             return Results.Ok(new
             {
-                success       = true,
-                endpointCount = endpoints.Count,
-                message       = "Setup complete. KodaClaw is ready."
+                success      = true,
+                accountCount = accounts.Count,
+                message      = "Setup complete. KodaClaw is ready."
             });
         });
     }

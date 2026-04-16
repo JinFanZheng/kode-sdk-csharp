@@ -24,30 +24,38 @@ internal static class RuntimeConfigurationBootstrap
             return directResult;
         }
 
-        var defaultEndpoint = TryLoadDefaultModelEndpoint(workspaceOptions);
-        if (defaultEndpoint is null || !defaultEndpoint.Enabled)
+        var defaultModel = TryLoadDefaultAccountModel(workspaceOptions);
+        if (defaultModel is null || !defaultModel.AccountEnabled || !defaultModel.ModelEnabled)
         {
             return directResult;
         }
 
-        var resolvedApiKey = ResolveModelEndpointApiKey(defaultEndpoint, secretStore, configuration);
-        return defaultEndpoint.Provider switch
+        var resolvedApiKey = ResolveAccountApiKey(defaultModel, secretStore, configuration);
+        return defaultModel.ProviderKind switch
         {
             ModelProviderKind.OpenAI or ModelProviderKind.OpenAICompatible => directResult with
             {
-                DefaultModel = defaultEndpoint.ModelId,
+                DefaultModel = defaultModel.ModelId,
                 OpenAIApiKey = resolvedApiKey,
-                OpenAIBaseUrl = NormalizeBaseUrl(defaultEndpoint.BaseUrl),
+                OpenAIBaseUrl = NormalizeBaseUrl(defaultModel.BaseUrl),
                 AnthropicApiKey = null,
                 AnthropicBaseUrl = null,
             },
             ModelProviderKind.Anthropic or ModelProviderKind.AnthropicCompatible => directResult with
             {
-                DefaultModel = defaultEndpoint.ModelId,
+                DefaultModel = defaultModel.ModelId,
                 OpenAIApiKey = null,
                 OpenAIBaseUrl = null,
                 AnthropicApiKey = resolvedApiKey,
-                AnthropicBaseUrl = NormalizeBaseUrl(defaultEndpoint.BaseUrl),
+                AnthropicBaseUrl = NormalizeBaseUrl(defaultModel.BaseUrl),
+            },
+            ModelProviderKind.OpenAIResponses => directResult with
+            {
+                DefaultModel = defaultModel.ModelId,
+                OpenAIApiKey = resolvedApiKey,
+                OpenAIBaseUrl = NormalizeBaseUrl(defaultModel.BaseUrl),
+                AnthropicApiKey = null,
+                AnthropicBaseUrl = null,
             },
             _ => directResult,
         };
@@ -106,37 +114,135 @@ internal static class RuntimeConfigurationBootstrap
         return null;
     }
 
-    private static StoredModelEndpoint? TryLoadDefaultModelEndpoint(KodaClawWorkspaceOptions workspaceOptions)
+    /// <summary>
+    /// Scans config/accounts/ and config/account-models/ to find the global-default model
+    /// and its owning account. Falls back to old config/models/ for migration compatibility.
+    /// </summary>
+    private static StoredDefaultModel? TryLoadDefaultAccountModel(KodaClawWorkspaceOptions workspaceOptions)
     {
-        var modelsDir = Path.Combine(
-            workspaceOptions.ResolveRootPath(),
-            KodaClawWorkspaceLayout.ConfigDirectory,
-            "models");
-
-        if (!Directory.Exists(modelsDir))
-        {
-            return null;
-        }
-
+        var rootPath = workspaceOptions.ResolveRootPath();
+        var configDir = Path.Combine(rootPath, KodaClawWorkspaceLayout.ConfigDirectory);
         var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         jsonOptions.Converters.Add(new JsonStringEnumConverter());
 
+        // Try new format: config/accounts/ + config/account-models/
+        var accountsDir = Path.Combine(configDir, "accounts");
+        var modelsDir = Path.Combine(configDir, "account-models");
+
+        if (Directory.Exists(accountsDir) && Directory.Exists(modelsDir))
+        {
+            var result = TryLoadFromNewFormat(accountsDir, modelsDir, jsonOptions);
+            if (result is not null) return result;
+        }
+
+        // Fallback: old config/models/ format for migration compat
+        var oldModelsDir = Path.Combine(configDir, "models");
+        if (Directory.Exists(oldModelsDir))
+        {
+            return TryLoadFromLegacyFormat(oldModelsDir, jsonOptions);
+        }
+
+        return null;
+    }
+
+    private static StoredDefaultModel? TryLoadFromNewFormat(
+        string accountsDir, string modelsDir, JsonSerializerOptions jsonOptions)
+    {
+        // Find the global-default model
+        AccountModel? defaultModel = null;
         foreach (var file in Directory.EnumerateFiles(modelsDir, "*.json"))
         {
             try
             {
                 var json = File.ReadAllText(file);
-                var endpoint = JsonSerializer.Deserialize<ModelEndpoint>(json, jsonOptions);
-                if (endpoint is { IsDefault: true })
+                var model = JsonSerializer.Deserialize<AccountModel>(json, jsonOptions);
+                if (model is { IsGlobalDefault: true, Enabled: true })
                 {
-                    return new StoredModelEndpoint(
-                        Provider: endpoint.Provider,
-                        ModelId: endpoint.ModelId,
-                        BaseUrl: endpoint.BaseUrl,
-                        ApiKeyEnvironmentVariable: endpoint.ApiKeyEnvironmentVariable,
-                        ApiKeySecretRef: endpoint.ApiKeySecretRef,
-                        Enabled: endpoint.Enabled);
+                    defaultModel = model;
+                    break;
                 }
+            }
+            catch { /* skip corrupt files */ }
+        }
+
+        if (defaultModel is null) return null;
+
+        // Load the owning account
+        var accountFile = Path.Combine(accountsDir, $"{defaultModel.AccountId}.json");
+        if (!File.Exists(accountFile)) return null;
+
+        try
+        {
+            var json = File.ReadAllText(accountFile);
+            var account = JsonSerializer.Deserialize<ProviderAccount>(json, jsonOptions);
+            if (account is null) return null;
+
+            return new StoredDefaultModel(
+                ProviderKind: account.ProviderKind,
+                ModelId: defaultModel.ModelId,
+                BaseUrl: account.BaseUrl,
+                ApiKeyEnvironmentVariable: account.ApiKeyEnvironmentVariable,
+                ApiKeySecretRef: account.ApiKeySecretRef,
+                AccountEnabled: account.Enabled,
+                ModelEnabled: defaultModel.Enabled);
+        }
+        catch { return null; }
+    }
+
+    private static StoredDefaultModel? TryLoadFromLegacyFormat(
+        string modelsDir, JsonSerializerOptions jsonOptions)
+    {
+        foreach (var file in Directory.EnumerateFiles(modelsDir, "*.json"))
+        {
+            try
+            {
+                var json = File.ReadAllText(file);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                var isDefault = root.TryGetProperty("IsDefault", out var isDefaultProp)
+                    ? isDefaultProp.GetBoolean()
+                    : (root.TryGetProperty("isDefault", out isDefaultProp) && isDefaultProp.GetBoolean());
+
+                if (!isDefault) continue;
+
+                var providerStr = root.TryGetProperty("Provider", out var pProp)
+                    ? pProp.GetString()
+                    : (root.TryGetProperty("provider", out pProp) ? pProp.GetString() : null);
+
+                if (!Enum.TryParse<ModelProviderKind>(providerStr, ignoreCase: true, out var provider))
+                    continue;
+
+                var modelId = root.TryGetProperty("ModelId", out var mProp)
+                    ? mProp.GetString()
+                    : (root.TryGetProperty("modelId", out mProp) ? mProp.GetString() : null);
+
+                if (string.IsNullOrWhiteSpace(modelId)) continue;
+
+                var baseUrl = root.TryGetProperty("BaseUrl", out var bProp)
+                    ? bProp.GetString()
+                    : (root.TryGetProperty("baseUrl", out bProp) ? bProp.GetString() : null);
+
+                var apiKeyEnvVar = root.TryGetProperty("ApiKeyEnvironmentVariable", out var eProp)
+                    ? eProp.GetString()
+                    : (root.TryGetProperty("apiKeyEnvironmentVariable", out eProp) ? eProp.GetString() : null);
+
+                var apiKeySecretRef = root.TryGetProperty("ApiKeySecretRef", out var sProp)
+                    ? sProp.GetString()
+                    : (root.TryGetProperty("apiKeySecretRef", out sProp) ? sProp.GetString() : null);
+
+                var enabled = root.TryGetProperty("Enabled", out var enProp)
+                    ? enProp.GetBoolean()
+                    : (!root.TryGetProperty("enabled", out enProp) || enProp.GetBoolean());
+
+                return new StoredDefaultModel(
+                    ProviderKind: provider,
+                    ModelId: modelId,
+                    BaseUrl: baseUrl,
+                    ApiKeyEnvironmentVariable: apiKeyEnvVar,
+                    ApiKeySecretRef: apiKeySecretRef,
+                    AccountEnabled: enabled,
+                    ModelEnabled: enabled);
             }
             catch
             {
@@ -147,12 +253,12 @@ internal static class RuntimeConfigurationBootstrap
         return null;
     }
 
-    private static string ResolveModelEndpointApiKey(
-        StoredModelEndpoint endpoint,
+    private static string ResolveAccountApiKey(
+        StoredDefaultModel model,
         ISecretStore secretStore,
         IConfiguration configuration)
     {
-        if (SecretRef.TryParse(endpoint.ApiKeySecretRef, out var secretRef))
+        if (SecretRef.TryParse(model.ApiKeySecretRef, out var secretRef))
         {
             var resolvedFromSecretStore = secretStore.GetAsync(secretRef).GetAwaiter().GetResult();
             if (!string.IsNullOrWhiteSpace(resolvedFromSecretStore))
@@ -161,7 +267,7 @@ internal static class RuntimeConfigurationBootstrap
             }
         }
 
-        var environmentVariable = Normalize(endpoint.ApiKeyEnvironmentVariable);
+        var environmentVariable = Normalize(model.ApiKeyEnvironmentVariable);
         return string.IsNullOrWhiteSpace(environmentVariable)
             ? string.Empty
             : Normalize(Environment.GetEnvironmentVariable(environmentVariable) ?? configuration[environmentVariable]) ?? string.Empty;
@@ -184,11 +290,12 @@ internal static class RuntimeConfigurationBootstrap
         return normalized?.TrimEnd('/');
     }
 
-    private sealed record StoredModelEndpoint(
-        ModelProviderKind Provider,
+    private sealed record StoredDefaultModel(
+        ModelProviderKind ProviderKind,
         string ModelId,
         string? BaseUrl,
         string? ApiKeyEnvironmentVariable,
         string? ApiKeySecretRef,
-        bool Enabled);
+        bool AccountEnabled,
+        bool ModelEnabled);
 }

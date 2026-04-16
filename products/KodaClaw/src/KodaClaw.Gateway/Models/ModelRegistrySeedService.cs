@@ -1,5 +1,4 @@
 using KodaClaw.Contracts;
-using KodaClaw.ModelHub;
 using KodaClaw.Runtime;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -7,58 +6,60 @@ using Microsoft.Extensions.Logging;
 namespace KodaClaw.Gateway;
 
 /// <summary>
-/// Runs once at startup: seeds the model registry from env-var configuration
-/// when the registry is empty. This ensures a smooth upgrade path for users
-/// who previously configured the agent via environment variables.
+/// Runs once at startup: seeds the provider account repository from env-var
+/// configuration when the repository is empty. This ensures a smooth upgrade
+/// path for users who previously configured the agent via environment variables.
 ///
-/// After seeding, the Registry becomes the single source of truth and env vars
-/// are no longer consulted for model routing (see RegistryAwareModelProvider).
+/// After seeding, the Repository becomes the single source of truth and env vars
+/// are no longer consulted for model routing (see AccountAwareModelProvider).
 /// </summary>
 internal sealed class ModelRegistrySeedService : IHostedService
 {
-    private readonly IModelRegistryRepository _registry;
+    private readonly IProviderAccountRepository _repo;
     private readonly IRuntimeConfigurationResolver _runtimeConfig;
     private readonly ILogger<ModelRegistrySeedService>? _logger;
 
     public ModelRegistrySeedService(
-        IModelRegistryRepository registry,
+        IProviderAccountRepository repo,
         IRuntimeConfigurationResolver runtimeConfig,
         ILogger<ModelRegistrySeedService>? logger = null)
     {
-        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _repo = repo ?? throw new ArgumentNullException(nameof(repo));
         _runtimeConfig = runtimeConfig ?? throw new ArgumentNullException(nameof(runtimeConfig));
         _logger = logger;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var existing = await _registry.ListAsync(cancellationToken);
+        var existing = await _repo.ListAccountsAsync(cancellationToken);
         if (existing.Count > 0)
         {
-            // Registry already populated — nothing to seed.
-            _logger?.LogDebug("ModelRegistrySeedService: registry has {Count} endpoints, skipping seed.", existing.Count);
+            _logger?.LogDebug("ModelRegistrySeedService: repository has {Count} accounts, skipping seed.", existing.Count);
             return;
         }
 
         var snapshot = _runtimeConfig.Resolve();
-        var endpoint = TryBuildEndpoint(snapshot);
-        if (endpoint is null)
+        var result = TryBuildAccountAndModel(snapshot);
+        if (result is null)
         {
             _logger?.LogDebug("ModelRegistrySeedService: no env-var config found, nothing to seed.");
             return;
         }
 
-        await _registry.AddAsync(endpoint, cancellationToken);
-        await _registry.SetDefaultAsync(endpoint.Id, DateTimeOffset.UtcNow, cancellationToken);
+        var (account, model) = result.Value;
+        await _repo.AddAccountAsync(account, cancellationToken);
+        await _repo.AddModelAsync(model, cancellationToken);
+        await _repo.SetGlobalDefaultAsync(model.Id, DateTimeOffset.UtcNow, cancellationToken);
 
         _logger?.LogInformation(
-            "ModelRegistrySeedService: seeded endpoint '{DisplayName}' (provider={Provider}, modelId={ModelId}) from env-var config.",
-            endpoint.DisplayName, endpoint.Provider, endpoint.ModelId);
+            "ModelRegistrySeedService: seeded account '{DisplayName}' (provider={Provider}, modelId={ModelId}) from env-var config.",
+            account.DisplayName, account.ProviderKind, model.ModelId);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    private static ModelEndpoint? TryBuildEndpoint(RuntimeConfigurationSnapshot snapshot)
+    private static (ProviderAccount Account, AccountModel Model)? TryBuildAccountAndModel(
+        RuntimeConfigurationSnapshot snapshot)
     {
         if (string.IsNullOrWhiteSpace(snapshot.DefaultModel))
             return null;
@@ -82,7 +83,6 @@ internal sealed class ModelRegistrySeedService : IHostedService
         }
         else if (hasAnthropic && hasOpenAi)
         {
-            // Both set — pick by model name heuristic
             if (model.StartsWith("claude", StringComparison.OrdinalIgnoreCase))
             {
                 provider = ModelProviderKind.Anthropic;
@@ -100,23 +100,37 @@ internal sealed class ModelRegistrySeedService : IHostedService
         }
 
         var now = DateTimeOffset.UtcNow;
-        var id = $"model-seed-{Guid.NewGuid():N}";
+        var accountId = $"account-seed-{Guid.NewGuid():N}";
+        var modelId = $"model-seed-{Guid.NewGuid():N}";
+        var displayName = $"{model} (auto-seeded)";
 
-        return new ModelEndpoint(
-            Id: id,
-            DisplayName: $"{model} (auto-seeded)",
-            Provider: provider,
-            ModelId: model,
+        var account = new ProviderAccount(
+            Id: accountId,
+            DisplayName: displayName,
+            ProviderKind: provider,
             BaseUrl: provider == ModelProviderKind.Anthropic
                 ? snapshot.AnthropicBaseUrl
                 : snapshot.OpenAIBaseUrl,
-            ApiKeyEnvironmentVariable: apiKeyEnvVar,
             ApiKeySecretRef: null,
+            ApiKeyEnvironmentVariable: apiKeyEnvVar,
+            AccessMode: "api",
             Enabled: true,
+            CreatedAt: now,
+            UpdatedAt: now);
+
+        var accountModel = new AccountModel(
+            Id: modelId,
+            AccountId: accountId,
+            DisplayName: displayName,
+            ModelId: model,
             Capabilities: ModelCapabilitySet.Text,
-            IsDefault: false,   // SetDefaultAsync called separately
+            IsDefaultForAccount: true,
+            IsGlobalDefault: false, // SetGlobalDefaultAsync called separately
+            Enabled: true,
             CreatedAt: now,
             UpdatedAt: now,
             ContextWindowSize: 128_000);
+
+        return (account, accountModel);
     }
 }

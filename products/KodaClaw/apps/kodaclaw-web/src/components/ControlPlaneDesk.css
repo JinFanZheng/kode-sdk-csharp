@@ -1628,6 +1628,57 @@
   white-space: nowrap;
 }
 
+/* ── Provider grouped layout (ModelsSettingsDesk) ── */
+.model-provider-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.model-provider-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.model-provider-group__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.model-provider-group__label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.model-provider-group__url {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono, monospace);
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 1px 6px;
+  line-height: 1.6;
+}
+
+.model-provider-group__count {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+
+.model-provider-group__list {
+  margin: 0;
+}
+
 /* ── Connection test error detail ── */
 .connection-error-detail {
   margin: var(--space-2) 0 0;

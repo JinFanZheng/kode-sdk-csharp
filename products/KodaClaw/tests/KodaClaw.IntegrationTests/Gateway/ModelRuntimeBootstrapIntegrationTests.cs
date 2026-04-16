@@ -46,7 +46,7 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
             hosted.Services.GetService<IMainSessionService>().Should().NotBeNull();
             hosted.Services.GetRequiredService<MainSessionOptions>().Model.Should().Be("gpt-4o-mini");
             // RegistryAwareModelProvider is the singleton; ProviderName reflects the registry-first routing layer.
-            hosted.Services.GetRequiredService<IModelProvider>().ProviderName.Should().Be("registry");
+            hosted.Services.GetRequiredService<IModelProvider>().ProviderName.Should().Be("account");
         }
         finally
         {
@@ -63,21 +63,30 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
 
         try
         {
-            var repository = new JsonModelRegistryRepository(workspace.Path);
+            var repository = new JsonProviderAccountRepository(workspace.Path);
             var now = DateTimeOffset.UtcNow;
-            await repository.AddAsync(new ModelEndpoint(
-                Id: "model-default",
-                DisplayName: "Default endpoint",
-                Provider: ModelProviderKind.OpenAICompatible,
-                ModelId: "o3",
-                BaseUrl: "https://proxy.runtime.test",
+            await repository.AddAccountAsync(new ProviderAccount(
+                Id:                        "account-default",
+                DisplayName:               "Default account",
+                ProviderKind:              ModelProviderKind.OpenAICompatible,
+                BaseUrl:                   "https://proxy.runtime.test",
+                ApiKeySecretRef:           new SecretRef("env", "models", environmentKey).ToReferenceString(),
                 ApiKeyEnvironmentVariable: null,
-                ApiKeySecretRef: new SecretRef("env", "models", environmentKey).ToReferenceString(),
-                Enabled: true,
-                Capabilities: ModelCapabilitySet.Text,
-                IsDefault: true,
-                CreatedAt: now,
-                UpdatedAt: now));
+                AccessMode:                "api",
+                Enabled:                   true,
+                CreatedAt:                 now,
+                UpdatedAt:                 now));
+            await repository.AddModelAsync(new AccountModel(
+                Id:                  "model-default",
+                AccountId:           "account-default",
+                DisplayName:         "Default endpoint",
+                ModelId:             "o3",
+                Capabilities:        ModelCapabilitySet.Text,
+                IsDefaultForAccount: true,
+                IsGlobalDefault:     true,
+                Enabled:             true,
+                CreatedAt:           now,
+                UpdatedAt:           now));
 
             await using var hosted = await HostedGateway.StartAsync(
                 gatewayToken: GatewayToken,
@@ -97,7 +106,7 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
 
             hosted.Services.GetService<IMainSessionService>().Should().NotBeNull();
             hosted.Services.GetRequiredService<MainSessionOptions>().Model.Should().Be("o3");
-            hosted.Services.GetRequiredService<IModelProvider>().ProviderName.Should().Be("registry");
+            hosted.Services.GetRequiredService<IModelProvider>().ProviderName.Should().Be("account");
         }
         finally
         {
@@ -142,20 +151,32 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
             initialEvents[0].Error!.Message.Should().Contain("not configured");
 
             var createResponse = await hosted.Client.PostAsJsonAsync(
-                "/api/models",
-                new CreateModelEndpointRequest(
-                    DisplayName: "Dynamic OpenAI",
-                    Provider: ModelProviderKind.OpenAI,
-                    ModelId: "gpt-4o-mini",
+                "/api/provider-accounts",
+                new CreateProviderAccountRequest(
+                    DisplayName:               "Dynamic OpenAI",
+                    ProviderKind:              ModelProviderKind.OpenAI,
+                    BaseUrl:                   null,
+                    ApiKeyValue:               null,
                     ApiKeyEnvironmentVariable: environmentKey,
-                    Enabled: true,
-                    Capabilities: ModelCapabilitySet.Text));
+                    AccessMode:                null,
+                    CustomHeaders:             null,
+                    Models: new[]
+                    {
+                        new CreateAccountModelRequest(
+                            DisplayName:  "Dynamic OpenAI",
+                            ModelId:      "gpt-4o-mini",
+                            Capabilities: ModelCapabilitySet.Text),
+                    }));
             createResponse.EnsureSuccessStatusCode();
 
-            var created = await createResponse.Content.ReadFromJsonAsync<ModelEndpoint>();
+            var created = await createResponse.Content.ReadFromJsonAsync<ProviderAccountResponse>();
             created.Should().NotBeNull();
+            created!.Models.Should().NotBeEmpty();
+            var createdModelId = created.Models[0].Id;
 
-            var defaultResponse = await hosted.Client.PostAsync($"/api/models/{created!.Id}/default", content: null);
+            var defaultResponse = await hosted.Client.PostAsync(
+                $"/api/provider-accounts/{created.Id}/models/{createdModelId}/default",
+                content: null);
             defaultResponse.EnsureSuccessStatusCode();
 
             var activatedEvents = await ReadChatEventsAsync(hosted.Client, "after config");

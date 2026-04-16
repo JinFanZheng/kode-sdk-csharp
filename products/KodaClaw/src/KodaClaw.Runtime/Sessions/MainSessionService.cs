@@ -38,7 +38,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     private readonly IPluginLifecycleHost? _pluginLifecycleHost;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IWorkspaceReadinessService? _workspaceReadinessService;
-    private readonly KodaClaw.Contracts.IModelRegistryRepository? _modelRegistryRepository;
+    private readonly KodaClaw.Contracts.IProviderAccountRepository? _accountRepository;
     private readonly IMcpHubService? _mcpHubService;
     private readonly ISettingsRepository? _settingsRepository;
     private readonly IMemorySessionSummaryService? _sessionSummaryService;
@@ -56,7 +56,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         IPluginLifecycleHost? pluginLifecycleHost = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IWorkspaceReadinessService? workspaceReadinessService = null,
-        KodaClaw.Contracts.IModelRegistryRepository? modelRegistryRepository = null,
+        KodaClaw.Contracts.IProviderAccountRepository? accountRepository = null,
         IMcpHubService? mcpHubService = null,
         ISettingsRepository? settingsRepository = null,
         IMemorySessionSummaryService? sessionSummaryService = null)
@@ -72,7 +72,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         _pluginLifecycleHost = pluginLifecycleHost;
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _workspaceReadinessService = workspaceReadinessService;
-        _modelRegistryRepository = modelRegistryRepository;
+        _accountRepository = accountRepository;
         _mcpHubService = mcpHubService;
         _settingsRepository = settingsRepository;
         _sessionSummaryService = sessionSummaryService;
@@ -778,7 +778,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
             _options.Model,
-            _modelRegistryRepository,
+            _accountRepository,
             cancellationToken);
 
     private static readonly IReadOnlyList<string> BaselineContextFiles =
@@ -793,15 +793,15 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 
     private async Task<int> ResolvePromptCharacterBudgetAsync(CancellationToken cancellationToken)
     {
-        if (_modelRegistryRepository is null) return _options.MaxPromptCharacters;
+        if (_accountRepository is null) return _options.MaxPromptCharacters;
         try
         {
-            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+            var resolved = await _accountRepository.ResolveDefaultForAsync(
                 ModelCapabilitySet.Text, cancellationToken);
-            if (endpoint is null) return _options.MaxPromptCharacters;
+            if (resolved is null) return _options.MaxPromptCharacters;
             // Allocate 20% of usable context window to system prompt (× 4 chars/token); min = fallback default.
-            var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
-            var usableTokens = Math.Max(endpoint.ContextWindowSize - maxOutputCap, 0);
+            var maxOutputCap = Math.Min(resolved.Model.MaxOutputTokens, Math.Min((int)(resolved.Model.ContextWindowSize * 0.20), 16_384));
+            var usableTokens = Math.Max(resolved.Model.ContextWindowSize - maxOutputCap, 0);
             return Math.Max(usableTokens / 5 * 4, _options.MaxPromptCharacters);
         }
         catch
@@ -816,14 +816,14 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     /// </summary>
     private async Task<int> ResolveContextWindowSizeAsync(CancellationToken cancellationToken)
     {
-        if (_modelRegistryRepository is null) return _options.DefaultContextWindowSize;
+        if (_accountRepository is null) return _options.DefaultContextWindowSize;
         try
         {
-            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+            var resolved = await _accountRepository.ResolveDefaultForAsync(
                 ModelCapabilitySet.Text, cancellationToken);
-            if (endpoint is null) return _options.DefaultContextWindowSize;
-            var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
-            var available = endpoint.ContextWindowSize - maxOutputCap;
+            if (resolved is null) return _options.DefaultContextWindowSize;
+            var maxOutputCap = Math.Min(resolved.Model.MaxOutputTokens, Math.Min((int)(resolved.Model.ContextWindowSize * 0.20), 16_384));
+            var available = resolved.Model.ContextWindowSize - maxOutputCap;
             return available > 0 ? available : _options.DefaultContextWindowSize;
         }
         catch

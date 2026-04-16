@@ -22,6 +22,7 @@ public sealed class AnthropicProvider : IModelProvider
 {
     private readonly IAnthropicClient _client;
     private readonly AnthropicOptions _options;
+    private readonly RetryPolicy _retryPolicy;
     private readonly ILogger<AnthropicProvider>? _logger;
 
     public string ProviderName => "anthropic";
@@ -29,6 +30,7 @@ public sealed class AnthropicProvider : IModelProvider
     public AnthropicProvider(AnthropicOptions options, ILogger<AnthropicProvider>? logger = null)
     {
         _options = options;
+        _retryPolicy = options.RetryPolicy ?? RetryPolicy.Default;
         _logger = logger;
 
         _client = new AnthropicClient
@@ -62,6 +64,7 @@ public sealed class AnthropicProvider : IModelProvider
     public AnthropicProvider(HttpClient httpClient, AnthropicOptions options, ILogger<AnthropicProvider>? logger = null)
     {
         _options = options;
+        _retryPolicy = options.RetryPolicy ?? RetryPolicy.Default;
         _logger = logger;
 
         _client = new AnthropicClient
@@ -85,17 +88,29 @@ public sealed class AnthropicProvider : IModelProvider
         ModelRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var parameters = BuildMessageParameters(request);
+        await foreach (var chunk in ProviderRetryHelper.StreamWithRetryAsync(
+            ct => StreamCoreAsync(parameters, ct),
+            _retryPolicy, _logger, ProviderName, cancellationToken))
+        {
+            yield return chunk;
+        }
+    }
+
+    private async IAsyncEnumerable<StreamChunk> StreamCoreAsync(
+        MessageCreateParams parameters,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         using var providerActivity = KodeAgentActivitySource.Source.StartActivity("provider.stream");
         providerActivity?.SetTag("gen_ai.system", "anthropic");
-        providerActivity?.SetTag("gen_ai.request.model", request.Model);
+        providerActivity?.SetTag("gen_ai.request.model", parameters.Model);
 
         var streamStopwatch = Stopwatch.StartNew();
         var ttftRecorded = false;
 
         _logger?.LogDebug("Anthropic stream starting: model={Model}, tools={ToolCount}",
-            request.Model, request.Tools?.Count ?? 0);
+            parameters.Model, parameters.Tools?.Count ?? 0);
 
-        var parameters = BuildMessageParameters(request);
         var toolIdMap = new Dictionary<long, string>();
         var toolNameMap = new Dictionary<long, string>();
         var toolInputBuilders = new Dictionary<long, System.Text.StringBuilder>();
@@ -133,8 +148,8 @@ public sealed class AnthropicProvider : IModelProvider
                         var ttftMs = streamStopwatch.ElapsedMilliseconds;
                         providerActivity?.SetTag("gen_ai.client.time_to_first_token_ms", ttftMs);
                         KodeAgentMetrics.ModelTtft.Record(ttftMs,
-                            new TagList { { "model", request.Model }, { "provider", "anthropic" } });
-                        _logger?.LogDebug("Anthropic TTFT: model={Model}, ttft_ms={TtftMs}", request.Model, ttftMs);
+                            new TagList { { "model", parameters.Model }, { "provider", "anthropic" } });
+                        _logger?.LogDebug("Anthropic TTFT: model={Model}, ttft_ms={TtftMs}", parameters.Model, ttftMs);
                     }
 
                     yield return new StreamChunk
@@ -184,8 +199,8 @@ public sealed class AnthropicProvider : IModelProvider
                         var ttftMs = streamStopwatch.ElapsedMilliseconds;
                         providerActivity?.SetTag("gen_ai.client.time_to_first_token_ms", ttftMs);
                         KodeAgentMetrics.ModelTtft.Record(ttftMs,
-                            new TagList { { "model", request.Model }, { "provider", "anthropic" } });
-                        _logger?.LogDebug("Anthropic TTFT: model={Model}, ttft_ms={TtftMs}", request.Model, ttftMs);
+                            new TagList { { "model", parameters.Model }, { "provider", "anthropic" } });
+                        _logger?.LogDebug("Anthropic TTFT: model={Model}, ttft_ms={TtftMs}", parameters.Model, ttftMs);
                     }
 
                     yield return new StreamChunk
@@ -286,7 +301,7 @@ public sealed class AnthropicProvider : IModelProvider
                 providerActivity?.SetTag("gen_ai.stream.duration_ms", streamStopwatch.ElapsedMilliseconds);
                 _logger?.LogDebug(
                     "Anthropic stream complete: model={Model}, input_tokens={InputTokens}, output_tokens={OutputTokens}, duration_ms={DurationMs}",
-                    request.Model, inputTokens, outputTokens, streamStopwatch.ElapsedMilliseconds);
+                    parameters.Model, inputTokens, outputTokens, streamStopwatch.ElapsedMilliseconds);
 
                 yield return new StreamChunk
                 {
@@ -309,11 +324,16 @@ public sealed class AnthropicProvider : IModelProvider
         }
     }
 
-    public async Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken = default)
+    public Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken = default)
     {
         var parameters = BuildMessageParameters(request);
-        var response = await _client.Messages.Create(parameters, cancellationToken);
-        return ConvertToModelResponse(response);
+        return ProviderRetryHelper.ExecuteWithRetryAsync(
+            async ct =>
+            {
+                var response = await _client.Messages.Create(parameters, ct);
+                return ConvertToModelResponse(response);
+            },
+            _retryPolicy, _logger, ProviderName, cancellationToken);
     }
 
     public async Task<bool> ValidateAsync(CancellationToken cancellationToken = default)
@@ -660,4 +680,10 @@ public class AnthropicOptions
     /// Custom HTTP request headers to add to each request.
     /// </summary>
     public IReadOnlyDictionary<string, string>? CustomHeaders { get; init; }
+
+    /// <summary>
+    /// Retry policy for transient errors (rate limits, overload, timeouts).
+    /// Defaults to <see cref="RetryPolicy.Default"/> when null.
+    /// </summary>
+    public RetryPolicy? RetryPolicy { get; init; }
 }

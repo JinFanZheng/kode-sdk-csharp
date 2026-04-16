@@ -17,18 +17,18 @@ public sealed class BootstrapDraftService : IBootstrapDraftService
     private readonly IModelProvider _modelProvider;
     private readonly BootstrapDraftOptions _options;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
-    private readonly IModelRegistryRepository? _modelRegistryRepository;
+    private readonly IProviderAccountRepository? _accountRepository;
 
     public BootstrapDraftService(
         IModelProvider modelProvider,
         BootstrapDraftOptions? options = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
-        IModelRegistryRepository? modelRegistryRepository = null)
+        IProviderAccountRepository? accountRepository = null)
     {
         _modelProvider = modelProvider ?? throw new ArgumentNullException(nameof(modelProvider));
         _options = options ?? new BootstrapDraftOptions();
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
-        _modelRegistryRepository = modelRegistryRepository;
+        _accountRepository = accountRepository;
     }
 
     public async Task<BootstrapDraftResult> GenerateDraftAsync(
@@ -110,7 +110,7 @@ public sealed class BootstrapDraftService : IBootstrapDraftService
         RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
             _options.Model,
-            _modelRegistryRepository,
+            _accountRepository,
             cancellationToken);
 
     private static string BuildTranscript(IReadOnlyList<BootstrapDraftMessage>? conversation)

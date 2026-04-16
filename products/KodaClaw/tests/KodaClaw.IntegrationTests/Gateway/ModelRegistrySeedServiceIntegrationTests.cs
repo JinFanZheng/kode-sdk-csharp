@@ -1,10 +1,9 @@
+using System.Collections.Generic;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
-using KodaClaw.ModelHub;
 using KodaClaw.Storage.Json.Repositories;
-using KodaClaw.Workspace;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
@@ -12,8 +11,8 @@ namespace KodaClaw.IntegrationTests.Gateway;
 
 /// <summary>
 /// KC-3503: ModelRegistrySeedService integration tests.
-/// Verifies that the seed service populates the registry from env-var config
-/// when the registry is empty at startup, and that it skips seeding when the
+/// Verifies that the seed service populates provider accounts from env-var
+/// config when the registry is empty at startup, and skips seeding when the
 /// registry is already populated.
 /// </summary>
 public sealed class ModelRegistrySeedServiceIntegrationTests
@@ -23,7 +22,7 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
     // ── Seeds from env vars when registry is empty ────────────────────────────
 
     [Fact]
-    public async Task Seed_creates_anthropic_endpoint_when_registry_is_empty_and_anthropic_env_var_set()
+    public async Task Seed_creates_anthropic_account_when_registry_is_empty_and_anthropic_env_var_set()
     {
         using var workspace = new TempWorkspaceRoot("seed-anthropic");
 
@@ -37,8 +36,6 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
                 {
                     ["KODACLAW_WORKSPACE_ROOT"] = workspace.Path,
                     ["KODACLAW_DEFAULT_MODEL"] = "claude-sonnet-4-6",
-                    // Inject ANTHROPIC_API_KEY directly into in-memory config so
-                    // RuntimeConfigurationBootstrap sees it as a configured key.
                     ["ANTHROPIC_API_KEY"] = "sk-ant-test",
                 });
             },
@@ -49,19 +46,18 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
         var response = await hosted.Client.GetAsync("/api/models");
         response.EnsureSuccessStatusCode();
 
-        var body = await response.Content.ReadFromJsonAsync<ModelsQueryResponse>();
+        var body = await response.Content.ReadFromJsonAsync<List<AccountModelResponse>>();
         body.Should().NotBeNull();
-        body!.Items.Should().HaveCount(1,
-            because: "seed service should have created one endpoint from env-var config");
+        body!.Should().HaveCount(1,
+            because: "seed service should have created one model from env-var config");
 
-        var seeded = body.Items[0];
-        seeded.Provider.Should().Be(ModelProviderKind.Anthropic);
+        var seeded = body[0];
         seeded.ModelId.Should().Be("claude-sonnet-4-6");
-        seeded.IsDefault.Should().BeTrue(because: "seed service calls SetDefaultAsync");
+        seeded.IsGlobalDefault.Should().BeTrue(because: "seed service marks the seeded model as global default");
     }
 
     [Fact]
-    public async Task Seed_creates_openai_endpoint_when_registry_is_empty_and_openai_env_var_set()
+    public async Task Seed_creates_openai_account_when_registry_is_empty_and_openai_env_var_set()
     {
         using var workspace = new TempWorkspaceRoot("seed-openai");
 
@@ -85,41 +81,48 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
         var response = await hosted.Client.GetAsync("/api/models");
         response.EnsureSuccessStatusCode();
 
-        var body = await response.Content.ReadFromJsonAsync<ModelsQueryResponse>();
+        var body = await response.Content.ReadFromJsonAsync<List<AccountModelResponse>>();
         body.Should().NotBeNull();
-        body!.Items.Should().HaveCount(1,
-            because: "seed service should have created one endpoint from env-var config");
+        body!.Should().HaveCount(1,
+            because: "seed service should have created one model from env-var config");
 
-        var seeded = body.Items[0];
-        seeded.Provider.Should().Be(ModelProviderKind.OpenAI);
+        var seeded = body[0];
         seeded.ModelId.Should().Be("gpt-4o-mini");
-        seeded.IsDefault.Should().BeTrue();
+        seeded.IsGlobalDefault.Should().BeTrue();
     }
 
-    // ── Skips seeding when registry already has endpoints ─────────────────────
+    // ── Skips seeding when registry already has accounts ──────────────────────
 
     [Fact]
-    public async Task Seed_skips_when_registry_already_has_endpoints()
+    public async Task Seed_skips_when_registry_already_has_accounts()
     {
         using var workspace = new TempWorkspaceRoot("seed-skip");
 
         // Pre-populate the registry BEFORE starting the gateway
-        var repo = new JsonModelRegistryRepository(workspace.Path);
+        var repo = new JsonProviderAccountRepository(workspace.Path);
         var now = DateTimeOffset.UtcNow;
-        await repo.AddAsync(new ModelEndpoint(
-            Id: "model-existing",
-            DisplayName: "Pre-existing",
-            Provider: ModelProviderKind.OpenAI,
-            ModelId: "gpt-4o",
-            BaseUrl: null,
+        await repo.AddAccountAsync(new ProviderAccount(
+            Id:                        "account-existing",
+            DisplayName:               "Pre-existing",
+            ProviderKind:              ModelProviderKind.OpenAI,
+            BaseUrl:                   null,
+            ApiKeySecretRef:           null,
             ApiKeyEnvironmentVariable: "OPENAI_API_KEY",
-            ApiKeySecretRef: null,
-            Enabled: true,
-            Capabilities: ModelCapabilitySet.Text,
-            IsDefault: true,
-            CreatedAt: now,
-            UpdatedAt: now,
-            ContextWindowSize: 128_000));
+            AccessMode:                "api",
+            Enabled:                   true,
+            CreatedAt:                 now,
+            UpdatedAt:                 now));
+        await repo.AddModelAsync(new AccountModel(
+            Id:                  "model-existing",
+            AccountId:           "account-existing",
+            DisplayName:         "Pre-existing",
+            ModelId:             "gpt-4o",
+            Capabilities:        ModelCapabilitySet.Text,
+            IsDefaultForAccount: true,
+            IsGlobalDefault:     true,
+            Enabled:             true,
+            CreatedAt:           now,
+            UpdatedAt:           now));
 
         await using var hosted = await HostedGateway.StartAsync(
             gatewayToken: GatewayToken,
@@ -141,11 +144,11 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
         var response = await hosted.Client.GetAsync("/api/models");
         response.EnsureSuccessStatusCode();
 
-        var body = await response.Content.ReadFromJsonAsync<ModelsQueryResponse>();
+        var body = await response.Content.ReadFromJsonAsync<List<AccountModelResponse>>();
         body.Should().NotBeNull();
-        body!.Items.Should().HaveCount(1,
-            because: "seed service should not add entries when registry already has endpoints");
-        body.Items[0].Id.Should().Be("model-existing");
+        body!.Should().HaveCount(1,
+            because: "seed service should not add entries when registry already has accounts");
+        body[0].Id.Should().Be("model-existing");
     }
 
     // ── No env vars = no seed ─────────────────────────────────────────────────
@@ -153,7 +156,6 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
     [Fact]
     public async Task Seed_does_nothing_when_no_env_vars_configured()
     {
-        // Ensure relevant env vars are NOT set
         Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
         Environment.SetEnvironmentVariable("OPENAI_API_KEY", null);
 
@@ -168,7 +170,6 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["KODACLAW_WORKSPACE_ROOT"] = workspace.Path,
-                    // No KODACLAW_DEFAULT_MODEL, no API keys
                 });
             },
             useTestWorkspaceService: false);
@@ -178,9 +179,9 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
         var response = await hosted.Client.GetAsync("/api/models");
         response.EnsureSuccessStatusCode();
 
-        var body = await response.Content.ReadFromJsonAsync<ModelsQueryResponse>();
+        var body = await response.Content.ReadFromJsonAsync<List<AccountModelResponse>>();
         body.Should().NotBeNull();
-        body!.Items.Should().BeEmpty(because: "no env-var config means no seed");
+        body!.Should().BeEmpty(because: "no env-var config means no seed");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

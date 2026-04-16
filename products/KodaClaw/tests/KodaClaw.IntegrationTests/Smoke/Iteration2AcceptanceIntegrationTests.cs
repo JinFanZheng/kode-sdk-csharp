@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.ControlPlane;
 using KodaClaw.IntegrationTests.Gateway;
 using KodaClaw.Runtime;
 using Kode.Agent.Sdk.Core.Abstractions;
@@ -32,6 +33,11 @@ public sealed class Iteration2AcceptanceIntegrationTests
 
         var registry = hosted.Services.GetRequiredService<IToolRegistry>();
         registry.Register(new DangerTool());
+
+        // Default settings have AutoApproveToolCalls=true, which would bypass RequireApprovalTools.
+        // Disable it so the danger_tool triggers a pending approval.
+        await hosted.Services.GetRequiredService<ISettingsRepository>().SaveAsync(
+            KodaClawSettings.Default with { AutoApproveToolCalls = false });
 
         var runtime = hosted.Services.GetRequiredService<IMainSessionService>();
         var approvals = hosted.Services.GetRequiredService<IApprovalRepository>();

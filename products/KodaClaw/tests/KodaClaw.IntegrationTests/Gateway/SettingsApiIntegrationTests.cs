@@ -39,7 +39,7 @@ public sealed class SettingsApiIntegrationTests
         payload.Should().NotBeNull();
         payload!.DefaultLandingRoute.Should().Be("/chat");
         payload.Theme.Should().Be(ThemeMode.System);
-        payload.RequireApprovalForExternalActions.Should().BeTrue();
+        payload.RequireApprovalForExternalActions.Should().BeFalse();
     }
 
     [Fact]

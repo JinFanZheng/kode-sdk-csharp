@@ -3,8 +3,8 @@ import type { ModelPreset, ModelConnectionTestResponse, ModelProviderKind } from
 import {
   fetchModelPresets,
   testModelConnection,
-  createModelEndpoint,
-  setDefaultModelEndpoint,
+  createProviderAccount,
+  setDefaultAccountModel,
 } from '../../lib/api';
 
 interface Props {
@@ -147,23 +147,41 @@ export function ModelStep({ onNext, onSkip }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      const created = await createModelEndpoint({
-        displayName: customModelId.trim()
-          ? `${preset.displayName} (${customModelId.trim()})`
-          : preset.displayName,
-        provider: (mode === 'coding-plan'
-          ? preset.provider   // AnthropicCompatible，由 preset 决定，不走协议选择器
-          : preset.provider === 'Anthropic' ? 'Anthropic'
-          : preset.provider === 'OpenAIResponses' ? 'OpenAIResponses'
-          : protocol) as ModelProviderKind,
-        modelId:  effectiveModelId,
-        baseUrl:  effectiveBaseUrl ?? null,
+      const displayName = customModelId.trim()
+        ? `${preset.displayName} (${customModelId.trim()})`
+        : preset.displayName;
+      // Coding-plan 路径由 preset 决定；标准 API 路径下，Compatible 预设需要
+      // 根据协议选择器补上 "Compatible" 后缀，否则会丢成 literal 'OpenAI'/'Anthropic'。
+      const providerKind: ModelProviderKind = (() => {
+        if (mode === 'coding-plan') return preset.provider as ModelProviderKind;
+        if (preset.provider === 'Anthropic') return 'Anthropic';
+        if (preset.provider === 'OpenAI') return 'OpenAI';
+        if (preset.provider === 'OpenAIResponses') return 'OpenAIResponses';
+        // OpenAICompatible / AnthropicCompatible: 协议选择器决定走哪一边
+        return protocol === 'Anthropic' ? 'AnthropicCompatible' : 'OpenAICompatible';
+      })();
+      const created = await createProviderAccount({
+        displayName,
+        providerKind,
+        baseUrl: effectiveBaseUrl ?? null,
         apiKeyEnvironmentVariable: null,
         apiKeyValue: apiKey || null,
-        enabled: true,
-        capabilities: preset.defaultCapabilities,
+        models: [{
+          displayName,
+          modelId: effectiveModelId,
+          capabilities: preset.defaultCapabilities,
+          contextWindowSize: preset.contextWindowSize ?? undefined,
+          maxOutputTokens: preset.maxOutputTokens ?? undefined,
+          isReasoning: preset.isReasoning ?? undefined,
+          supportsToolCalling: preset.supportsToolCalling ?? undefined,
+          isDefaultForAccount: true,
+          isGlobalDefault: false,
+        }],
       });
-      await setDefaultModelEndpoint(created.id);
+      const createdModel = created.models[0];
+      if (createdModel) {
+        await setDefaultAccountModel(created.id, createdModel.id);
+      }
       onNext();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : '保存失败，请重试');

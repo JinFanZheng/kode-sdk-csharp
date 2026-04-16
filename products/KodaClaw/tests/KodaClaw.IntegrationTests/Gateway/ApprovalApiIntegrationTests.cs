@@ -167,6 +167,11 @@ public sealed class ApprovalApiIntegrationTests
         var registry = hosted.Services.GetRequiredService<IToolRegistry>();
         registry.Register(new DangerTool());
 
+        // Default settings have AutoApproveToolCalls=true, which would bypass RequireApprovalTools.
+        // Disable it so the danger_tool triggers a pending approval.
+        await hosted.Services.GetRequiredService<ISettingsRepository>().SaveAsync(
+            KodaClawSettings.Default with { AutoApproveToolCalls = false });
+
         var approvals = hosted.Services.GetRequiredService<IApprovalRepository>();
         var inbox = hosted.Services.GetRequiredService<IInboxRepository>();
         var runtime = hosted.Services.GetRequiredService<IMainSessionService>();

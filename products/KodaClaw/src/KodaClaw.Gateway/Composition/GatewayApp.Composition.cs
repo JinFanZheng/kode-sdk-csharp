@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -139,6 +140,17 @@ public static partial class GatewayApp
         {
             builder.Services.AddHostedService<StartupRepairHostedService>();
         }
+        // Legacy ModelEndpoint → ProviderAccount + AccountModel migration must run FIRST:
+        // once config/accounts/ exists, ConfigBootstrapWriter and ModelRegistrySeedService
+        // below will early-out on ListAccountsAsync().Count > 0 and leave the migrated data
+        // intact. Running it after either of them would hide the user's old endpoints
+        // because the migration early-outs when config/accounts/ already exists.
+        builder.Services.AddHostedService(sp => new ModelEndpointMigrationHostedService(
+            workspaceRoot,
+            sp.GetRequiredService<IProviderAccountRepository>(),
+            sp.GetService<IDiagnosticsService>(),
+            sp.GetService<ILogger<ModelEndpointMigrationHostedService>>()));
+
         // ConfigBootstrapWriter + ConfigBootstrapService must be registered BEFORE
         // ModelRegistrySeedService so the keychain-backed endpoint is written first.
         builder.Services.AddSingleton<ConfigBootstrapWriter>();
@@ -235,8 +247,8 @@ public static partial class GatewayApp
         // Serve static web assets from wwwroot/ when present (Docker mode: built web UI is copied there).
         app.UseStaticFiles();
 
-        // Setup Wizard guard: redirect browser navigation requests to /setup when the model
-        // registry is empty (i.e., no API key has been configured yet).
+        // Setup Wizard guard: redirect browser navigation requests to /setup when the provider
+        // account repository is empty (i.e., no API key has been configured yet).
         // Skips: /api/* (API), /healthz (Docker probe), /setup* (the wizard itself), static assets.
         app.Use(async (context, next) =>
         {
@@ -250,9 +262,9 @@ public static partial class GatewayApp
 
                 if (!skip)
                 {
-                    var registry = context.RequestServices.GetRequiredService<IModelRegistryRepository>();
-                    var endpoints = await registry.ListAsync(context.RequestAborted);
-                    if (endpoints.Count == 0)
+                    var accountRepo = context.RequestServices.GetRequiredService<IProviderAccountRepository>();
+                    var accounts = await accountRepo.ListAccountsAsync(context.RequestAborted);
+                    if (accounts.Count == 0)
                     {
                         context.Response.Redirect("/setup");
                         return;
@@ -270,7 +282,7 @@ public static partial class GatewayApp
     {
         MapSystemEndpoints(app);
         MapChatAndDiagnosticsEndpoints(app);
-        MapModelEndpoints(app);
+        MapProviderAccountEndpoints(app);
         MapSettingsEndpoints(app);
         MapAutomationEndpoints(app);
         MapPluginEndpoints(app);

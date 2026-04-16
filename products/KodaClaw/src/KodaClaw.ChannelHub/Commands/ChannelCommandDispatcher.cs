@@ -18,7 +18,7 @@ public sealed class ChannelCommandDispatcher
     private readonly IWorkspaceService? _workspaceService;
     private readonly IModelProvider? _modelProvider;
     private readonly ISandboxFactory? _sandboxFactory;
-    private readonly IModelRegistryRepository? _modelRegistryRepository;
+    private readonly IProviderAccountRepository? _providerAccountRepository;
 
     public ChannelCommandDispatcher(
         IChannelSessionService channelSessionService,
@@ -26,7 +26,7 @@ public sealed class ChannelCommandDispatcher
         IWorkspaceService? workspaceService = null,
         IModelProvider? modelProvider = null,
         ISandboxFactory? sandboxFactory = null,
-        IModelRegistryRepository? modelRegistryRepository = null)
+        IProviderAccountRepository? providerAccountRepository = null)
     {
         _channelSessionService = channelSessionService
             ?? throw new ArgumentNullException(nameof(channelSessionService));
@@ -35,7 +35,7 @@ public sealed class ChannelCommandDispatcher
         _workspaceService = workspaceService;
         _modelProvider = modelProvider;
         _sandboxFactory = sandboxFactory;
-        _modelRegistryRepository = modelRegistryRepository;
+        _providerAccountRepository = providerAccountRepository;
     }
 
     /// <summary>
@@ -90,12 +90,12 @@ public sealed class ChannelCommandDispatcher
         string? modelOverride = null;
         string? modelDisplayName = null;
 
-        if (controlArg is not null && _modelRegistryRepository is not null)
+        if (controlArg is not null && _providerAccountRepository is not null)
         {
-            var models = await _modelRegistryRepository.ListAsync(ct);
-            var enabled = models.Where(m => m.Enabled).ToList();
+            var allModels = await _providerAccountRepository.ListAllModelsAsync(ct);
+            var enabled = allModels.Where(m => m.Enabled).ToList();
 
-            ModelEndpoint? resolved = null;
+            AccountModel? resolved = null;
 
             if (int.TryParse(controlArg, out var idx) && idx >= 1 && idx <= enabled.Count)
             {
@@ -115,7 +115,7 @@ public sealed class ChannelCommandDispatcher
             modelOverride = resolved.ModelId;
             modelDisplayName = resolved.DisplayName;
         }
-        else if (controlArg is not null && _modelRegistryRepository is null)
+        else if (controlArg is not null && _providerAccountRepository is null)
         {
             return "模型注册表不可用，无法按指定模型创建会话。";
         }
@@ -135,21 +135,22 @@ public sealed class ChannelCommandDispatcher
             if (modelId is null)
                 return "当前会话尚未创建，将使用默认模型。";
 
-            if (_modelRegistryRepository is not null)
+            if (_providerAccountRepository is not null)
             {
-                var all = await _modelRegistryRepository.ListAsync(ct);
-                var endpoint = all.FirstOrDefault(m => m.ModelId == modelId);
-                if (endpoint is not null)
+                var allModels = await _providerAccountRepository.ListAllModelsAsync(ct);
+                var accountModel = allModels.FirstOrDefault(m => m.ModelId == modelId);
+                if (accountModel is not null)
                 {
-                    var providerLabel = endpoint.Provider switch
+                    var account = await _providerAccountRepository.GetAccountByIdAsync(accountModel.AccountId, ct);
+                    var providerLabel = account?.ProviderKind switch
                     {
                         ModelProviderKind.Anthropic           => "Anthropic",
                         ModelProviderKind.AnthropicCompatible => "Anthropic兼容",
                         ModelProviderKind.OpenAI              => "OpenAI",
                         ModelProviderKind.OpenAICompatible    => "OpenAI兼容",
-                        _                                     => endpoint.Provider.ToString()
+                        _                                     => account?.ProviderKind.ToString() ?? "Unknown"
                     };
-                    return $"当前模型：{endpoint.DisplayName} [{endpoint.ModelId}]  {providerLabel}";
+                    return $"当前模型：{accountModel.DisplayName} [{accountModel.ModelId}]  {providerLabel}";
                 }
             }
             return $"当前模型：{modelId}";
@@ -157,11 +158,13 @@ public sealed class ChannelCommandDispatcher
 
         if (controlArg == "list")
         {
-            if (_modelRegistryRepository is null)
+            if (_providerAccountRepository is null)
                 return "模型注册表不可用。";
 
-            var models = await _modelRegistryRepository.ListAsync(ct);
-            var enabled = models.Where(m => m.Enabled).ToList();
+            var allModels = await _providerAccountRepository.ListAllModelsAsync(ct);
+            var accounts = await _providerAccountRepository.ListAccountsAsync(ct);
+            var accountLookup = accounts.ToDictionary(a => a.Id);
+            var enabled = allModels.Where(m => m.Enabled).ToList();
             if (enabled.Count == 0)
                 return "暂无可用模型。";
 
@@ -173,14 +176,14 @@ public sealed class ChannelCommandDispatcher
             for (int i = 0; i < enabled.Count; i++)
             {
                 var m = enabled[i];
-                var providerLabel = m.Provider switch
+                var providerLabel = accountLookup.TryGetValue(m.AccountId, out var acct) ? acct.ProviderKind switch
                 {
                     ModelProviderKind.Anthropic           => "Anthropic",
                     ModelProviderKind.AnthropicCompatible => "Anthropic兼容",
                     ModelProviderKind.OpenAI              => "OpenAI",
                     ModelProviderKind.OpenAICompatible    => "OpenAI兼容",
-                    _                                     => m.Provider.ToString()
-                };
+                    _                                     => acct.ProviderKind.ToString()
+                } : "Unknown";
                 var current = m.ModelId == currentModelId ? "  ★ 当前" : "";
                 sb.AppendLine($"  {i + 1}. {m.DisplayName,-20} [{m.ModelId}]  {providerLabel}{current}");
             }

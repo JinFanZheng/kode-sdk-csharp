@@ -28,7 +28,8 @@ import {
   type CanvasQueryResponse,
   type ChatStreamEvent,
   type ChatStreamRequest,
-  type CreateModelEndpointRequest,
+  type CreateProviderAccountRequest,
+  type CreateAccountModelRequest,
   type DiagnosticBundleExportRequest,
   type DiagnosticBundleExportResponse,
   type DiagnosticEvent,
@@ -40,8 +41,8 @@ import {
   type InboxQueryResponse,
   type InboxStatusUpdateRequest,
   type KodaClawSettings,
-  type ModelEndpoint,
-  type ModelsQueryResponse,
+  type AccountModelResponse,
+  type ProviderAccountResponse,
   type PluginDetail,
   type PluginLogEntry,
   type SandboxRiskOverviewResponse,
@@ -67,7 +68,8 @@ import {
   type CreateChannelAccountRequest,
   type PatchChannelAccountRequest,
   type UpdateCheckRequest,
-  type UpdateModelEndpointRequest,
+  type UpdateProviderAccountRequest,
+  type UpdateAccountModelRequest,
   type UpdateStateResponse,
   type UpsertCanvasArtifactRequest,
   type InstallLocalPluginRequest,
@@ -940,25 +942,27 @@ export async function publishCanvasArtifact(
   });
 }
 
-export async function fetchModels(signal?: AbortSignal): Promise<ModelsQueryResponse> {
-  return requestJson<ModelsQueryResponse>("/api/models", {
+// ── Provider Accounts API ─────────────────────────────────────
+
+export async function fetchProviderAccounts(signal?: AbortSignal): Promise<ProviderAccountResponse[]> {
+  return requestJson<ProviderAccountResponse[]>("/api/provider-accounts", {
     headers: buildHeaders(),
     signal,
   });
 }
 
-export async function fetchModel(id: string, signal?: AbortSignal): Promise<ModelEndpoint> {
-  return requestJson<ModelEndpoint>(`/api/models/${id}`, {
+export async function fetchProviderAccount(id: string, signal?: AbortSignal): Promise<ProviderAccountResponse> {
+  return requestJson<ProviderAccountResponse>(`/api/provider-accounts/${encodeURIComponent(id)}`, {
     headers: buildHeaders(),
     signal,
   });
 }
 
-export async function createModelEndpoint(
-  request: CreateModelEndpointRequest,
+export async function createProviderAccount(
+  request: CreateProviderAccountRequest,
   signal?: AbortSignal,
-): Promise<ModelEndpoint> {
-  return requestJson<ModelEndpoint>("/api/models", {
+): Promise<ProviderAccountResponse> {
+  return requestJson<ProviderAccountResponse>("/api/provider-accounts", {
     method: "POST",
     headers: buildHeaders(true),
     body: JSON.stringify(request),
@@ -966,12 +970,12 @@ export async function createModelEndpoint(
   });
 }
 
-export async function updateModelEndpoint(
+export async function updateProviderAccount(
   id: string,
-  request: UpdateModelEndpointRequest,
+  request: UpdateProviderAccountRequest,
   signal?: AbortSignal,
-): Promise<ModelEndpoint> {
-  return requestJson<ModelEndpoint>(`/api/models/${id}`, {
+): Promise<ProviderAccountResponse> {
+  return requestJson<ProviderAccountResponse>(`/api/provider-accounts/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: buildHeaders(true),
     body: JSON.stringify(request),
@@ -979,20 +983,84 @@ export async function updateModelEndpoint(
   });
 }
 
-export async function deleteModelEndpoint(id: string, signal?: AbortSignal): Promise<void> {
-  return requestVoid(`/api/models/${id}`, {
+export async function deleteProviderAccount(id: string, signal?: AbortSignal): Promise<void> {
+  return requestVoid(`/api/provider-accounts/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: buildHeaders(),
     signal,
   });
 }
 
-export async function setDefaultModelEndpoint(id: string, signal?: AbortSignal): Promise<ModelEndpoint> {
-  return requestJson<ModelEndpoint>(`/api/models/${id}/default`, {
-    method: "POST",
+// ── Account Models API ─────────────────────────────────────────
+
+export async function fetchAccountModels(signal?: AbortSignal): Promise<AccountModelResponse[]> {
+  return requestJson<AccountModelResponse[]>("/api/models", {
     headers: buildHeaders(),
     signal,
   });
+}
+
+export async function createAccountModel(
+  accountId: string,
+  request: CreateAccountModelRequest,
+  signal?: AbortSignal,
+): Promise<AccountModelResponse> {
+  return requestJson<AccountModelResponse>(
+    `/api/provider-accounts/${encodeURIComponent(accountId)}/models`,
+    {
+      method: "POST",
+      headers: buildHeaders(true),
+      body: JSON.stringify(request),
+      signal,
+    },
+  );
+}
+
+export async function updateAccountModel(
+  accountId: string,
+  modelId: string,
+  request: UpdateAccountModelRequest,
+  signal?: AbortSignal,
+): Promise<AccountModelResponse> {
+  return requestJson<AccountModelResponse>(
+    `/api/provider-accounts/${encodeURIComponent(accountId)}/models/${encodeURIComponent(modelId)}`,
+    {
+      method: "PUT",
+      headers: buildHeaders(true),
+      body: JSON.stringify(request),
+      signal,
+    },
+  );
+}
+
+export async function deleteAccountModel(
+  accountId: string,
+  modelId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  return requestVoid(
+    `/api/provider-accounts/${encodeURIComponent(accountId)}/models/${encodeURIComponent(modelId)}`,
+    {
+      method: "DELETE",
+      headers: buildHeaders(),
+      signal,
+    },
+  );
+}
+
+export async function setDefaultAccountModel(
+  accountId: string,
+  modelId: string,
+  signal?: AbortSignal,
+): Promise<AccountModelResponse> {
+  return requestJson<AccountModelResponse>(
+    `/api/provider-accounts/${encodeURIComponent(accountId)}/models/${encodeURIComponent(modelId)}/default`,
+    {
+      method: "POST",
+      headers: buildHeaders(),
+      signal,
+    },
+  );
 }
 
 export async function fetchSettings(signal?: AbortSignal): Promise<KodaClawSettings> {

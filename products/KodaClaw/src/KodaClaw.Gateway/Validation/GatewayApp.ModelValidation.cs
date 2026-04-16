@@ -2,110 +2,47 @@ using KodaClaw.Contracts;
 
 public static partial class GatewayApp
 {
-    private sealed record ValidatedModelEndpointRequest(
+    private sealed record ValidatedProviderAccountRequest(
         string DisplayName,
-        ModelProviderKind Provider,
-        string ModelId,
+        ModelProviderKind ProviderKind,
         string? BaseUrl,
         string? ApiKeyEnvironmentVariable,
         string? ApiKeySecretRef,
         bool Enabled,
+        IReadOnlyDictionary<string, string>? CustomHeaders = null);
+
+    private sealed record ValidatedAccountModelRequest(
+        string DisplayName,
+        string ModelId,
         ModelCapabilitySet Capabilities,
         int ContextWindowSize = 128_000,
         int MaxOutputTokens = 8192,
         bool IsReasoning = false,
         bool SupportsToolCalling = true,
-        IReadOnlyDictionary<string, string>? CustomHeaders = null);
+        ModelPricing? Pricing = null);
 
-    private static bool TryValidateModelEndpointRequest(
-        CreateModelEndpointRequest request,
-        out ValidatedModelEndpointRequest validated,
-        out ErrorResponse? error)
-    {
-        return TryValidateModelEndpointRequest(
-            request.DisplayName,
-            request.Provider,
-            request.ModelId,
-            request.BaseUrl,
-            request.ApiKeyEnvironmentVariable,
-            request.ApiKeySecretRef,
-            request.Enabled,
-            request.Capabilities,
-            request.ContextWindowSize,
-            request.MaxOutputTokens,
-            request.IsReasoning,
-            request.SupportsToolCalling,
-            request.CustomHeaders,
-            out validated,
-            out error);
-    }
-
-    private static bool TryValidateModelEndpointRequest(
-        UpdateModelEndpointRequest request,
-        out ValidatedModelEndpointRequest validated,
-        out ErrorResponse? error)
-    {
-        return TryValidateModelEndpointRequest(
-            request.DisplayName,
-            request.Provider,
-            request.ModelId,
-            request.BaseUrl,
-            request.ApiKeyEnvironmentVariable,
-            request.ApiKeySecretRef,
-            request.Enabled,
-            request.Capabilities,
-            request.ContextWindowSize,
-            request.MaxOutputTokens,
-            request.IsReasoning,
-            request.SupportsToolCalling,
-            request.CustomHeaders,
-            out validated,
-            out error);
-    }
-
-    private static bool TryValidateModelEndpointRequest(
-        string displayName,
-        ModelProviderKind provider,
-        string modelId,
-        string? baseUrl,
-        string? apiKeyEnvironmentVariable,
-        string? apiKeySecretRef,
-        bool enabled,
-        ModelCapabilitySet capabilities,
-        int contextWindowSize,
-        int maxOutputTokens,
-        bool isReasoning,
-        bool supportsToolCalling,
-        IReadOnlyDictionary<string, string>? customHeaders,
-        out ValidatedModelEndpointRequest validated,
+    private static bool TryValidateProviderAccountRequest(
+        CreateProviderAccountRequest request,
+        out ValidatedProviderAccountRequest validated,
         out ErrorResponse? error)
     {
         validated = default!;
         error = null;
 
-        var normalizedDisplayName = displayName?.Trim();
+        var normalizedDisplayName = request.DisplayName?.Trim();
         if (string.IsNullOrWhiteSpace(normalizedDisplayName))
         {
             error = new ErrorResponse(
-                Code: "validation.model_display_name_required",
-                Message: "Model display name is required.");
+                Code: "validation.account_display_name_required",
+                Message: "Account display name is required.");
             return false;
         }
 
-        var normalizedModelId = modelId?.Trim();
-        if (string.IsNullOrWhiteSpace(normalizedModelId))
+        var normalizedBaseUrl = NormalizeOptionalString(request.BaseUrl);
+        if (IsCompatibleProvider(request.ProviderKind) && normalizedBaseUrl is null)
         {
             error = new ErrorResponse(
-                Code: "validation.model_id_required",
-                Message: "Model id is required.");
-            return false;
-        }
-
-        var normalizedBaseUrl = NormalizeOptionalString(baseUrl);
-        if (IsCompatibleProvider(provider) && normalizedBaseUrl is null)
-        {
-            error = new ErrorResponse(
-                Code: "validation.model_base_url_required",
+                Code: "validation.account_base_url_required",
                 Message: "Compatible providers require a base URL.");
             return false;
         }
@@ -115,34 +52,28 @@ public static partial class GatewayApp
             return false;
         }
 
-        var normalizedApiKeyVariable = NormalizeOptionalString(apiKeyEnvironmentVariable);
+        var normalizedApiKeyVariable = NormalizeOptionalString(request.ApiKeyEnvironmentVariable);
         if (normalizedApiKeyVariable is not null && !TryNormalizeApiKeyEnvironmentVariable(normalizedApiKeyVariable, out normalizedApiKeyVariable, out error))
         {
             return false;
         }
 
-        var normalizedApiKeySecretRef = NormalizeOptionalString(apiKeySecretRef);
-        if (normalizedApiKeySecretRef is not null && !TryNormalizeApiKeySecretRef(normalizedApiKeySecretRef, out normalizedApiKeySecretRef, out error))
+        if (request.CustomHeaders is { Count: > 0 })
         {
-            return false;
-        }
-
-        if (customHeaders is { Count: > 0 })
-        {
-            if (customHeaders.Count > 10)
+            if (request.CustomHeaders.Count > 10)
             {
                 error = new ErrorResponse(
-                    Code: "validation.model_custom_headers_too_many",
+                    Code: "validation.account_custom_headers_too_many",
                     Message: "Custom headers must not exceed 10 entries.");
                 return false;
             }
 
-            foreach (var (key, value) in customHeaders)
+            foreach (var (key, value) in request.CustomHeaders)
             {
                 if (string.IsNullOrWhiteSpace(key))
                 {
                     error = new ErrorResponse(
-                        Code: "validation.model_custom_headers_invalid_key",
+                        Code: "validation.account_custom_headers_invalid_key",
                         Message: "Custom header keys must not be empty or whitespace.");
                     return false;
                 }
@@ -150,29 +81,61 @@ public static partial class GatewayApp
                 if (string.IsNullOrWhiteSpace(value))
                 {
                     error = new ErrorResponse(
-                        Code: "validation.model_custom_headers_invalid_value",
+                        Code: "validation.account_custom_headers_invalid_value",
                         Message: "Custom header values must not be empty or whitespace.");
                     return false;
                 }
             }
         }
 
-        var normalizedCustomHeaders = customHeaders is { Count: > 0 } ? customHeaders : null;
+        var normalizedCustomHeaders = request.CustomHeaders is { Count: > 0 } ? request.CustomHeaders : null;
 
-        validated = new ValidatedModelEndpointRequest(
+        validated = new ValidatedProviderAccountRequest(
             DisplayName: normalizedDisplayName,
-            Provider: provider,
-            ModelId: normalizedModelId,
+            ProviderKind: request.ProviderKind,
             BaseUrl: normalizedBaseUrl,
             ApiKeyEnvironmentVariable: normalizedApiKeyVariable,
-            ApiKeySecretRef: normalizedApiKeySecretRef,
-            Enabled: enabled,
-            Capabilities: capabilities,
-            ContextWindowSize: contextWindowSize,
-            MaxOutputTokens: maxOutputTokens > 0 ? maxOutputTokens : 8192,
-            IsReasoning: isReasoning,
-            SupportsToolCalling: supportsToolCalling,
+            ApiKeySecretRef: null,
+            Enabled: true,
             CustomHeaders: normalizedCustomHeaders);
+        return true;
+    }
+
+    private static bool TryValidateAccountModelRequest(
+        CreateAccountModelRequest request,
+        out ValidatedAccountModelRequest validated,
+        out ErrorResponse? error)
+    {
+        validated = default!;
+        error = null;
+
+        var normalizedDisplayName = request.DisplayName?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedDisplayName))
+        {
+            error = new ErrorResponse(
+                Code: "validation.model_display_name_required",
+                Message: "Model display name is required.");
+            return false;
+        }
+
+        var normalizedModelId = request.ModelId?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedModelId))
+        {
+            error = new ErrorResponse(
+                Code: "validation.model_id_required",
+                Message: "Model id is required.");
+            return false;
+        }
+
+        validated = new ValidatedAccountModelRequest(
+            DisplayName: normalizedDisplayName,
+            ModelId: normalizedModelId,
+            Capabilities: request.Capabilities,
+            ContextWindowSize: request.ContextWindowSize,
+            MaxOutputTokens: request.MaxOutputTokens > 0 ? request.MaxOutputTokens : 8192,
+            IsReasoning: request.IsReasoning,
+            SupportsToolCalling: request.SupportsToolCalling,
+            Pricing: request.Pricing);
         return true;
     }
 

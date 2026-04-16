@@ -27,7 +27,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
     private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
     private readonly AutomationSessionOptions _options;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
-    private readonly IModelRegistryRepository? _modelRegistryRepository;
+    private readonly IProviderAccountRepository? _accountRepository;
     private readonly IMcpHubService? _mcpHubService;
     private readonly ISettingsRepository? _settingsRepository;
 
@@ -36,7 +36,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         IMainSessionAgentDependenciesFactory dependenciesFactory,
         AutomationSessionOptions? options = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
-        IModelRegistryRepository? modelRegistryRepository = null,
+        IProviderAccountRepository? accountRepository = null,
         IMcpHubService? mcpHubService = null,
         ISettingsRepository? settingsRepository = null)
     {
@@ -44,7 +44,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
         _options = options ?? new AutomationSessionOptions();
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
-        _modelRegistryRepository = modelRegistryRepository;
+        _accountRepository = accountRepository;
         _mcpHubService = mcpHubService;
         _settingsRepository = settingsRepository;
     }
@@ -289,20 +289,20 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         return RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
             preferredModel,
-            _modelRegistryRepository,
+            _accountRepository,
             cancellationToken);
     }
 
     private async Task<int> ResolvePromptCharacterBudgetAsync(CancellationToken cancellationToken)
     {
-        if (_modelRegistryRepository is null) return _options.MaxPromptCharacters;
+        if (_accountRepository is null) return _options.MaxPromptCharacters;
         try
         {
-            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+            var resolved = await _accountRepository.ResolveDefaultForAsync(
                 ModelCapabilitySet.Text, cancellationToken);
-            if (endpoint is null) return _options.MaxPromptCharacters;
-            var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
-            var usableTokens = Math.Max(endpoint.ContextWindowSize - maxOutputCap, 0);
+            if (resolved is null) return _options.MaxPromptCharacters;
+            var maxOutputCap = Math.Min(resolved.Model.MaxOutputTokens, Math.Min((int)(resolved.Model.ContextWindowSize * 0.20), 16_384));
+            var usableTokens = Math.Max(resolved.Model.ContextWindowSize - maxOutputCap, 0);
             return Math.Max((int)((long)usableTokens * 4 / 5), _options.MaxPromptCharacters);
         }
         catch
@@ -313,14 +313,14 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
 
     private async Task<int> ResolveContextWindowSizeAsync(CancellationToken cancellationToken)
     {
-        if (_modelRegistryRepository is null) return _options.DefaultContextWindowSize;
+        if (_accountRepository is null) return _options.DefaultContextWindowSize;
         try
         {
-            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+            var resolved = await _accountRepository.ResolveDefaultForAsync(
                 ModelCapabilitySet.Text, cancellationToken);
-            if (endpoint is null) return _options.DefaultContextWindowSize;
-            var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
-            var available = endpoint.ContextWindowSize - maxOutputCap;
+            if (resolved is null) return _options.DefaultContextWindowSize;
+            var maxOutputCap = Math.Min(resolved.Model.MaxOutputTokens, Math.Min((int)(resolved.Model.ContextWindowSize * 0.20), 16_384));
+            var available = resolved.Model.ContextWindowSize - maxOutputCap;
             return available > 0 ? available : _options.DefaultContextWindowSize;
         }
         catch

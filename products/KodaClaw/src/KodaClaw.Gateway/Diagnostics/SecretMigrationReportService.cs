@@ -12,7 +12,7 @@ internal sealed class SecretMigrationReportService
     private readonly IConfiguration _configuration;
     private readonly IWorkspaceService _workspaceService;
     private readonly ISecretStore _secretStore;
-    private readonly IModelRegistryRepository _modelRegistryRepository;
+    private readonly IProviderAccountRepository _providerAccountRepository;
     private readonly IChannelAccountRepository _channelAccountRepository;
     private readonly IPluginRegistryRepository _pluginRegistryRepository;
 
@@ -20,14 +20,14 @@ internal sealed class SecretMigrationReportService
         IConfiguration configuration,
         IWorkspaceService workspaceService,
         ISecretStore secretStore,
-        IModelRegistryRepository modelRegistryRepository,
+        IProviderAccountRepository providerAccountRepository,
         IChannelAccountRepository channelAccountRepository,
         IPluginRegistryRepository pluginRegistryRepository)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
-        _modelRegistryRepository = modelRegistryRepository ?? throw new ArgumentNullException(nameof(modelRegistryRepository));
+        _providerAccountRepository = providerAccountRepository ?? throw new ArgumentNullException(nameof(providerAccountRepository));
         _channelAccountRepository = channelAccountRepository ?? throw new ArgumentNullException(nameof(channelAccountRepository));
         _pluginRegistryRepository = pluginRegistryRepository ?? throw new ArgumentNullException(nameof(pluginRegistryRepository));
     }
@@ -80,7 +80,7 @@ internal sealed class SecretMigrationReportService
             items.Add(anthropicRuntimeItem);
         }
 
-        items.AddRange(await BuildModelEndpointItemsAsync(cancellationToken));
+        items.AddRange(await BuildProviderAccountItemsAsync(cancellationToken));
         items.AddRange(await BuildChannelItemsAsync(cancellationToken));
         items.AddRange(await BuildPluginItemsAsync(cancellationToken));
 
@@ -135,25 +135,25 @@ internal sealed class SecretMigrationReportService
             Notes: assessment.Notes);
     }
 
-    private async Task<IReadOnlyList<SecretMigrationItem>> BuildModelEndpointItemsAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SecretMigrationItem>> BuildProviderAccountItemsAsync(CancellationToken cancellationToken)
     {
-        var endpoints = await _modelRegistryRepository.ListAsync(cancellationToken);
-        var items = new List<SecretMigrationItem>(endpoints.Count);
+        var accounts = await _providerAccountRepository.ListAccountsAsync(cancellationToken);
+        var items = new List<SecretMigrationItem>(accounts.Count);
 
-        foreach (var endpoint in endpoints)
+        foreach (var account in accounts)
         {
             var assessment = await EvaluateConfiguredSecretRefAsync(
-                endpoint.ApiKeySecretRef,
-                ProbeEnvironmentVariable(endpoint.ApiKeyEnvironmentVariable),
+                account.ApiKeySecretRef,
+                ProbeEnvironmentVariable(account.ApiKeyEnvironmentVariable),
                 cancellationToken);
             items.Add(new SecretMigrationItem(
-                Id: $"model-endpoint:{endpoint.Id}",
-                Kind: "modelEndpoint",
-                DisplayName: $"Model endpoint '{endpoint.DisplayName}'",
+                Id: $"provider-account:{account.Id}",
+                Kind: "providerAccount",
+                DisplayName: $"Provider account '{account.DisplayName}'",
                 State: assessment.State,
-                Location: $"model_endpoints/{endpoint.Id}",
+                Location: $"accounts/{account.Id}",
                 Field: "apiKey",
-                ConfiguredSecretRef: endpoint.ApiKeySecretRef,
+                ConfiguredSecretRef: account.ApiKeySecretRef,
                 SecretRefExists: assessment.SecretRefExists,
                 LegacySource: assessment.LegacySource,
                 LegacySourceAvailable: assessment.LegacySourceAvailable,

@@ -7,7 +7,7 @@ namespace KodaClaw.Gateway;
 
 public sealed class ModelConnectionTestService(
     ModelPresetService presetService,
-    IModelRegistryRepository modelRegistry,
+    IProviderAccountRepository accountRepo,
     ISecretStore secretStore,
     IHttpClientFactory httpClientFactory)
 {
@@ -28,18 +28,22 @@ public sealed class ModelConnectionTestService(
         string? provider = request.Provider;
         string apiKey = request.ApiKey;
 
-        // When EndpointId is provided, resolve from registry and look up stored key
+        // When EndpointId is provided, resolve from account repository and look up stored key
         if (!string.IsNullOrEmpty(request.EndpointId))
         {
-            var endpoint = await modelRegistry.GetByIdAsync(request.EndpointId, ct);
-            if (endpoint != null)
+            // Try as account model ID first, then as account ID
+            var accountModel = await accountRepo.GetModelByIdAsync(request.EndpointId, ct);
+            if (accountModel is not null)
             {
-                modelId ??= endpoint.ModelId;
-                baseUrl ??= endpoint.BaseUrl;
-                provider ??= endpoint.Provider.ToString();
-
-                if (string.IsNullOrEmpty(apiKey))
-                    apiKey = await ResolveApiKeyAsync(endpoint, ct) ?? string.Empty;
+                modelId ??= accountModel.ModelId;
+                var account = await accountRepo.GetAccountByIdAsync(accountModel.AccountId, ct);
+                if (account is not null)
+                {
+                    baseUrl ??= account.BaseUrl;
+                    provider ??= account.ProviderKind.ToString();
+                    if (string.IsNullOrEmpty(apiKey))
+                        apiKey = await ResolveApiKeyAsync(account, ct) ?? string.Empty;
+                }
             }
         }
 
@@ -127,19 +131,19 @@ public sealed class ModelConnectionTestService(
         }
     }
 
-    private async Task<string?> ResolveApiKeyAsync(ModelEndpoint endpoint, CancellationToken ct)
+    private async Task<string?> ResolveApiKeyAsync(ProviderAccount account, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(endpoint.ApiKeySecretRef) &&
-            SecretRef.TryParse(endpoint.ApiKeySecretRef, out var secretRef))
+        if (!string.IsNullOrWhiteSpace(account.ApiKeySecretRef) &&
+            SecretRef.TryParse(account.ApiKeySecretRef, out var secretRef))
         {
             var secret = await secretStore.GetAsync(secretRef, ct);
             if (!string.IsNullOrWhiteSpace(secret))
                 return secret;
         }
 
-        if (!string.IsNullOrWhiteSpace(endpoint.ApiKeyEnvironmentVariable))
+        if (!string.IsNullOrWhiteSpace(account.ApiKeyEnvironmentVariable))
         {
-            var envVal = Environment.GetEnvironmentVariable(endpoint.ApiKeyEnvironmentVariable);
+            var envVal = Environment.GetEnvironmentVariable(account.ApiKeyEnvironmentVariable);
             if (!string.IsNullOrWhiteSpace(envVal))
                 return envVal;
         }

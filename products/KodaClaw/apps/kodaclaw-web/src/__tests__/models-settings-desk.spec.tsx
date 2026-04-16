@@ -6,76 +6,108 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelsSettingsDesk } from "../components/ModelsSettingsDesk";
 import { renderWithI18n } from "./test-utils";
 import {
-  createModelEndpoint,
-  deleteModelEndpoint,
+  createProviderAccount,
+  deleteProviderAccount,
   fetchModelPresets,
-  fetchModels,
-  setDefaultModelEndpoint,
+  fetchProviderAccounts,
+  setDefaultAccountModel,
   testModelConnection,
-  updateModelEndpoint,
+  updateProviderAccount,
+  updateAccountModel,
 } from "../lib/api";
-import type { ModelEndpoint } from "../types/contracts";
+import type { ProviderAccountResponse, AccountModelResponse } from "../types/contracts";
 
 vi.mock("../lib/api", () => ({
-  fetchModels: vi.fn(),
+  fetchProviderAccounts: vi.fn(),
   fetchModelPresets: vi.fn(),
   fetchSandboxRiskOverview: vi.fn(),
   runUpdateCheck: vi.fn(),
-  createModelEndpoint: vi.fn(),
-  updateModelEndpoint: vi.fn(),
-  deleteModelEndpoint: vi.fn(),
-  setDefaultModelEndpoint: vi.fn(),
+  createProviderAccount: vi.fn(),
+  updateProviderAccount: vi.fn(),
+  updateAccountModel: vi.fn(),
+  deleteProviderAccount: vi.fn(),
+  setDefaultAccountModel: vi.fn(),
   testModelConnection: vi.fn(),
 }));
 
-const modelsApi = vi.mocked(fetchModels);
+const accountsApi = vi.mocked(fetchProviderAccounts);
 const presetsApi = vi.mocked(fetchModelPresets);
-const createApi = vi.mocked(createModelEndpoint);
-const updateApi = vi.mocked(updateModelEndpoint);
-const deleteApi = vi.mocked(deleteModelEndpoint);
-const setDefaultApi = vi.mocked(setDefaultModelEndpoint);
+const createApi = vi.mocked(createProviderAccount);
+const updateAccountApi = vi.mocked(updateProviderAccount);
+const updateModelApi = vi.mocked(updateAccountModel);
+const deleteApi = vi.mocked(deleteProviderAccount);
+const setDefaultApi = vi.mocked(setDefaultAccountModel);
 const testConnectionApi = vi.mocked(testModelConnection);
 
-const defaultModels: ModelEndpoint[] = [
-  {
-    id: "model-a",
-    displayName: "OpenAI Core",
-    provider: "OpenAI",
-    modelId: "gpt-4.1",
-    baseUrl: null,
-    apiKeyEnvironmentVariable: "OPENAI_API_KEY",
-    enabled: true,
-    capabilities: 3, // Text | Image
-    isDefault: true,
-    createdAt: "2026-03-18T10:00:00Z",
-    updatedAt: "2026-03-18T10:00:00Z",
-  },
-  {
-    id: "model-b",
-    displayName: "Anthropic Draft",
-    provider: "AnthropicCompatible",
-    modelId: "claude-3-7-sonnet",
-    baseUrl: "https://proxy.example",
-    apiKeyEnvironmentVariable: "ANTHROPIC_PROXY_KEY",
-    enabled: true,
-    capabilities: 1, // Text
-    isDefault: false,
-    createdAt: "2026-03-18T11:00:00Z",
-    updatedAt: "2026-03-18T11:00:00Z",
-  },
-];
+const modelA: AccountModelResponse = {
+  id: "model-a",
+  accountId: "acc-a",
+  displayName: "OpenAI Core",
+  modelId: "gpt-4.1",
+  capabilities: 3, // Text | Image
+  isDefaultForAccount: true,
+  isGlobalDefault: true,
+  enabled: true,
+  contextWindowSize: 128000,
+  maxOutputTokens: 8192,
+  isReasoning: false,
+  supportsToolCalling: true,
+};
+
+const modelB: AccountModelResponse = {
+  id: "model-b",
+  accountId: "acc-b",
+  displayName: "Anthropic Draft",
+  modelId: "claude-3-7-sonnet",
+  capabilities: 1, // Text
+  isDefaultForAccount: true,
+  isGlobalDefault: false,
+  enabled: true,
+  contextWindowSize: 200000,
+  maxOutputTokens: 8192,
+  isReasoning: false,
+  supportsToolCalling: true,
+};
+
+const accountA: ProviderAccountResponse = {
+  id: "acc-a",
+  displayName: "OpenAI Core",
+  providerKind: "OpenAI",
+  baseUrl: null,
+  accessMode: null,
+  enabled: true,
+  hasApiKey: true,
+  createdAt: "2026-03-18T10:00:00Z",
+  updatedAt: "2026-03-18T10:00:00Z",
+  models: [modelA],
+};
+
+const accountB: ProviderAccountResponse = {
+  id: "acc-b",
+  displayName: "Anthropic Draft",
+  providerKind: "AnthropicCompatible",
+  baseUrl: "https://proxy.example",
+  accessMode: null,
+  enabled: true,
+  hasApiKey: true,
+  createdAt: "2026-03-18T11:00:00Z",
+  updatedAt: "2026-03-18T11:00:00Z",
+  models: [modelB],
+};
+
+const defaultAccounts: ProviderAccountResponse[] = [accountA, accountB];
 
 describe("ModelsSettingsDesk", () => {
   beforeEach(() => {
-    modelsApi.mockResolvedValue({ items: defaultModels });
+    accountsApi.mockResolvedValue(defaultAccounts);
     presetsApi.mockResolvedValue([]);
-    createApi.mockResolvedValue(defaultModels[1]);
-    updateApi.mockResolvedValue(defaultModels[1]);
+    createApi.mockResolvedValue(accountB);
+    updateAccountApi.mockResolvedValue(accountB);
+    updateModelApi.mockResolvedValue(modelB);
     deleteApi.mockResolvedValue();
     setDefaultApi.mockResolvedValue({
-      ...defaultModels[1],
-      isDefault: true,
-      updatedAt: "2026-03-18T12:00:00Z",
+      ...modelB,
+      isGlobalDefault: true,
     });
     testConnectionApi.mockResolvedValue({ ok: true, latencyMs: 42 });
   });
@@ -88,12 +120,20 @@ describe("ModelsSettingsDesk", () => {
     const user = userEvent.setup();
     renderWithI18n(<ModelsSettingsDesk />);
 
-    await screen.findByText("端点编组");
-    const buttons = screen.getAllByTestId("model-default");
-    await user.click(buttons[0]);
+    // Wait for sidebar to render and select accountB (which has model-b, not global default)
+    await screen.findByTestId("sidebar-item-acc-b");
+    await user.click(screen.getByTestId("sidebar-item-acc-b"));
+
+    // model-b should now be visible in the detail panel
+    await waitFor(() => {
+      expect(screen.getByTestId("model-item-model-b")).toBeInTheDocument();
+    });
+
+    const button = screen.getByTestId("model-default");
+    await user.click(button);
 
     await waitFor(() => {
-      expect(setDefaultApi).toHaveBeenCalledWith("model-b");
+      expect(setDefaultApi).toHaveBeenCalledWith("acc-b", "model-b");
     });
     expect(screen.getByText("默认模型已切换。")).toBeInTheDocument();
   });
@@ -102,12 +142,16 @@ describe("ModelsSettingsDesk", () => {
     const user = userEvent.setup();
     renderWithI18n(<ModelsSettingsDesk />);
 
-    // Wait for models list to render
+    // Select accountB in the sidebar to see model-b
+    await screen.findByTestId("sidebar-item-acc-b");
+    await user.click(screen.getByTestId("sidebar-item-acc-b"));
+
+    // Wait for model-b to render in the detail panel
     await waitFor(() => {
       expect(screen.getByTestId("model-item-model-b")).toBeInTheDocument();
     });
 
-    // Click edit on model-b to open the endpoint modal
+    // Click edit on model-b to open the model modal
     await user.click(
       within(screen.getByTestId("model-item-model-b")).getByRole("button", { name: "编辑" }),
     );
@@ -121,7 +165,7 @@ describe("ModelsSettingsDesk", () => {
   });
 
   it("renders load error state", async () => {
-    modelsApi.mockRejectedValueOnce(new Error("models unavailable"));
+    accountsApi.mockRejectedValueOnce(new Error("models unavailable"));
     renderWithI18n(<ModelsSettingsDesk />);
 
     await waitFor(() => {

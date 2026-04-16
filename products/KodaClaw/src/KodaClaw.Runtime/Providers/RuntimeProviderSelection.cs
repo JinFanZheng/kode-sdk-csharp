@@ -107,28 +107,28 @@ internal static class RuntimeProviderSelector
     }
 
     /// <summary>
-    /// Like ResolveModelOrThrow, but falls back to the default Registry endpoint's
+    /// Like ResolveModelOrThrow, but falls back to the default account model's
     /// ModelId when env-var config is absent. Use this in session services to support
-    /// Registry-first model routing without requiring environment variables.
+    /// account-first model routing without requiring environment variables.
     /// </summary>
     public static async Task<string> ResolveModelOrFallbackAsync(
         IRuntimeConfigurationResolver? resolver,
         string? fallbackModel,
-        KodaClaw.Contracts.IModelRegistryRepository? registry,
+        KodaClaw.Contracts.IProviderAccountRepository? accountRepo,
         CancellationToken cancellationToken = default)
     {
         try
         {
             return ResolveModelOrThrow(resolver, fallbackModel);
         }
-        catch (InvalidOperationException) when (registry is not null)
+        catch (InvalidOperationException) when (accountRepo is not null)
         {
-            var endpoint = await registry.ResolveDefaultForAsync(
+            var resolved = await accountRepo.ResolveDefaultForAsync(
                 KodaClaw.Contracts.ModelCapabilitySet.Text,
                 cancellationToken);
 
-            if (endpoint is not null && !string.IsNullOrWhiteSpace(endpoint.ModelId))
-                return endpoint.ModelId;
+            if (resolved is not null && !string.IsNullOrWhiteSpace(resolved.Model.ModelId))
+                return resolved.Model.ModelId;
 
             throw;
         }

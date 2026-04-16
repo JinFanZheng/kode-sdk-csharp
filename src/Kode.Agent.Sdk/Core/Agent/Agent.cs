@@ -7,6 +7,7 @@ using Kode.Agent.Sdk.Core.Todo;
 using Kode.Agent.Sdk.Core.Templates;
 using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Diagnostics;
+using Kode.Agent.Sdk.Infrastructure.Providers;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text.Json;
@@ -1776,6 +1777,27 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var textStarted = false;
         var thinkingStarted = false;
 
+        // Install SDK-level retry hook so ProviderRetryHelper emits ModelRetryingEvent on every
+        // back-off delay — all consumers (chat, channel, automation) benefit automatically.
+        AgentRetryContext.Current.Value = ctx =>
+        {
+            try
+            {
+                _eventBus.EmitMonitor(new ModelRetryingEvent
+                {
+                    Type = "model:retrying",
+                    Provider = ctx.ProviderName,
+                    Attempt = ctx.Attempt,
+                    MaxRetries = ctx.MaxRetries,
+                    DelaySeconds = Math.Round(ctx.Delay.TotalSeconds, 1),
+                    Reason = ctx.ErrorMessage,
+                });
+            }
+            catch { /* never let event emission crash the provider call */ }
+        };
+        try
+        {
+
         // Retry loop: up to 3 attempts for transient provider errors (e.g. 500 / 503).
         // We only retry when no content has been emitted to the event bus yet — otherwise
         // partial output would be duplicated on the client side.
@@ -1914,6 +1936,12 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             {
                 break;
             }
+        }
+
+        } // end try (AgentRetryContext)
+        finally
+        {
+            AgentRetryContext.Current.Value = null;
         }
 
         // Add text content if any

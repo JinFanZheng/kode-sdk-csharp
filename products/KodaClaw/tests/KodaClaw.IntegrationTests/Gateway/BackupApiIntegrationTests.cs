@@ -174,21 +174,30 @@ public sealed class BackupApiIntegrationTests
         await using var targetHosted = await StartHostedGatewayAsync(targetWorkspace.Path, new FakeSecretStore(new Dictionary<string, string?>()));
         targetHosted.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "backup-token");
 
-        var targetModelRepository = targetHosted.Services.GetRequiredService<IModelRegistryRepository>();
+        var targetModelRepository = targetHosted.Services.GetRequiredService<IProviderAccountRepository>();
         var now = new DateTimeOffset(2026, 3, 19, 15, 0, 0, TimeSpan.Zero);
-        await targetModelRepository.AddAsync(new ModelEndpoint(
-            Id: "existing-model",
-            DisplayName: "Existing model",
-            Provider: ModelProviderKind.OpenAICompatible,
-            ModelId: "o4-mini",
-            BaseUrl: "https://target.example.com",
+        await targetModelRepository.AddAccountAsync(new ProviderAccount(
+            Id:                        "existing-account",
+            DisplayName:               "Existing account",
+            ProviderKind:              ModelProviderKind.OpenAICompatible,
+            BaseUrl:                   "https://target.example.com",
+            ApiKeySecretRef:           null,
             ApiKeyEnvironmentVariable: null,
-            ApiKeySecretRef: null,
-            Enabled: true,
-            Capabilities: ModelCapabilitySet.Text,
-            IsDefault: true,
-            CreatedAt: now,
-            UpdatedAt: now));
+            AccessMode:                "api",
+            Enabled:                   true,
+            CreatedAt:                 now,
+            UpdatedAt:                 now));
+        await targetModelRepository.AddModelAsync(new AccountModel(
+            Id:                  "existing-model",
+            AccountId:           "existing-account",
+            DisplayName:         "Existing model",
+            ModelId:             "o4-mini",
+            Capabilities:        ModelCapabilitySet.Text,
+            IsDefaultForAccount: true,
+            IsGlobalDefault:     true,
+            Enabled:             true,
+            CreatedAt:           now,
+            UpdatedAt:           now));
 
         var preflightResponse = await targetHosted.Client.PostAsJsonAsync(
             "/api/system/backup-import/preflight",
@@ -500,26 +509,35 @@ public sealed class BackupApiIntegrationTests
             QuietHoursEndLocalTime: "07:00",
             UpdatedAt: settingsUpdatedAt));
 
-        var modelRepository = services.GetRequiredService<IModelRegistryRepository>();
+        var modelRepository = services.GetRequiredService<IProviderAccountRepository>();
         var channelAccountRepository = services.GetRequiredService<IChannelAccountRepository>();
         var threadBindingRepository = services.GetRequiredService<IThreadBindingRepository>();
         var pluginRegistryRepository = services.GetRequiredService<IPluginRegistryRepository>();
         var automationDefinitionRepository = services.GetRequiredService<IAutomationDefinitionRepository>();
 
         var now = new DateTimeOffset(2026, 3, 19, 11, 0, 0, TimeSpan.Zero);
-        await modelRepository.AddAsync(new ModelEndpoint(
-            Id: "model-primary",
-            DisplayName: "Primary model",
-            Provider: ModelProviderKind.OpenAICompatible,
-            ModelId: "o3",
-            BaseUrl: "https://model.example.com",
+        await modelRepository.AddAccountAsync(new ProviderAccount(
+            Id:                        "account-primary",
+            DisplayName:               "Primary account",
+            ProviderKind:              ModelProviderKind.OpenAICompatible,
+            BaseUrl:                   "https://model.example.com",
+            ApiKeySecretRef:           modelSecretRef.ToReferenceString(),
             ApiKeyEnvironmentVariable: null,
-            ApiKeySecretRef: modelSecretRef.ToReferenceString(),
-            Enabled: true,
-            Capabilities: ModelCapabilitySet.Text,
-            IsDefault: true,
-            CreatedAt: now,
-            UpdatedAt: now));
+            AccessMode:                "api",
+            Enabled:                   true,
+            CreatedAt:                 now,
+            UpdatedAt:                 now));
+        await modelRepository.AddModelAsync(new AccountModel(
+            Id:                  "model-primary",
+            AccountId:           "account-primary",
+            DisplayName:         "Primary model",
+            ModelId:             "o3",
+            Capabilities:        ModelCapabilitySet.Text,
+            IsDefaultForAccount: true,
+            IsGlobalDefault:     true,
+            Enabled:             true,
+            CreatedAt:           now,
+            UpdatedAt:           now));
 
         await channelAccountRepository.UpsertAsync(new ChannelAccount(
             Id: "telegram-main",

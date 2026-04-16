@@ -7,41 +7,40 @@ using KodaClaw.ModelHub;
 namespace KodaClaw.Runtime;
 
 /// <summary>
-/// Registry-first IModelProvider: resolves the appropriate endpoint from
-/// IModelRegistryRepository based on required capabilities inferred from the
-/// request content, then constructs the matching LLM provider.
-/// Falls back to DynamicModelProvider (env-var path) when the registry is empty.
+/// Account-first IModelProvider: resolves the appropriate model from
+/// IProviderAccountRepository based on required capabilities, then constructs
+/// the matching LLM provider. Falls back to DynamicModelProvider when the
+/// repository is empty.
 /// </summary>
-public sealed class RegistryAwareModelProvider : IModelProvider
+public sealed class AccountAwareModelProvider : IModelProvider
 {
-    private const string DiagnosticSource = "registry_aware_model_provider";
+    private const string DiagnosticSource = "account_aware_model_provider";
 
-    private readonly IModelRegistryRepository _registry;
+    private readonly IProviderAccountRepository _repo;
     private readonly ISecretStore _secretStore;
     private readonly IRuntimeModelProviderFactory _factory;
     private readonly DynamicModelProvider _fallback;
     private readonly IDiagnosticsService? _diagnosticsService;
 
-    // Cache providers by (endpointId, resolvedApiKey) so that each unique endpoint
-    // reuses one HttpClient/connection-pool instead of creating a new one per LLM call.
-    // This is critical for cloud deployments where socket exhaustion is a real risk.
+    // Cache providers by accountId:apiKey so all models under the same account
+    // share one HttpClient/connection pool.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IModelProvider> _providerCache = new();
 
-    public RegistryAwareModelProvider(
-        IModelRegistryRepository registry,
+    public AccountAwareModelProvider(
+        IProviderAccountRepository repo,
         ISecretStore secretStore,
         IRuntimeModelProviderFactory factory,
         DynamicModelProvider fallback,
         IDiagnosticsService? diagnosticsService = null)
     {
-        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _repo = repo ?? throw new ArgumentNullException(nameof(repo));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _fallback = fallback ?? throw new ArgumentNullException(nameof(fallback));
         _diagnosticsService = diagnosticsService;
     }
 
-    public string ProviderName => "registry";
+    public string ProviderName => "account";
 
     public async IAsyncEnumerable<StreamChunk> StreamAsync(
         ModelRequest request,
@@ -64,18 +63,18 @@ public sealed class RegistryAwareModelProvider : IModelProvider
     {
         try
         {
-            var endpoint = await _registry.ResolveDefaultForAsync(
+            var resolved = await _repo.ResolveDefaultForAsync(
                 ModelCapabilitySet.Text, cancellationToken);
 
-            if (endpoint is not null)
+            if (resolved is not null)
             {
-                var provider = await BuildProviderAsync(endpoint, cancellationToken);
+                var provider = await BuildProviderAsync(resolved.Account, cancellationToken);
                 return await provider.ValidateAsync(cancellationToken);
             }
         }
         catch (InvalidOperationException)
         {
-            // registry path not ready — fall through to env-var fallback
+            // Account path not ready — fall through to env-var fallback
         }
 
         return await _fallback.ValidateAsync(cancellationToken);
@@ -88,147 +87,133 @@ public sealed class RegistryAwareModelProvider : IModelProvider
         CancellationToken cancellationToken)
     {
         var required = InferRequiredCapabilities(request);
-        var endpoint = await _registry.ResolveDefaultForAsync(required, cancellationToken);
+        var resolved = await _repo.ResolveDefaultForAsync(required, cancellationToken);
 
-        // Capability-degraded fallback: no multimodal endpoint found, try Text-only
-        // and strip unsupported content blocks from the request.
-        if (endpoint is null && required != ModelCapabilitySet.Text)
+        // Capability-degraded fallback
+        if (resolved is null && required != ModelCapabilitySet.Text)
         {
-            endpoint = await _registry.ResolveDefaultForAsync(
+            resolved = await _repo.ResolveDefaultForAsync(
                 ModelCapabilitySet.Text, cancellationToken);
 
-            if (endpoint is not null)
+            if (resolved is not null)
             {
-                var stripped = StripUnsupportedContent(request, endpoint.Capabilities);
+                var stripped = StripUnsupportedContent(request, resolved.Model.Capabilities);
                 if (stripped != request)
                 {
-                    RecordDegradationEvent(endpoint, required, endpoint.Capabilities);
+                    RecordDegradationEvent(resolved, required, resolved.Model.Capabilities);
                     request = stripped;
                 }
             }
         }
 
-        if (endpoint is not null)
+        if (resolved is not null)
         {
-            var provider = await BuildProviderAsync(endpoint, cancellationToken);
-            var normalized = NormalizeRequest(request, endpoint);
+            var provider = await BuildProviderAsync(resolved.Account, cancellationToken);
+            var normalized = NormalizeRequest(request, resolved.Model);
             return (provider, normalized);
         }
 
-        // No registry entry — delegate to env-var DynamicModelProvider
+        // No account entry — delegate to env-var DynamicModelProvider
         return (_fallback, request);
     }
 
     private async Task<IModelProvider> BuildProviderAsync(
-        ModelEndpoint endpoint,
+        ProviderAccount account,
         CancellationToken cancellationToken)
     {
-        var apiKey = await ResolveApiKeyAsync(endpoint, cancellationToken);
+        var apiKey = await ResolveApiKeyAsync(account, cancellationToken);
 
-        // Cache key: endpointId + apiKey (apiKey included so rotation takes effect immediately).
-        var cacheKey = $"{endpoint.Id}:{apiKey}";
+        var cacheKey = $"{account.Id}:{apiKey}";
         if (_providerCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        var (providerKind, snapshot) = endpoint.Provider switch
+        var (providerKind, snapshot) = account.ProviderKind switch
         {
             ModelProviderKind.Anthropic or ModelProviderKind.AnthropicCompatible =>
                 (RuntimeProviderKind.Anthropic, new RuntimeConfigurationSnapshot(
-                    DefaultModel: endpoint.ModelId,
+                    DefaultModel: null,
                     OpenAIApiKey: null,
                     OpenAIBaseUrl: null,
                     AnthropicApiKey: apiKey,
-                    AnthropicBaseUrl: endpoint.BaseUrl,
-                    CustomHeaders: endpoint.CustomHeaders)),
+                    AnthropicBaseUrl: account.BaseUrl,
+                    CustomHeaders: account.CustomHeaders)),
 
             ModelProviderKind.OpenAI or ModelProviderKind.OpenAICompatible =>
                 (RuntimeProviderKind.OpenAI, new RuntimeConfigurationSnapshot(
-                    DefaultModel: endpoint.ModelId,
+                    DefaultModel: null,
                     OpenAIApiKey: apiKey,
-                    OpenAIBaseUrl: endpoint.BaseUrl,
+                    OpenAIBaseUrl: account.BaseUrl,
                     AnthropicApiKey: null,
                     AnthropicBaseUrl: null,
-                    CustomHeaders: endpoint.CustomHeaders)),
+                    CustomHeaders: account.CustomHeaders)),
 
             ModelProviderKind.OpenAIResponses =>
                 (RuntimeProviderKind.OpenAIResponses, new RuntimeConfigurationSnapshot(
-                    DefaultModel: endpoint.ModelId,
+                    DefaultModel: null,
                     OpenAIApiKey: apiKey,
-                    OpenAIBaseUrl: endpoint.BaseUrl,
+                    OpenAIBaseUrl: account.BaseUrl,
                     AnthropicApiKey: null,
                     AnthropicBaseUrl: null,
-                    CustomHeaders: endpoint.CustomHeaders)),
+                    CustomHeaders: account.CustomHeaders)),
 
             _ => throw new InvalidOperationException(
-                $"Unsupported provider kind '{endpoint.Provider}' for endpoint '{endpoint.Id}'."),
+                $"Unsupported provider kind '{account.ProviderKind}' for account '{account.Id}'."),
         };
 
         var provider = _factory.Create(providerKind, snapshot);
-        // GetOrAdd is atomic: if two concurrent calls race, only one provider is kept.
         return _providerCache.GetOrAdd(cacheKey, provider);
     }
 
     private async Task<string> ResolveApiKeyAsync(
-        ModelEndpoint endpoint,
+        ProviderAccount account,
         CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(endpoint.ApiKeySecretRef) &&
-            SecretRef.TryParse(endpoint.ApiKeySecretRef, out var secretRef))
+        if (!string.IsNullOrWhiteSpace(account.ApiKeySecretRef) &&
+            SecretRef.TryParse(account.ApiKeySecretRef, out var secretRef))
         {
             var secret = await _secretStore.GetAsync(secretRef, cancellationToken);
             if (!string.IsNullOrWhiteSpace(secret))
                 return secret;
         }
 
-        if (!string.IsNullOrWhiteSpace(endpoint.ApiKeyEnvironmentVariable))
+        if (!string.IsNullOrWhiteSpace(account.ApiKeyEnvironmentVariable))
         {
-            var envVal = Environment.GetEnvironmentVariable(endpoint.ApiKeyEnvironmentVariable);
+            var envVal = Environment.GetEnvironmentVariable(account.ApiKeyEnvironmentVariable);
             if (!string.IsNullOrWhiteSpace(envVal))
                 return envVal;
         }
 
         throw new InvalidOperationException(
-            $"No API key configured for model endpoint '{endpoint.Id}'. " +
+            $"No API key configured for provider account '{account.DisplayName}'. " +
             "Configure a key in Models settings or set the corresponding environment variable.");
     }
 
-    /// <summary>
-    /// Normalizes the request for the resolved endpoint.
-    /// Throws <see cref="InvalidOperationException"/> if the endpoint does not
-    /// support tool calling but the request carries tool schemas — fail fast with
-    /// a clear message rather than silently stripping tools.
-    /// </summary>
-    private static ModelRequest NormalizeRequest(ModelRequest request, ModelEndpoint endpoint)
+    private static ModelRequest NormalizeRequest(ModelRequest request, AccountModel model)
     {
         var normalized = request;
 
-        if (!string.IsNullOrWhiteSpace(endpoint.ModelId) &&
-            !string.Equals(request.Model, endpoint.ModelId, StringComparison.Ordinal))
+        if (!string.IsNullOrWhiteSpace(model.ModelId) &&
+            !string.Equals(request.Model, model.ModelId, StringComparison.Ordinal))
         {
-            normalized = normalized with { Model = endpoint.ModelId };
+            normalized = normalized with { Model = model.ModelId };
         }
 
-        if (endpoint.MaxOutputTokens > 0 && normalized.MaxTokens is null)
+        if (model.MaxOutputTokens > 0 && normalized.MaxTokens is null)
         {
-            normalized = normalized with { MaxTokens = endpoint.MaxOutputTokens };
+            normalized = normalized with { MaxTokens = model.MaxOutputTokens };
         }
 
-        if (!endpoint.SupportsToolCalling && normalized.Tools is { Count: > 0 })
+        if (!model.SupportsToolCalling && normalized.Tools is { Count: > 0 })
         {
             throw new InvalidOperationException(
-                $"Model endpoint '{endpoint.DisplayName}' (id: {endpoint.Id}) does not support " +
+                $"Model '{model.DisplayName}' (id: {model.Id}) does not support " +
                 "tool calling. KodaClaw sessions require tool calling. " +
-                "Please configure a model that supports function calling, or update the endpoint's " +
-                "SupportsToolCalling setting if the model has been updated.");
+                "Please configure a model that supports function calling.");
         }
 
         return normalized;
     }
 
-    /// <summary>
-    /// Infers required ModelCapabilitySet from the content blocks present in the request messages.
-    /// Text is always required. Additional capabilities are added for image/video/file blocks.
-    /// </summary>
     private static ModelCapabilitySet InferRequiredCapabilities(ModelRequest request)
     {
         var required = ModelCapabilitySet.Text;
@@ -248,10 +233,6 @@ public sealed class RegistryAwareModelProvider : IModelProvider
         return required;
     }
 
-    /// <summary>
-    /// Strips content blocks that require capabilities the endpoint does not have.
-    /// Used when degrading from a multimodal request to a text-only endpoint.
-    /// </summary>
     private static ModelRequest StripUnsupportedContent(
         ModelRequest request,
         ModelCapabilitySet supported)
@@ -279,7 +260,7 @@ public sealed class RegistryAwareModelProvider : IModelProvider
     }
 
     private void RecordDegradationEvent(
-        ModelEndpoint endpoint,
+        ResolvedModel resolved,
         ModelCapabilitySet requested,
         ModelCapabilitySet available)
     {
@@ -288,14 +269,15 @@ public sealed class RegistryAwareModelProvider : IModelProvider
             Source: DiagnosticSource,
             EventType: "multimodal_content_degraded",
             Level: "Warning",
-            Message: $"No endpoint found for capabilities '{requested}'. " +
-                     $"Degraded to endpoint '{endpoint.DisplayName}' with capabilities '{available}'. " +
+            Message: $"No model found for capabilities '{requested}'. " +
+                     $"Degraded to '{resolved.Model.DisplayName}' with capabilities '{available}'. " +
                      "Unsupported content blocks (image/video/file) have been stripped from the request.",
             Timestamp: DateTimeOffset.UtcNow,
             Attributes: new Dictionary<string, string?>
             {
-                ["endpointId"]          = endpoint.Id,
-                ["endpointDisplayName"] = endpoint.DisplayName,
+                ["accountId"]          = resolved.Account.Id,
+                ["modelId"]            = resolved.Model.Id,
+                ["modelDisplayName"]   = resolved.Model.DisplayName,
                 ["requestedCapabilities"] = requested.ToString(),
                 ["availableCapabilities"] = available.ToString(),
             }));

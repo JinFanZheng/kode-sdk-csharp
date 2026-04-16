@@ -36,6 +36,7 @@ public sealed class OpenAIProvider : IModelProvider
 
     private readonly OpenAIClient _client;
     private readonly OpenAIOptions _options;
+    private readonly RetryPolicy _retryPolicy;
     private readonly ILogger<OpenAIProvider>? _logger;
 
     public string ProviderName => "openai";
@@ -43,6 +44,7 @@ public sealed class OpenAIProvider : IModelProvider
     public OpenAIProvider(OpenAIOptions options, ILogger<OpenAIProvider>? logger = null)
     {
         _options = options;
+        _retryPolicy = options.RetryPolicy ?? RetryPolicy.Default;
         _logger = logger;
 
         var clientOptions = new OpenAIClientOptions();
@@ -87,6 +89,7 @@ public sealed class OpenAIProvider : IModelProvider
     internal OpenAIProvider(OpenAIOptions options, OpenAIClientOptions clientOptions, ILogger<OpenAIProvider>? logger = null)
     {
         _options = options;
+        _retryPolicy = options.RetryPolicy ?? RetryPolicy.Default;
         _logger = logger;
         _client = new OpenAIClient(new ApiKeyCredential(options.ApiKey), clientOptions);
     }
@@ -94,6 +97,18 @@ public sealed class OpenAIProvider : IModelProvider
     public async IAsyncEnumerable<StreamChunk> StreamAsync(
         ModelRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await foreach (var chunk in ProviderRetryHelper.StreamWithRetryAsync(
+            ct => StreamCoreAsync(request, ct),
+            _retryPolicy, _logger, ProviderName, cancellationToken))
+        {
+            yield return chunk;
+        }
+    }
+
+    private async IAsyncEnumerable<StreamChunk> StreamCoreAsync(
+        ModelRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var providerActivity = KodeAgentActivitySource.Source.StartActivity("provider.stream");
         providerActivity?.SetTag("gen_ai.system", "openai");
@@ -165,22 +180,27 @@ public sealed class OpenAIProvider : IModelProvider
         finally { MediaRewriteHttpHandler.ThinkingEnabled.Value = false; }
     }
 
-    public async Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken = default)
+    public Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken = default)
     {
         var chatClient = _client.GetChatClient(request.Model);
         var messages = BuildChatMessages(request);
         var options = BuildChatOptions(request);
 
-        MediaRewriteHttpHandler.ThinkingEnabled.Value = request.EnableThinking == true;
-        try
-        {
-            var result = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
-            return ConvertToModelResponse(result.Value);
-        }
-        finally
-        {
-            MediaRewriteHttpHandler.ThinkingEnabled.Value = false;
-        }
+        return ProviderRetryHelper.ExecuteWithRetryAsync(
+            async ct =>
+            {
+                MediaRewriteHttpHandler.ThinkingEnabled.Value = request.EnableThinking == true;
+                try
+                {
+                    var result = await chatClient.CompleteChatAsync(messages, options, ct);
+                    return ConvertToModelResponse(result.Value);
+                }
+                finally
+                {
+                    MediaRewriteHttpHandler.ThinkingEnabled.Value = false;
+                }
+            },
+            _retryPolicy, _logger, ProviderName, cancellationToken);
     }
 
     public async Task<bool> ValidateAsync(CancellationToken cancellationToken = default)
@@ -669,4 +689,10 @@ public class OpenAIOptions
     /// Only User-Agent is supported via UserAgentApplicationId.
     /// </summary>
     public IReadOnlyDictionary<string, string>? CustomHeaders { get; init; }
+
+    /// <summary>
+    /// Retry policy for transient errors (rate limits, overload, timeouts).
+    /// Defaults to <see cref="RetryPolicy.Default"/> when null.
+    /// </summary>
+    public RetryPolicy? RetryPolicy { get; init; }
 }

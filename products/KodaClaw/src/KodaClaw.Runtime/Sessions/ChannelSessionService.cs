@@ -24,7 +24,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
     private readonly ChannelSessionOptions _options;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
-    private readonly IModelRegistryRepository? _modelRegistryRepository;
+    private readonly IProviderAccountRepository? _accountRepository;
     private readonly IMcpHubService? _mcpHubService;
     private readonly IThreadBindingRepository? _threadBindingRepository;
     private readonly IMemorySessionSummaryService? _sessionSummaryService;
@@ -40,7 +40,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         IMainSessionAgentDependenciesFactory dependenciesFactory,
         ChannelSessionOptions? options = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
-        IModelRegistryRepository? modelRegistryRepository = null,
+        IProviderAccountRepository? accountRepository = null,
         IMcpHubService? mcpHubService = null,
         IThreadBindingRepository? threadBindingRepository = null,
         IMemorySessionSummaryService? sessionSummaryService = null,
@@ -51,7 +51,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
         _options = options ?? new ChannelSessionOptions();
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
-        _modelRegistryRepository = modelRegistryRepository;
+        _accountRepository = accountRepository;
         _mcpHubService = mcpHubService;
         _threadBindingRepository = threadBindingRepository;
         _sessionSummaryService = sessionSummaryService;
@@ -269,7 +269,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             turnActivity?.SetTag("channel.connector_kind", binding.ConnectorKind.ToString());
             turnActivity?.SetTag("channel.session_id", handle.SessionId);
 
-            runResult = envelope.MediaAttachments is { Count: > 0 } && _modelRegistryRepository != null
+            runResult = envelope.MediaAttachments is { Count: > 0 } && _accountRepository != null
                 ? await RunMultimodalTurnAsync(handle, prompt, envelope.MediaAttachments, cancellationToken)
                 : await handle.Agent.RunAsync(prompt, cancellationToken);
         }
@@ -317,7 +317,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var hasImage = false;
         try
         {
-            var endpoint = await _modelRegistryRepository!.ResolveDefaultForAsync(
+            var endpoint = await _accountRepository!.ResolveDefaultForAsync(
                 ModelCapabilitySet.Image, cancellationToken);
             hasImage = endpoint != null;
         }
@@ -833,19 +833,19 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
             _options.Model,
-            _modelRegistryRepository,
+            _accountRepository,
             cancellationToken);
 
     private async Task<int> ResolvePromptCharacterBudgetAsync(CancellationToken cancellationToken)
     {
-        if (_modelRegistryRepository is null) return _options.MaxPromptCharacters;
+        if (_accountRepository is null) return _options.MaxPromptCharacters;
         try
         {
-            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+            var resolved = await _accountRepository.ResolveDefaultForAsync(
                 ModelCapabilitySet.Text, cancellationToken);
-            if (endpoint is null) return _options.MaxPromptCharacters;
-            var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
-            var usableTokens = Math.Max(endpoint.ContextWindowSize - maxOutputCap, 0);
+            if (resolved is null) return _options.MaxPromptCharacters;
+            var maxOutputCap = Math.Min(resolved.Model.MaxOutputTokens, Math.Min((int)(resolved.Model.ContextWindowSize * 0.20), 16_384));
+            var usableTokens = Math.Max(resolved.Model.ContextWindowSize - maxOutputCap, 0);
             return Math.Max(usableTokens / 5 * 4, _options.MaxPromptCharacters);
         }
         catch
@@ -856,14 +856,14 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
     private async Task<int> ResolveContextWindowSizeAsync(CancellationToken cancellationToken)
     {
-        if (_modelRegistryRepository is null) return _options.DefaultContextWindowSize;
+        if (_accountRepository is null) return _options.DefaultContextWindowSize;
         try
         {
-            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+            var resolved = await _accountRepository.ResolveDefaultForAsync(
                 ModelCapabilitySet.Text, cancellationToken);
-            if (endpoint is null) return _options.DefaultContextWindowSize;
-            var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
-            var available = endpoint.ContextWindowSize - maxOutputCap;
+            if (resolved is null) return _options.DefaultContextWindowSize;
+            var maxOutputCap = Math.Min(resolved.Model.MaxOutputTokens, Math.Min((int)(resolved.Model.ContextWindowSize * 0.20), 16_384));
+            var available = resolved.Model.ContextWindowSize - maxOutputCap;
             return available > 0 ? available : _options.DefaultContextWindowSize;
         }
         catch

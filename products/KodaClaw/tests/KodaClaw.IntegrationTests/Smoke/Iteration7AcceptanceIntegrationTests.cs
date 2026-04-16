@@ -334,33 +334,51 @@ public sealed class Iteration7AcceptanceIntegrationTests
             QuietHoursEndLocalTime: null,
             UpdatedAt: now));
 
-        var modelRepository = provider.GetRequiredService<IModelRegistryRepository>();
-        await modelRepository.AddAsync(new ModelEndpoint(
-            Id: "model-primary",
-            DisplayName: "Primary model",
-            Provider: ModelProviderKind.OpenAICompatible,
-            ModelId: "o3",
-            BaseUrl: "https://proxy.example.com",
+        var modelRepository = provider.GetRequiredService<IProviderAccountRepository>();
+        await modelRepository.AddAccountAsync(new ProviderAccount(
+            Id:                        "account-primary",
+            DisplayName:               "Primary account",
+            ProviderKind:              ModelProviderKind.OpenAICompatible,
+            BaseUrl:                   "https://proxy.example.com",
+            ApiKeySecretRef:           modelSecretRef.ToReferenceString(),
             ApiKeyEnvironmentVariable: null,
-            ApiKeySecretRef: modelSecretRef.ToReferenceString(),
-            Enabled: true,
-            Capabilities: ModelCapabilitySet.Text,
-            IsDefault: true,
-            CreatedAt: now,
-            UpdatedAt: now));
-        await modelRepository.AddAsync(new ModelEndpoint(
-            Id: "model-fallback",
-            DisplayName: "Fallback model",
-            Provider: ModelProviderKind.OpenAICompatible,
-            ModelId: "o3-mini",
-            BaseUrl: "https://proxy.example.com",
+            AccessMode:                "api",
+            Enabled:                   true,
+            CreatedAt:                 now,
+            UpdatedAt:                 now));
+        await modelRepository.AddModelAsync(new AccountModel(
+            Id:                  "model-primary",
+            AccountId:           "account-primary",
+            DisplayName:         "Primary model",
+            ModelId:             "o3",
+            Capabilities:        ModelCapabilitySet.Text,
+            IsDefaultForAccount: true,
+            IsGlobalDefault:     true,
+            Enabled:             true,
+            CreatedAt:           now,
+            UpdatedAt:           now));
+        await modelRepository.AddAccountAsync(new ProviderAccount(
+            Id:                        "account-fallback",
+            DisplayName:               "Fallback account",
+            ProviderKind:              ModelProviderKind.OpenAICompatible,
+            BaseUrl:                   "https://proxy.example.com",
+            ApiKeySecretRef:           null,
             ApiKeyEnvironmentVariable: Iteration7FallbackEnvironmentVariable,
-            ApiKeySecretRef: null,
-            Enabled: true,
-            Capabilities: ModelCapabilitySet.Text,
-            IsDefault: false,
-            CreatedAt: now.AddMinutes(1),
-            UpdatedAt: now.AddMinutes(1)));
+            AccessMode:                "api",
+            Enabled:                   true,
+            CreatedAt:                 now.AddMinutes(1),
+            UpdatedAt:                 now.AddMinutes(1)));
+        await modelRepository.AddModelAsync(new AccountModel(
+            Id:                  "model-fallback",
+            AccountId:           "account-fallback",
+            DisplayName:         "Fallback model",
+            ModelId:             "o3-mini",
+            Capabilities:        ModelCapabilitySet.Text,
+            IsDefaultForAccount: true,
+            IsGlobalDefault:     false,
+            Enabled:             true,
+            CreatedAt:           now.AddMinutes(1),
+            UpdatedAt:           now.AddMinutes(1)));
 
         var accountRepository = provider.GetRequiredService<IChannelAccountRepository>();
         await accountRepository.UpsertAsync(new ChannelAccount(

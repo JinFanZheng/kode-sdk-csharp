@@ -1,0 +1,392 @@
+/* ── Models Settings Desk — master/detail layout ── */
+
+/* Layout uses .control-plane-pane-shell grid (260px/0.45fr + 1fr) */
+
+.models-desk__layout {
+  height: 100%;
+}
+
+/* ── Left rail: provider sidebar ── */
+
+.models-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.models-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.models-sidebar__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.models-sidebar__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* ── Sidebar item ── */
+
+.models-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast),
+    border-color var(--duration-fast);
+  width: 100%;
+  text-align: left;
+}
+
+.models-sidebar-item:hover {
+  background: var(--bg-hover);
+}
+
+.models-sidebar-item--selected {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.models-sidebar-item--disabled {
+  opacity: 0.5;
+}
+
+.models-sidebar-item__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.models-sidebar-item__name {
+  font-size: var(--font-size-sm);
+  font-weight: 550;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.models-sidebar-item__meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.models-sidebar-item__provider-tag {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+/* ── Right stage: detail panel ── */
+
+.models-detail {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.models-detail__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.models-detail__header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.models-detail__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.models-detail__header-name {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+input.models-detail__header-name {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  flex: 1;
+}
+
+.models-detail__info-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+  font-size: var(--font-size-sm);
+}
+
+.models-detail__info-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.models-detail__info-value {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.models-detail__info-value code {
+  font-size: var(--font-size-xs);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Model section inside detail ── */
+
+.models-detail__model-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.models-detail__model-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.models-detail__model-header-title {
+  font-size: var(--font-size-sm);
+  font-weight: 550;
+  color: var(--text-secondary);
+}
+
+.models-detail__model-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* ── Model list item (compact row) ── */
+
+.model-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--bg-secondary);
+  transition:
+    border-color var(--duration-fast),
+    background var(--duration-fast);
+}
+
+.model-list-item:hover {
+  border-color: var(--border-subtle);
+  background: var(--bg-hover);
+}
+
+.model-list-item--disabled {
+  opacity: 0.55;
+}
+
+.model-list-item__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-list-item__name {
+  font-size: var(--font-size-sm);
+  font-weight: 550;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.model-list-item__model-id {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.model-list-item__badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.model-list-item__meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Actions: visible on hover */
+.model-list-item__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.model-list-item:hover .model-list-item__actions,
+.model-list-item:focus-within .model-list-item__actions {
+  opacity: 1;
+}
+
+/* Always show test result even without hover */
+.model-list-item__test-result {
+  opacity: 1 !important;
+}
+
+/* ── Copy Model ID button ── */
+.model-list-item__copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast),
+    color var(--duration-fast),
+    background var(--duration-fast);
+}
+
+.model-list-item:hover .model-list-item__copy-btn,
+.model-list-item__copy-btn:focus-visible {
+  opacity: 1;
+}
+
+.model-list-item__copy-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Show check icon (copied state) always */
+.model-list-item__copy-btn:has(> .lucide-check) {
+  opacity: 1;
+  color: var(--success);
+}
+
+/* ── Inline endpoint editing form ── */
+
+.models-detail__edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.models-detail__edit-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+/* ── Quick-test inline result ── */
+
+.model-list-item__test-result {
+  font-size: var(--font-size-xs);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* ── Icon-only action button in model list ── */
+.model-list-item__icon-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0 !important;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  transition:
+    color var(--duration-fast),
+    background var(--duration-fast);
+}
+
+.model-list-item__icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.model-list-item__icon-btn--danger:hover {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+/* ── Danger text button helper ── */
+.btn--danger-text {
+  color: var(--error) !important;
+}
+.btn--danger-text:hover {
+  background: var(--error-soft) !important;
+}

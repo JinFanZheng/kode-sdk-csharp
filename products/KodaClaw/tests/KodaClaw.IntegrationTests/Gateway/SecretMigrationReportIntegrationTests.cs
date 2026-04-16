@@ -87,11 +87,11 @@ public sealed class SecretMigrationReportIntegrationTests
                 item.State == SecretMigrationState.LegacyFallback &&
                 item.LegacySource == "configurationValue:Runtime:OpenAIApiKey");
             payload.Items.Should().ContainSingle(item =>
-                item.Id == "model-endpoint:model-primary" &&
+                item.Id == "provider-account:account-primary" &&
                 item.State == SecretMigrationState.Migrated &&
                 item.ConfiguredSecretRef == modelSecretRef.ToReferenceString());
             payload.Items.Should().ContainSingle(item =>
-                item.Id == "model-endpoint:model-fallback" &&
+                item.Id == "provider-account:account-fallback" &&
                 item.State == SecretMigrationState.LegacyFallback &&
                 item.LegacySource == $"environmentVariable:{fallbackEnvironmentVariable}");
             payload.Items.Should().ContainSingle(item =>
@@ -206,34 +206,52 @@ public sealed class SecretMigrationReportIntegrationTests
         SecretRef modelSecretRef,
         string fallbackEnvironmentVariable)
     {
-        var repository = services.GetRequiredService<IModelRegistryRepository>();
+        var repository = services.GetRequiredService<IProviderAccountRepository>();
         var now = new DateTimeOffset(2026, 3, 19, 10, 0, 0, TimeSpan.Zero);
 
-        await repository.AddAsync(new ModelEndpoint(
-            Id: "model-primary",
-            DisplayName: "Primary model",
-            Provider: ModelProviderKind.OpenAICompatible,
-            ModelId: "o3",
+        await repository.AddAccountAsync(new ProviderAccount(
+            Id: "account-primary",
+            DisplayName: "Primary account",
+            ProviderKind: ModelProviderKind.OpenAICompatible,
             BaseUrl: "https://proxy.example.com",
-            ApiKeyEnvironmentVariable: null,
             ApiKeySecretRef: modelSecretRef.ToReferenceString(),
+            ApiKeyEnvironmentVariable: null,
+            AccessMode: "api",
             Enabled: true,
+            CreatedAt: now,
+            UpdatedAt: now));
+        await repository.AddModelAsync(new AccountModel(
+            Id: "model-primary",
+            AccountId: "account-primary",
+            DisplayName: "Primary model",
+            ModelId: "o3",
             Capabilities: ModelCapabilitySet.Text,
-            IsDefault: true,
+            IsDefaultForAccount: true,
+            IsGlobalDefault: true,
+            Enabled: true,
             CreatedAt: now,
             UpdatedAt: now));
 
-        await repository.AddAsync(new ModelEndpoint(
-            Id: "model-fallback",
-            DisplayName: "Fallback model",
-            Provider: ModelProviderKind.OpenAICompatible,
-            ModelId: "o3-mini",
+        await repository.AddAccountAsync(new ProviderAccount(
+            Id: "account-fallback",
+            DisplayName: "Fallback account",
+            ProviderKind: ModelProviderKind.OpenAICompatible,
             BaseUrl: "https://proxy.example.com",
-            ApiKeyEnvironmentVariable: fallbackEnvironmentVariable,
             ApiKeySecretRef: null,
+            ApiKeyEnvironmentVariable: fallbackEnvironmentVariable,
+            AccessMode: "api",
             Enabled: true,
+            CreatedAt: now.AddMinutes(1),
+            UpdatedAt: now.AddMinutes(1)));
+        await repository.AddModelAsync(new AccountModel(
+            Id: "model-fallback",
+            AccountId: "account-fallback",
+            DisplayName: "Fallback model",
+            ModelId: "o3-mini",
             Capabilities: ModelCapabilitySet.Text,
-            IsDefault: false,
+            IsDefaultForAccount: true,
+            IsGlobalDefault: false,
+            Enabled: true,
             CreatedAt: now.AddMinutes(1),
             UpdatedAt: now.AddMinutes(1)));
     }

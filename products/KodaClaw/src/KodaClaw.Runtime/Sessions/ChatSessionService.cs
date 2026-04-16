@@ -79,7 +79,7 @@ public sealed class ChatSessionService : IChatSessionService
             {
                 Since = agent.EventBus.GetLastBookmark(),
                 Kinds = ["text_chunk", "done", "error", "tool:start", "tool:end", "permission_required", "permission_decided",
-                         "subagent.created", "subagent.tool_start", "subagent.tool_end"],
+                         "subagent.created", "subagent.tool_start", "subagent.tool_end", "model:retrying"],
             },
             cancellationToken: cancellationToken);
 
@@ -235,6 +235,14 @@ public sealed class ChatSessionService : IChatSessionService
                         Timestamp: envelope.Bookmark.Timestamp,
                         Reason: done.Reason);
                     yield break;
+
+                case ModelRetryingEvent retrying:
+                    yield return new ChatStreamEvent(
+                        Type: "model_retrying",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        Reason: $"[{retrying.Provider}] attempt {retrying.Attempt}/{retrying.MaxRetries}, retry in {retrying.DelaySeconds:F1}s");
+                    break;
 
                 case ErrorEvent error
                     when string.Equals(error.Severity, "warn", StringComparison.Ordinal):

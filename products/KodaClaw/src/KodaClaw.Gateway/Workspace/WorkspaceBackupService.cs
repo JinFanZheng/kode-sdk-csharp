@@ -61,7 +61,7 @@ internal sealed class WorkspaceBackupService
     private readonly IWorkspaceService _workspaceService;
     private readonly ISecretStore _secretStore;
     private readonly ISettingsRepository _settingsRepository;
-    private readonly IModelRegistryRepository _modelRegistryRepository;
+    private readonly IProviderAccountRepository _providerAccountRepository;
     private readonly IChannelAccountRepository _channelAccountRepository;
     private readonly IThreadBindingRepository _threadBindingRepository;
     private readonly IPluginRegistryRepository _pluginRegistryRepository;
@@ -71,7 +71,7 @@ internal sealed class WorkspaceBackupService
         IWorkspaceService workspaceService,
         ISecretStore secretStore,
         ISettingsRepository settingsRepository,
-        IModelRegistryRepository modelRegistryRepository,
+        IProviderAccountRepository providerAccountRepository,
         IChannelAccountRepository channelAccountRepository,
         IThreadBindingRepository threadBindingRepository,
         IPluginRegistryRepository pluginRegistryRepository,
@@ -80,7 +80,7 @@ internal sealed class WorkspaceBackupService
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
-        _modelRegistryRepository = modelRegistryRepository ?? throw new ArgumentNullException(nameof(modelRegistryRepository));
+        _providerAccountRepository = providerAccountRepository ?? throw new ArgumentNullException(nameof(providerAccountRepository));
         _channelAccountRepository = channelAccountRepository ?? throw new ArgumentNullException(nameof(channelAccountRepository));
         _threadBindingRepository = threadBindingRepository ?? throw new ArgumentNullException(nameof(threadBindingRepository));
         _pluginRegistryRepository = pluginRegistryRepository ?? throw new ArgumentNullException(nameof(pluginRegistryRepository));
@@ -248,7 +248,7 @@ internal sealed class WorkspaceBackupService
         await EnsureTableWithinLimitAsync(sourceWorkspaceRoot, "automation_definitions", "automation definitions", cancellationToken);
 
         var stagingSettingsRepository = new JsonSettingsRepository(stagingRoot);
-        var stagingModelRepository = new JsonModelRegistryRepository(stagingRoot);
+        var stagingModelRepository = new JsonProviderAccountRepository(stagingRoot);
         var stagingChannelAccountRepository = new JsonChannelAccountRepository(stagingRoot);
         var stagingThreadBindingRepository = new JsonThreadBindingRepository(stagingRoot);
         var stagingPluginRepository = new JsonPluginRegistryRepository(stagingRoot);
@@ -257,10 +257,15 @@ internal sealed class WorkspaceBackupService
         var settings = await _settingsRepository.GetAsync(cancellationToken);
         await stagingSettingsRepository.SaveAsync(settings, cancellationToken);
 
-        var endpoints = await _modelRegistryRepository.ListAsync(cancellationToken);
-        foreach (var endpoint in endpoints)
+        var providerAccounts = await _providerAccountRepository.ListAccountsAsync(cancellationToken);
+        foreach (var account in providerAccounts)
         {
-            await stagingModelRepository.AddAsync(endpoint, cancellationToken);
+            await stagingModelRepository.AddAccountAsync(account, cancellationToken);
+        }
+        var accountModels = await _providerAccountRepository.ListAllModelsAsync(cancellationToken);
+        foreach (var model in accountModels)
+        {
+            await stagingModelRepository.AddModelAsync(model, cancellationToken);
         }
 
         var accounts = await _channelAccountRepository.ListAsync(
@@ -931,7 +936,7 @@ internal sealed class WorkspaceBackupService
 
         var workspace = new StaticWorkspaceService(extractedRoot);
         var appConfig = await workspace.LoadAppConfigAsync(cancellationToken);
-        var modelRepository = new JsonModelRegistryRepository(extractedRoot);
+        var modelRepository = new JsonProviderAccountRepository(extractedRoot);
         var channelAccountRepository = new JsonChannelAccountRepository(extractedRoot);
         var threadBindingRepository = new JsonThreadBindingRepository(extractedRoot);
         var pluginRepository = new JsonPluginRegistryRepository(extractedRoot);
@@ -949,7 +954,7 @@ internal sealed class WorkspaceBackupService
 
         return new BackupState(
             AppConfig: appConfig,
-            ModelEndpoints: await modelRepository.ListAsync(cancellationToken),
+            ProviderAccounts: await modelRepository.ListAccountsAsync(cancellationToken),
             ChannelAccounts: await channelAccountRepository.ListAsync(new ChannelAccountQuery(Limit: RepositorySafetyLimit), cancellationToken),
             ThreadBindings: await threadBindingRepository.ListAsync(new ChannelQuery(Limit: RepositorySafetyLimit), cancellationToken),
             Plugins: await pluginRepository.ListAsync(new PluginQuery(Limit: RepositorySafetyLimit), cancellationToken),
@@ -970,7 +975,7 @@ internal sealed class WorkspaceBackupService
         var hasThreadBindings = (await _threadBindingRepository.ListAsync(new ChannelQuery(Limit: 1), cancellationToken)).Count > 0;
         var hasPlugins = (await _pluginRegistryRepository.ListAsync(new PluginQuery(Limit: 1), cancellationToken)).Count > 0;
         var hasAutomations = (await _automationDefinitionRepository.ListAsync(new AutomationDefinitionQuery(Limit: 1), cancellationToken)).Count > 0;
-        var hasModels = (await _modelRegistryRepository.ListAsync(cancellationToken)).Count > 0;
+        var hasModels = (await _providerAccountRepository.ListAccountsAsync(cancellationToken)).Count > 0;
         var hasImportReport = File.Exists(Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.ImportRepairReportFile));
         var hasSecretMigrationReport = File.Exists(Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.SecretMigrationReportFile));
 
@@ -1094,15 +1099,15 @@ internal sealed class WorkspaceBackupService
 
     private static IEnumerable<SecretReferenceCandidate> EnumerateSecretReferences(BackupState state)
     {
-        foreach (var endpoint in state.ModelEndpoints)
+        foreach (var account in state.ProviderAccounts)
         {
-            if (!string.IsNullOrWhiteSpace(endpoint.ApiKeySecretRef))
+            if (!string.IsNullOrWhiteSpace(account.ApiKeySecretRef))
             {
                 yield return new SecretReferenceCandidate(
-                    Id: $"model:{endpoint.Id}",
-                    DisplayName: $"model endpoint '{endpoint.DisplayName}'",
-                    Resource: $"model_endpoints/{endpoint.Id}",
-                    SecretReference: endpoint.ApiKeySecretRef!);
+                    Id: $"account:{account.Id}",
+                    DisplayName: $"provider account '{account.DisplayName}'",
+                    Resource: $"accounts/{account.Id}",
+                    SecretReference: account.ApiKeySecretRef!);
             }
         }
 
@@ -1572,7 +1577,7 @@ internal sealed class WorkspaceBackupService
 
     private sealed record BackupState(
         WorkspaceAppConfig AppConfig,
-        IReadOnlyList<ModelEndpoint> ModelEndpoints,
+        IReadOnlyList<ProviderAccount> ProviderAccounts,
         IReadOnlyList<ChannelAccount> ChannelAccounts,
         IReadOnlyList<ThreadBinding> ThreadBindings,
         IReadOnlyList<PluginRecord> Plugins,

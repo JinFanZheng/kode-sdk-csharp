@@ -14,7 +14,7 @@ import {
   type DesktopDeskId,
   type DesktopLaunchTarget,
 } from './lib/config';
-import { fetchOnboardingState, rotateSession, fetchModels, setDefaultModelEndpoint, uploadMedia } from './lib/api';
+import { fetchOnboardingState, rotateSession, fetchProviderAccounts, setDefaultAccountModel, uploadMedia } from './lib/api';
 import { queryKeys } from './lib/queryKeys';
 import type { ModelOption } from './components/ChatComposer';
 import { OnboardingShell } from './onboarding/OnboardingShell';
@@ -182,26 +182,35 @@ export default function App() {
 
   // KC-6702: models via TanStack Query — shared cache with ModelsSettingsDesk
   const queryClient = useQueryClient();
-  const { data: modelsData } = useQuery({
-    queryKey: queryKeys.models,
-    queryFn: () => fetchModels(),
+  const { data: accountsData } = useQuery({
+    queryKey: queryKeys.providerAccounts,
+    queryFn: () => fetchProviderAccounts(),
     enabled: !isLoading && !!snapshot,
   });
   const CAP_TEXT = 1;
-  const availableModels = useMemo<ModelOption[]>(() => {
-    const items = modelsData?.items ?? [];
-    return items
-      .filter(m => m.enabled && (m.capabilities & CAP_TEXT) !== 0)
-      .map(m => ({ id: m.id, displayName: m.displayName }));
-  }, [modelsData]);
+  type ModelPair = { accountId: string; model: import('./types/contracts').AccountModelResponse };
+  const textPairs = useMemo<ModelPair[]>(() => {
+    if (!accountsData) return [];
+    const result: ModelPair[] = [];
+    for (const account of accountsData) {
+      for (const model of account.models) {
+        if (model.enabled && (model.capabilities & CAP_TEXT) !== 0) {
+          result.push({ accountId: account.id, model });
+        }
+      }
+    }
+    return result;
+  }, [accountsData]);
+  const availableModels = useMemo<ModelOption[]>(
+    () => textPairs.map(p => ({ id: p.model.id, displayName: p.model.displayName })),
+    [textPairs],
+  );
   const defaultEndpoint = useMemo(() => {
-    const items = modelsData?.items ?? [];
-    const eligible = items.filter(m => m.enabled && (m.capabilities & CAP_TEXT) !== 0);
-    return eligible.find(m => m.isDefault) ?? eligible[0] ?? null;
-  }, [modelsData]);
-  const modelName = defaultEndpoint?.displayName ?? null;
-  const modelCapabilities = defaultEndpoint?.capabilities ?? 0;
-  const selectedModelId = defaultEndpoint?.id ?? null;
+    return textPairs.find(p => p.model.isGlobalDefault) ?? textPairs[0] ?? null;
+  }, [textPairs]);
+  const modelName = defaultEndpoint?.model.displayName ?? null;
+  const modelCapabilities = defaultEndpoint?.model.capabilities ?? 0;
+  const selectedModelId = defaultEndpoint?.model.id ?? null;
 
   // KC-BUG-303: pending model switch confirm
   const [pendingModelChange, setPendingModelChange] = useState<{ id: string; displayName: string } | null>(null);
@@ -219,13 +228,15 @@ export default function App() {
     const { id, displayName } = pendingModelChange;
     setPendingModelChange(null);
     try {
-      await setDefaultModelEndpoint(id);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.models });
+      const target = textPairs.find(p => p.model.id === id);
+      if (!target) return;
+      await setDefaultAccountModel(target.accountId, target.model.id);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.providerAccounts });
     } catch { /* ignore, pill stays on old model */ return; }
     try { await rotateSession(); } catch { /* ignore */ }
     clearMessages(text.chat.modelSwitchedNote(displayName));
     refresh();
-  }, [pendingModelChange, queryClient, clearMessages, text.chat, refresh]);
+  }, [pendingModelChange, queryClient, clearMessages, text.chat, refresh, textPairs]);
 
   const handleModelChangeCancel = useCallback(() => {
     setPendingModelChange(null);

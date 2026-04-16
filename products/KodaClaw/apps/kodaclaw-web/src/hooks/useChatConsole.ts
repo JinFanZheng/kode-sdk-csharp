@@ -206,6 +206,14 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           continue;
         }
 
+        if (event.type === "model_retrying") {
+          setMessages((current) => [
+            ...current,
+            { ...createMessage("system", `↻ ${event.reason ?? "模型请求重试中..."}`, "done", event.sessionId), isToolWarning: true },
+          ]);
+          continue;
+        }
+
         if (event.type === "tool_warning") {
           setMessages((current) => [
             ...current,
