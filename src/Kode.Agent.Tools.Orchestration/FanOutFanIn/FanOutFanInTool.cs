@@ -15,36 +15,24 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("fan_out_fan_in")]
 [ToolAttributes(ReadOnly = true, NoEffect = true)]
-public sealed class FanOutFanInTool : ToolBase<FanOutFanInArgs>
+public sealed class FanOutFanInTool : OrchestrationToolBase<FanOutFanInArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public FanOutFanInTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "fan_out_fan_in";
 
     public override string Description =>
-        "Run multiple independent research tasks in parallel (fan-out), then synthesise all results " +
-        "with a single sub-agent (fan-in). Returns one integrated summary instead of separate per-task summaries. " +
-        "Use this when you need a unified conclusion from multiple independent investigations " +
-        "(e.g. compare N modules then recommend one, investigate N topics then write a report). " +
-        "Use parallel_research instead if you just need the raw per-task summaries.";
+        "Run independent tasks in parallel (fan-out), then pass all summaries to a synthesis sub-agent " +
+        "for one integrated output (fan-in). Use parallel_research if raw per-task summaries are enough; " +
+        "use map_reduce when the fan-out items are homogeneous chunks of a larger dataset.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<FanOutFanInArgs>();
 
@@ -52,17 +40,18 @@ public sealed class FanOutFanInTool : ToolBase<FanOutFanInArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use fan_out_fan_in when parallel investigation must conclude with one integrated answer. " +
-            "Write a concrete SynthesisTask — the synthesis sub-agent receives all fan-out summaries as context. " +
-            "Use parallel_research when you only need the individual summaries.");
+            "Write `synthesisTask` as a concrete instruction " +
+            "(e.g. 'Compare the three candidates and recommend one, with rationale') — " +
+            "the synthesis agent sees all fan-out summaries as context. " +
+            "Keep each fan-out task narrow; broad fan-outs produce long summaries that crowd synthesis context.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         FanOutFanInArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for fan_out_fan_in sub-agents.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         if (args.Tasks is not { Count: > 0 })
             return ToolResult.Fail("fan_out_fan_in requires at least one task.");
@@ -71,55 +60,41 @@ public sealed class FanOutFanInTool : ToolBase<FanOutFanInArgs>
             return ToolResult.Fail("SynthesisTask must not be empty.");
 
         // ── fan-out: parallel ─────────────────────────────────────────────
-        SemaphoreSlim? semaphore = args.MaxConcurrency > 0
+        using var semaphore = args.MaxConcurrency > 0
             ? new SemaphoreSlim(args.MaxConcurrency, args.MaxConcurrency)
             : null;
 
-        try
+        var fanOutResults = new SubAgentResult[args.Tasks.Count];
+        var fanOutTasks = args.Tasks.Select((t, i) => RunFanOutAsync(
+            t, i, args, context, fanOutResults, semaphore, cancellationToken)).ToArray();
+        await Task.WhenAll(fanOutTasks);
+
+        // ── fan-in: synthesis ──────────────────────────────────────────
+        var synthesisTask = BuildSynthesisTask(args.Tasks, fanOutResults, args.SynthesisTask);
+        var synthesisResult = await SubAgentRunner.RunAsync(CreateBaseRequest(context, synthesisTask) with
         {
-            var fanOutResults = new SubAgentResult[args.Tasks.Count];
-            var fanOutTasks = args.Tasks.Select((t, i) => RunFanOutAsync(
-                t, i, args, context, fanOutResults, semaphore, cancellationToken)).ToArray();
-            await Task.WhenAll(fanOutTasks);
+            Tools = args.SynthesisTools,
+            MaxIterations = args.SynthesisMaxIterations,
+            MaxContextTokens = args.SynthesisMaxContextTokens,
+            MaxIterationsMode = args.SynthesisMaxIterationsMode,
+        }, cancellationToken);
 
-            // ── fan-in: synthesis ──────────────────────────────────────────
-            var synthesisTask = BuildSynthesisTask(args.Tasks, fanOutResults, args.SynthesisTask);
-            var synthesisResult = await SubAgentRunner.RunAsync(new SubAgentRequest
+        var fanOutSummary = fanOutResults
+            .Select((r, i) => new
             {
-                Task = synthesisTask,
-                Tools = args.SynthesisTools,
-                MaxIterations = args.SynthesisMaxIterations,
-                MaxContextTokens = args.SynthesisMaxContextTokens,
-                MaxIterationsMode = args.SynthesisMaxIterationsMode,
-                ParentSandboxOptions = context.SandboxOptions,
-                ModelProvider = _modelProvider,
-                ModelId = _modelId,
-                ToolRegistry = _toolRegistry,
-                SandboxFactory = _sandboxFactory,
-                LoggerFactory = _loggerFactory,
-            }, cancellationToken);
+                name = args.Tasks[i].Name ?? $"Task {i + 1}",
+                success = r.Success,
+                summary = r.Summary,
+                error = r.Error,
+            }).ToList();
 
-            var fanOutSummary = fanOutResults
-                .Select((r, i) => new
-                {
-                    name = args.Tasks[i].Name ?? $"Task {i + 1}",
-                    success = r.Success,
-                    summary = r.Summary,
-                    error = r.Error,
-                }).ToList();
-
-            return ToolResult.Ok(new
-            {
-                synthesis = synthesisResult.Success ? synthesisResult.Summary : null,
-                synthesisError = synthesisResult.Success ? null : synthesisResult.Error,
-                fanOut = fanOutSummary,
-                succeeded = synthesisResult.Success,
-            });
-        }
-        finally
+        return ToolResult.Ok(new
         {
-            semaphore?.Dispose();
-        }
+            synthesis = synthesisResult.Success ? synthesisResult.Summary : null,
+            synthesisError = synthesisResult.Success ? null : synthesisResult.Error,
+            fanOut = fanOutSummary,
+            succeeded = synthesisResult.Success,
+        });
     }
 
     private async Task RunFanOutAsync(
@@ -129,20 +104,13 @@ public sealed class FanOutFanInTool : ToolBase<FanOutFanInArgs>
         if (semaphore is not null) await semaphore.WaitAsync(ct);
         try
         {
-            results[index] = await SubAgentRunner.RunAsync(new SubAgentRequest
+            results[index] = await SubAgentRunner.RunAsync(CreateBaseRequest(context, task.Task) with
             {
-                Task = task.Task,
                 WorkDir = task.WorkDir,
                 Tools = task.Tools,
                 MaxIterations = task.MaxIterations,
                 MaxContextTokens = task.MaxContextTokens,
                 MaxIterationsMode = task.MaxIterationsMode,
-                ParentSandboxOptions = context.SandboxOptions,
-                ModelProvider = _modelProvider,
-                ModelId = _modelId,
-                ToolRegistry = _toolRegistry,
-                SandboxFactory = _sandboxFactory,
-                LoggerFactory = _loggerFactory,
             }, ct);
         }
         catch (OperationCanceledException)

@@ -498,7 +498,11 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                             MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
                             CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                             CompressionPrompt = _options.CompressionPrompt,
-                            ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
+                            ToolResultCompression = new ToolResultCompressionOptions
+                            {
+                                Enabled = true,
+                                ThresholdBytes = 81_920,
+                            },
                         },
                     },
                     cancellationToken: cancellationToken);
@@ -747,7 +751,11 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                 MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
                 CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                 CompressionPrompt = _options.CompressionPrompt,
-                ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
+                ToolResultCompression = new ToolResultCompressionOptions
+                {
+                    Enabled = true,
+                    ThresholdBytes = 81_920,
+                },
             },
         };
     }

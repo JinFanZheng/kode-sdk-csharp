@@ -26,8 +26,12 @@ public sealed class BashLogsTool : ToolBase<BashLogsArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "Use bash_logs to check the output of background processes started with bash_run. " +
-            "This is useful to monitor long-running tasks or retrieve results after completion.");
+            "Read stdout/stderr from a background bash_run process. Pass the `processId` from the original call.\n\n" +
+            "Use cases:\n" +
+            "- Monitor progress of a long-running build/test\n" +
+            "- Retrieve results after the process completes\n" +
+            "- Decide whether to bash_kill a stuck process\n\n" +
+            "Poll sparingly — each call is a round trip. If you need streaming updates, let the process finish and read once.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(

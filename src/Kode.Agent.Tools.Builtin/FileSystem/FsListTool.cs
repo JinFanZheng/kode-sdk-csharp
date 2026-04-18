@@ -26,7 +26,10 @@ public sealed class FsListTool : ToolBase<FsListArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "Use fs_list to explore directory structure. Results show files and subdirectories.");
+            "Use fs_list when you need directory metadata (entry type, size, modified time) " +
+            "or a single-level directory scan. " +
+            "Prefer fs_glob when you're matching by name pattern across subdirectories — it's more targeted. " +
+            "Avoid using fs_list as a prelude to reading everything; narrow with fs_glob + fs_grep first.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(

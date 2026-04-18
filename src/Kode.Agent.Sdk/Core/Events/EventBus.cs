@@ -5,6 +5,20 @@ using Microsoft.Extensions.Logging;
 namespace Kode.Agent.Sdk.Core.Events;
 
 /// <summary>
+/// Configuration for <see cref="EventBus"/>.
+/// </summary>
+public sealed record EventBusOptions
+{
+    /// <summary>
+    /// Per-subscriber bounded channel capacity. When full, the oldest unread event for that
+    /// subscriber is dropped (never blocks the agent). Increase for UI consumers that may
+    /// temporarily fall behind during bursty token streaming; decrease to bound memory.
+    /// Default: 1000.
+    /// </summary>
+    public int SubscriberChannelCapacity { get; init; } = 1000;
+}
+
+/// <summary>
 /// Implementation of the three-channel event bus.
 /// </summary>
 public sealed class EventBus : IEventBus, IAsyncDisposable
@@ -12,17 +26,19 @@ public sealed class EventBus : IEventBus, IAsyncDisposable
     private readonly IAgentStore? _store;
     private readonly string? _agentId;
     private readonly ILogger<EventBus>? _logger;
+    private readonly EventBusOptions _options;
+    private long _droppedEventsCount;
 
     // TS-aligned: buffer critical events when persistence fails.
     private readonly List<Timeline> _failedEvents = [];
     private const int MaxFailedBuffer = 1000;
-    private readonly object _failedLock = new();
+    private readonly System.Threading.Lock _failedLock = new();
     private int _retryingFailedEvents;
 
     private long _cursor;
     private long _seq;
     private Bookmark? _lastBookmark;
-    private readonly object _lock = new();
+    private readonly System.Threading.Lock _lock = new();
 
     // In-memory timeline for replay
     private readonly List<Timeline> _timeline = [];
@@ -31,7 +47,7 @@ public sealed class EventBus : IEventBus, IAsyncDisposable
     private readonly Dictionary<long, Channel<EventEnvelope>> _allSubscribers = [];
     private readonly Dictionary<long, Channel<EventEnvelope>> _progressSubscribers = [];
     private long _subscriberId;
-    private readonly object _subLock = new();
+    private readonly System.Threading.Lock _subLock = new();
     private bool _completed;
 
     // Event handlers for control/monitor
@@ -39,11 +55,35 @@ public sealed class EventBus : IEventBus, IAsyncDisposable
     private readonly Dictionary<Type, List<Delegate>> _monitorHandlers = [];
 
     public EventBus(IAgentStore? store = null, string? agentId = null, ILogger<EventBus>? logger = null)
+        : this(store, agentId, logger, options: null)
+    {
+    }
+
+    public EventBus(
+        IAgentStore? store,
+        string? agentId,
+        ILogger<EventBus>? logger,
+        EventBusOptions? options)
     {
         _store = store;
         _agentId = agentId;
         _logger = logger;
+        _options = options ?? new EventBusOptions();
+        if (_options.SubscriberChannelCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "EventBusOptions.SubscriberChannelCapacity must be positive.");
+        }
     }
+
+    /// <summary>
+    /// Total number of events dropped across all subscribers since this EventBus was created.
+    /// Each drop corresponds to a slow subscriber whose bounded channel reached capacity, at
+    /// which point the oldest unread event for that subscriber is discarded so emission never
+    /// blocks. Use for observability (a rising count signals a lagging consumer).
+    /// </summary>
+    public long GetDroppedEventCount() => Interlocked.Read(ref _droppedEventsCount);
 
     public Bookmark? GetLastBookmark() => LastBookmark;
 
@@ -436,7 +476,7 @@ public sealed class EventBus : IEventBus, IAsyncDisposable
 
     private (long SubscriptionId, Channel<EventEnvelope> Channel) CreateSubscription(bool progressOnly)
     {
-        var options = new BoundedChannelOptions(1000)
+        var options = new BoundedChannelOptions(_options.SubscriberChannelCapacity)
         {
             // Never let a slow subscriber block the agent; drop old events for that subscriber.
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -444,7 +484,7 @@ public sealed class EventBus : IEventBus, IAsyncDisposable
             SingleWriter = true
         };
 
-        var channel = Channel.CreateBounded<EventEnvelope>(options);
+        var channel = Channel.CreateBounded<EventEnvelope>(options, OnItemDropped);
 
         lock (_subLock)
         {
@@ -465,6 +505,11 @@ public sealed class EventBus : IEventBus, IAsyncDisposable
             }
             return (id, channel);
         }
+    }
+
+    private void OnItemDropped(EventEnvelope dropped)
+    {
+        Interlocked.Increment(ref _droppedEventsCount);
     }
 
     private void RemoveSubscription(long subscriptionId, bool progressOnly)
@@ -539,24 +584,29 @@ public sealed class EventBus : IEventBus, IAsyncDisposable
 
     private IEnumerable<EventEnvelope> GetHistoricalEvents(Bookmark? since, EventChannel channels)
     {
+        // Snapshot under lock, yield outside — avoids holding the lock across the iterator's
+        // `yield` boundary (required by System.Threading.Lock and generally safer for async consumers).
+        Timeline[] snapshot;
         lock (_lock)
         {
-            foreach (var item in _timeline)
-            {
-                if (since != null && item.Bookmark.Seq <= since.Seq)
-                {
-                    continue;
-                }
+            snapshot = _timeline.ToArray();
+        }
 
-                if ((ToEventChannelFlag(item.Event.Channel) & channels) != 0)
+        foreach (var item in snapshot)
+        {
+            if (since != null && item.Bookmark.Seq <= since.Seq)
+            {
+                continue;
+            }
+
+            if ((ToEventChannelFlag(item.Event.Channel) & channels) != 0)
+            {
+                yield return new EventEnvelope
                 {
-                    yield return new EventEnvelope
-                    {
-                        Cursor = item.Cursor,
-                        Bookmark = item.Bookmark,
-                        Event = item.Event
-                    };
-                }
+                    Cursor = item.Cursor,
+                    Bookmark = item.Bookmark,
+                    Event = item.Event
+                };
             }
         }
     }

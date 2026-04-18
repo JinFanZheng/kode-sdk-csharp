@@ -21,27 +21,25 @@ public class LlmContextSummarizer : IContextSummarizer
 
     private const string DefaultPrompt =
         """
-        You are compressing a conversation history to save context window space.
-        Produce your response in EXACTLY this XML format and nothing else:
+        Compress the removed conversation history. Respond in EXACTLY this XML, nothing else:
 
         <summary>
-        Concise semantic summary of the removed messages (under 500 words).
-        Include: task objective, completed steps, key findings, important file paths.
+        Under 500 words. Include: task objective, completed steps, key findings, file paths.
         Omit: repetitive polling, verbose command output, intermediate failed attempts.
         </summary>
 
         <core-memory>
         ## Current Task
-        [One sentence describing what the user is trying to accomplish]
+        [one sentence]
 
         ## Modified Files
-        [Bullet list of important file paths that were read or written]
+        [bullets of important paths read or written]
 
         ## Key Decisions
-        [Bullet list of important technical or product decisions made]
+        [bullets of important technical or product decisions]
 
         ## Next Steps
-        [What still needs to be done, if known]
+        [what remains, if known]
         </core-memory>
         """;
 

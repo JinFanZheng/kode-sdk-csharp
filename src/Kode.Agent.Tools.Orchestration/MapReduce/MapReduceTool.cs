@@ -14,36 +14,25 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("map_reduce")]
 [ToolAttributes(ReadOnly = true, NoEffect = true)]
-public sealed class MapReduceTool : ToolBase<MapReduceArgs>
+public sealed class MapReduceTool : OrchestrationToolBase<MapReduceArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public MapReduceTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "map_reduce";
 
     public override string Description =>
-        "Process a large list of items by splitting into chunks, processing each chunk in parallel " +
-        "map sub-agents, then aggregating all results with a single reduce sub-agent. " +
-        "Use this when a dataset is too large for a single sub-agent's context " +
-        "(e.g. 100+ memory files, large log sets, many code modules). " +
-        "The MapTask template uses {item} as a placeholder for the chunk content.";
+        "Split a list of items into chunks, process each chunk in a parallel map sub-agent, " +
+        "then aggregate via a reduce sub-agent. Use for large homogeneous datasets " +
+        "(100+ memory files, log sets, code modules) that exceed one context window. " +
+        "Use fan_out_fan_in when items are heterogeneous and each needs a distinct task.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<MapReduceArgs>();
 
@@ -51,17 +40,18 @@ public sealed class MapReduceTool : ToolBase<MapReduceArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use map_reduce for large homogeneous datasets where each piece can be processed independently. " +
-            "Write MapTask with {item} placeholder. Write ReduceTask to aggregate the map summaries. " +
-            "Set ChunkSize > 1 to batch multiple items per sub-agent.");
+            "`mapTask` must contain the `{item}` placeholder for chunk content — without it, the chunk is never inserted. " +
+            "Raise `chunkSize` for short items (e.g. 10 log lines per call), keep at 1 for long ones (full files). " +
+            "Write `reduceTask` as a concrete aggregation goal ('list all error categories', 'rank by severity') " +
+            "rather than another 'summarize'.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         MapReduceArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for map_reduce sub-agents.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         if (args.Items is not { Count: > 0 })
             return ToolResult.Fail("Items must not be empty.");
@@ -80,58 +70,44 @@ public sealed class MapReduceTool : ToolBase<MapReduceArgs>
             .ToList();
 
         // ── map phase ─────────────────────────────────────────────────────
-        SemaphoreSlim? semaphore = args.MaxConcurrency > 0
+        using var semaphore = args.MaxConcurrency > 0
             ? new SemaphoreSlim(args.MaxConcurrency, args.MaxConcurrency)
             : null;
 
-        try
+        var mapResults = new SubAgentResult[chunks.Count];
+        var mapTasks = chunks.Select((chunk, i) =>
+            RunMapAsync(chunk, i, args, context, mapResults, semaphore, cancellationToken)
+        ).ToArray();
+        await Task.WhenAll(mapTasks);
+
+        // ── reduce phase ──────────────────────────────────────────────
+        var reduceTask = BuildReduceTask(mapResults, args.ReduceTask);
+        var reduceResult = await SubAgentRunner.RunAsync(CreateBaseRequest(context, reduceTask) with
         {
-            var mapResults = new SubAgentResult[chunks.Count];
-            var mapTasks = chunks.Select((chunk, i) =>
-                RunMapAsync(chunk, i, args, context, mapResults, semaphore, cancellationToken)
-            ).ToArray();
-            await Task.WhenAll(mapTasks);
+            Tools = null,        // reduce is typically reasoning-only; use defaults
+            MaxIterations = args.ReduceMaxIterations,
+            MaxContextTokens = args.ReduceMaxContextTokens,
+            MaxIterationsMode = args.ReduceMaxIterationsMode,
+        }, cancellationToken);
 
-            // ── reduce phase ──────────────────────────────────────────────
-            var reduceTask = BuildReduceTask(mapResults, args.ReduceTask);
-            var reduceResult = await SubAgentRunner.RunAsync(new SubAgentRequest
-            {
-                Task = reduceTask,
-                Tools = null,        // reduce is typically reasoning-only; use defaults
-                MaxIterations = args.ReduceMaxIterations,
-                MaxContextTokens = args.ReduceMaxContextTokens,
-                MaxIterationsMode = args.ReduceMaxIterationsMode,
-                ParentSandboxOptions = context.SandboxOptions,
-                ModelProvider = _modelProvider,
-                ModelId = _modelId,
-                ToolRegistry = _toolRegistry,
-                SandboxFactory = _sandboxFactory,
-                LoggerFactory = _loggerFactory,
-            }, cancellationToken);
-
-            var mapSummary = mapResults.Select((r, i) => new
-            {
-                chunk = i,
-                items = chunks[i],
-                success = r.Success,
-                summary = r.Summary,
-                error = r.Error,
-            }).ToList();
-
-            return ToolResult.Ok(new
-            {
-                reduction = reduceResult.Success ? reduceResult.Summary : null,
-                reductionError = reduceResult.Success ? null : reduceResult.Error,
-                totalItems = args.Items.Count,
-                totalChunks = chunks.Count,
-                mapResults = mapSummary,
-                succeeded = reduceResult.Success,
-            });
-        }
-        finally
+        var mapSummary = mapResults.Select((r, i) => new
         {
-            semaphore?.Dispose();
-        }
+            chunk = i,
+            items = chunks[i],
+            success = r.Success,
+            summary = r.Summary,
+            error = r.Error,
+        }).ToList();
+
+        return ToolResult.Ok(new
+        {
+            reduction = reduceResult.Success ? reduceResult.Summary : null,
+            reductionError = reduceResult.Success ? null : reduceResult.Error,
+            totalItems = args.Items.Count,
+            totalChunks = chunks.Count,
+            mapResults = mapSummary,
+            succeeded = reduceResult.Success,
+        });
     }
 
     private async Task RunMapAsync(
@@ -147,19 +123,12 @@ public sealed class MapReduceTool : ToolBase<MapReduceArgs>
 
             var task = args.MapTask.Replace("{item}", itemContent, StringComparison.OrdinalIgnoreCase);
 
-            results[index] = await SubAgentRunner.RunAsync(new SubAgentRequest
+            results[index] = await SubAgentRunner.RunAsync(CreateBaseRequest(context, task) with
             {
-                Task = task,
                 Tools = args.MapTools,
                 MaxIterations = args.MapMaxIterations,
                 MaxContextTokens = args.MapMaxContextTokens,
                 MaxIterationsMode = args.MapMaxIterationsMode,
-                ParentSandboxOptions = context.SandboxOptions,
-                ModelProvider = _modelProvider,
-                ModelId = _modelId,
-                ToolRegistry = _toolRegistry,
-                SandboxFactory = _sandboxFactory,
-                LoggerFactory = _loggerFactory,
             }, ct);
         }
         catch (OperationCanceledException)

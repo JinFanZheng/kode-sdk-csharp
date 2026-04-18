@@ -10,8 +10,19 @@ public static class SkillsInjector
     /// <summary>
     /// Generates an <available_skills/> XML snippet for system prompt injection.
     /// </summary>
-    public static string ToPromptXml(IEnumerable<SkillMetadata> skills)
+    /// <param name="skills">Discovered skill metadata.</param>
+    /// <param name="mode">
+    /// Controls how much metadata is copied into the prompt. Defaults to
+    /// <see cref="SkillsInjectionMode.Full"/>, which matches the Agent Skills
+    /// specification's progressive-disclosure tier 1. Returns an empty string when
+    /// <see cref="SkillsInjectionMode.None"/> is selected.
+    /// </param>
+    public static string ToPromptXml(
+        IEnumerable<SkillMetadata> skills,
+        SkillsInjectionMode mode = SkillsInjectionMode.Full)
     {
+        if (mode == SkillsInjectionMode.None) return string.Empty;
+
         var list = skills.ToList();
         if (list.Count == 0) return string.Empty;
 
@@ -20,19 +31,23 @@ public static class SkillsInjector
         sb.AppendLine("<available_skills>");
         foreach (var skill in list)
         {
-            var location = skill is Skill full ? $"{full.Path}/SKILL.md" : null;
             sb.AppendLine("  <skill>");
             sb.AppendLine($"    <name>{EscapeXml(skill.Name)}</name>");
-            sb.AppendLine($"    <description>{EscapeXml(skill.Description)}</description>");
-            if (!string.IsNullOrWhiteSpace(location))
+            if (mode == SkillsInjectionMode.Full)
             {
-                sb.AppendLine($"    <location>{EscapeXml(location)}</location>");
+                sb.AppendLine($"    <description>{EscapeXml(skill.Description)}</description>");
+                if (skill is Skill full)
+                {
+                    sb.AppendLine($"    <location>{EscapeXml(full.Path)}/SKILL.md</location>");
+                }
             }
             sb.AppendLine("  </skill>");
         }
         sb.AppendLine("</available_skills>");
         sb.AppendLine();
-        sb.AppendLine("When a task matches a skill's description, use skill_activate to load its full instructions.");
+        sb.AppendLine(mode == SkillsInjectionMode.Full
+            ? "When a task matches a skill's description, use skill_activate to load its full instructions."
+            : "Only names are listed above. Use skill_list (optionally with a query) to inspect descriptions, then skill_activate to load full instructions.");
         sb.AppendLine();
         return sb.ToString();
     }

@@ -224,12 +224,38 @@ internal sealed class SessionRetentionService
         {
             Directory.Delete(dir, recursive: true);
             _logger?.LogDebug("SessionRetention: deleted {Folder}", folderName);
+            TryDeleteArtifactsFolder(folderName);
             return 1;
         }
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "SessionRetention: failed to delete {Folder}", folderName);
             return 0;
+        }
+    }
+
+    private void TryDeleteArtifactsFolder(string sessionId)
+    {
+        try
+        {
+            var artifactsDir = Path.Combine(
+                _workspaceService.RootPath,
+                KodaClawWorkspaceLayout.CacheDirectory,
+                "artifacts",
+                sessionId);
+            if (Directory.Exists(artifactsDir))
+            {
+                Directory.Delete(artifactsDir, recursive: true);
+                _logger?.LogDebug(
+                    "SessionRetention: cascaded artifacts delete for {Folder}", sessionId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(
+                ex,
+                "SessionRetention: failed to cascade-delete artifacts for {Folder}",
+                sessionId);
         }
     }
 

@@ -613,7 +613,7 @@ SDK provides a rich set of built-in tools:
 
 | Tool Name           | Description         | Permission   |
 | ---------------- | ------------ | ------ |
-| `skill_list`     | List available skills | Read-only   |
+| `skill_list`     | List / search available skills (supports `query`, `tags`, `limit`) | Read-only   |
 | `skill_activate` | Activate skill     | Requires approval |
 | `skill_resource` | Get skill resources | Read-only   |
 

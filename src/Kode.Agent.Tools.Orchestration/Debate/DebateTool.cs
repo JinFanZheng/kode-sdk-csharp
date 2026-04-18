@@ -18,36 +18,24 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("debate")]
 [ToolAttributes(ReadOnly = true, NoEffect = true)]
-public sealed class DebateTool : ToolBase<DebateArgs>
+public sealed class DebateTool : OrchestrationToolBase<DebateArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public DebateTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "debate";
 
     public override string Description =>
-        "Run an adversarial debate on a proposition. " +
-        "A proponent argues FOR, an opponent argues AGAINST, then a judge delivers a verdict. " +
-        "Multi-round debates let each side respond to the other's latest argument. " +
-        "Use for high-stakes decisions (architecture selection, risk assessment) " +
-        "where a single perspective may miss important counter-arguments.";
+        "Run an adversarial debate: proponent argues FOR, opponent argues AGAINST, judge delivers a verdict. " +
+        "Use for high-stakes decisions where a single perspective may miss counter-arguments. " +
+        "Use ask_specialist when you only need one expert's view, not a contested one.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<DebateArgs>();
 
@@ -55,18 +43,18 @@ public sealed class DebateTool : ToolBase<DebateArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use debate for important decisions where you want to surface both pros and cons. " +
-            "State the Topic as a clear proposition (e.g. 'We should adopt approach X'). " +
-            "Provide ContextInfo with relevant background. " +
-            "For most decisions Rounds=1 is sufficient; use Rounds=2 for complex trade-offs.");
+            "Phrase `topic` as a takeable proposition ('We should adopt approach X'), not a question. " +
+            "Debaters see only the topic and `contextInfo` — put all relevant constraints there. " +
+            "`rounds: 1` is sufficient for most decisions; use 2 for complex trade-offs. " +
+            "The verdict is the judge's synthesis, not a vote — read both sides before acting.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         DebateArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for debate sub-agents.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         var rounds = Math.Clamp(args.Rounds, 1, 3);
         var debateRounds = new List<object>();
@@ -107,18 +95,11 @@ public sealed class DebateTool : ToolBase<DebateArgs>
 
         // ── judge ─────────────────────────────────────────────────────────
         var judgeTask = BuildJudgeTask(args.Topic, args.ContextInfo, lastProponentArg, lastOpponentArg);
-        var judgeResult = await SubAgentRunner.RunAsync(new SubAgentRequest
+        var judgeResult = await SubAgentRunner.RunAsync(CreateBaseRequest(context, judgeTask) with
         {
-            Task = judgeTask,
             Tools = [],
             AllowNoTools = true,
             MaxIterations = 5,
-            ParentSandboxOptions = context.SandboxOptions,
-            ModelProvider = _modelProvider,
-            ModelId = _modelId,
-            ToolRegistry = _toolRegistry,
-            SandboxFactory = _sandboxFactory,
-            LoggerFactory = _loggerFactory,
         }, cancellationToken);
 
         return ToolResult.Ok(new
@@ -133,18 +114,11 @@ public sealed class DebateTool : ToolBase<DebateArgs>
 
     private Task<SubAgentResult> RunDebaterAsync(
         string task, DebateArgs args, ToolContext context, CancellationToken ct) =>
-        SubAgentRunner.RunAsync(new SubAgentRequest
+        SubAgentRunner.RunAsync(CreateBaseRequest(context, task) with
         {
-            Task = task,
             Tools = args.Tools is { Count: > 0 } ? args.Tools : [],
             AllowNoTools = true,
             MaxIterations = 8,
-            ParentSandboxOptions = context.SandboxOptions,
-            ModelProvider = _modelProvider,
-            ModelId = _modelId,
-            ToolRegistry = _toolRegistry,
-            SandboxFactory = _sandboxFactory,
-            LoggerFactory = _loggerFactory,
         }, ct);
 
     private static string BuildSideTask(
@@ -172,6 +146,7 @@ public sealed class DebateTool : ToolBase<DebateArgs>
 
         sb.AppendLine();
         sb.AppendLine("Present your strongest arguments. Be concise and specific (under 300 words).");
+        sb.AppendLine("Respond in the same language as the proposition.");
         return sb.ToString();
     }
 
@@ -200,6 +175,8 @@ public sealed class DebateTool : ToolBase<DebateArgs>
         sb.AppendLine("1. Which side made the stronger case and why");
         sb.AppendLine("2. The key considerations a decision-maker should weigh");
         sb.AppendLine("3. Your recommendation (accept / reject / conditional)");
+        sb.AppendLine();
+        sb.AppendLine("Respond in the same language as the proposition.");
         return sb.ToString();
     }
 }

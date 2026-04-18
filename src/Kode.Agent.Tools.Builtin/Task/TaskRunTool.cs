@@ -79,9 +79,15 @@ public sealed class TaskRunTool : ToolBase<TaskRunArgs>
             _templates.Select(t => $"  - {t.Id}: {t.WhenToUse ?? "General purpose agent"}"));
 
         return ValueTask.FromResult<string?>(
-            $"Use task_run to delegate complex or specialized tasks to sub-agents.\n\n" +
-            $"Available agent templates:\n{templateList}\n\n" +
-            "Provide a clear description and detailed prompt for the sub-agent.");
+            "Delegate a task to a pre-defined specialized sub-agent.\n\n" +
+            $"Available templates:\n{templateList}\n\n" +
+            "Before delegating, ask: can I do this inline? Delegation is worth it when the work is " +
+            "(a) long and isolated (many tool calls that would fill the main context), " +
+            "(b) requires the specific expertise a template encodes, " +
+            "or (c) the user explicitly asked for a specialist. " +
+            "For simple one-step work, do it yourself — delegation has real overhead.\n\n" +
+            "Write `description` as a brief title, `prompt` as the full instruction (including acceptance criteria). " +
+            "Include any context the sub-agent needs — it starts with zero knowledge of this conversation.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(

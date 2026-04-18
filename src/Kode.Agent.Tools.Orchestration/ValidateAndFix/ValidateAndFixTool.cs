@@ -15,36 +15,25 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("validate_and_fix")]
 [ToolAttributes(ReadOnly = false, NoEffect = false)]
-public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
+public sealed class ValidateAndFixTool : OrchestrationToolBase<ValidateAndFixArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public ValidateAndFixTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "validate_and_fix";
 
     public override string Description =>
-        "Execute a task, then validate the output against explicit criteria. " +
-        "If validation fails, a fix sub-agent receives the output and validator feedback " +
-        "and retries — up to MaxFixRounds times. " +
-        "Use this when task output must meet structured quality criteria " +
-        "(e.g. code must compile, report must include all required sections).";
+        "Run a task, validate its output against explicit criteria, and if it fails hand the output " +
+        "plus validator feedback to a fix sub-agent — up to MaxFixRounds times. " +
+        "Use when output must meet structured quality rules (compiles, contains required sections). " +
+        "Use retry_with_reflection when 'success' is just the task not crashing.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<ValidateAndFixArgs>();
 
@@ -52,17 +41,18 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use validate_and_fix when task output must satisfy explicit quality criteria. " +
-            "Write validation criteria as concrete pass/fail rules, not vague preferences. " +
-            "For transient errors use retry_with_reflection instead.");
+            "Write `validationCriteria` as concrete pass/fail rules, not vague preferences " +
+            "('compiles cleanly', 'includes a Risks section' — not 'is good'). " +
+            "Ambiguous criteria always pass. Keep `maxFixRounds` low (2–3, clamped to 4); " +
+            "if it can't be fixed in 3 rounds, the criteria or the task are wrong.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         ValidateAndFixArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for validate_and_fix sub-agent.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         if (string.IsNullOrWhiteSpace(args.ValidationCriteria))
             return ToolResult.Fail("ValidationCriteria must not be empty.");
@@ -84,18 +74,11 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
         {
             // ── validate (pure-reasoning, no event forwarding) ─────────────
             var validationTask = BuildValidationTask(currentOutput, args.ValidationCriteria);
-            var validResult = await SubAgentRunner.RunAsync(new SubAgentRequest
+            var validResult = await SubAgentRunner.RunAsync(CreateBaseRequest(context, validationTask) with
             {
-                Task = validationTask,
                 Tools = [],
                 AllowNoTools = true,
                 MaxIterations = 3,
-                ParentSandboxOptions = context.SandboxOptions,
-                ModelProvider = _modelProvider,
-                ModelId = _modelId,
-                ToolRegistry = _toolRegistry,
-                SandboxFactory = _sandboxFactory,
-                LoggerFactory = _loggerFactory,
             }, cancellationToken);
 
             var validSummary = validResult.Success ? validResult.Summary ?? "" : "";
@@ -127,20 +110,13 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
 
     private Task<SubAgentResult> RunSubAgent(
         string task, ValidateAndFixArgs args, ToolContext context, string label, CancellationToken ct) =>
-        SubAgentRunner.RunAsync(new SubAgentRequest
+        SubAgentRunner.RunAsync(CreateBaseRequest(context, task) with
         {
-            Task = task,
             WorkDir = args.WorkDir,
             Tools = args.Tools,
             MaxIterations = args.MaxIterationsPerAttempt,
             MaxContextTokens = args.MaxContextTokens,
             MaxIterationsMode = args.MaxIterationsMode,
-            ParentSandboxOptions = context.SandboxOptions,
-            ModelProvider = _modelProvider,
-            ModelId = _modelId,
-            ToolRegistry = _toolRegistry,
-            SandboxFactory = _sandboxFactory,
-            LoggerFactory = _loggerFactory,
             ParentEventBus = context.Agent?.EventBus,
             Label = $"validate_and_fix:{label}",
             ToolCallId = context.CallId,
@@ -152,6 +128,8 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
          Respond with exactly one of:
            PASS — if all criteria are satisfied
            FAIL: <brief reason> — if any criterion is not satisfied
+
+         Use English keywords PASS / FAIL verbatim; the reason may be in any language.
 
          Criteria:
          {criteria}
@@ -176,5 +154,6 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
          ---
 
          Fix the output to satisfy the validation criteria. Produce the corrected result directly.
+         Respond in the same language as the original task.
          """;
 }

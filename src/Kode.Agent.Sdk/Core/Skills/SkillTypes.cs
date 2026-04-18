@@ -125,6 +125,37 @@ public record SkillsConfig
     /// Missing skill names are silently skipped.
     /// </summary>
     public IReadOnlyList<string>? AutoActivate { get; init; }
+
+    /// <summary>
+    /// Controls how discovered skill metadata is injected into the system prompt.
+    /// Defaults to <see cref="SkillsInjectionMode.Full"/>, aligned with the Agent Skills
+    /// specification's progressive-disclosure tier 1 (name + description loaded at startup).
+    /// Use <see cref="SkillsInjectionMode.NamesOnly"/> or <see cref="SkillsInjectionMode.None"/>
+    /// to reduce system-prompt pressure when the skill library is very large; the agent
+    /// can still enumerate details on demand via the <c>skill_list</c> tool.
+    /// </summary>
+    public SkillsInjectionMode InjectionMode { get; init; } = SkillsInjectionMode.Full;
+}
+
+/// <summary>
+/// Controls the amount of skill metadata copied into the agent's system prompt at startup.
+/// </summary>
+public enum SkillsInjectionMode
+{
+    /// <summary>
+    /// Inject each discovered skill's name, description, and location (spec-aligned default).
+    /// </summary>
+    Full,
+
+    /// <summary>
+    /// Inject only the skill names. The agent is directed to call <c>skill_list</c> for details.
+    /// </summary>
+    NamesOnly,
+
+    /// <summary>
+    /// Skip injection entirely. The agent must call <c>skill_list</c> to discover skills.
+    /// </summary>
+    None
 }
 
 /// <summary>

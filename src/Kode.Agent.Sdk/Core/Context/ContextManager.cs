@@ -268,20 +268,41 @@ public class ContextManager
         // ── 2. Separate pinned vs regular messages ────────────────────────────
         // Pinned = system messages containing a summary or core-memory XML tag.
         // These are NEVER removed; they form the persistent memory stack.
-        var existingCoreMsg = messages.FirstOrDefault(m => IsCoreMemoryMessage(m));
-        var summaryStack = messages.Where(m => IsSummaryMessage(m)).ToList();
-        var regularMessages = messages.Where(m => !IsPinnedMessage(m)).ToList();
-
-        // ── 3. Token budget for regular messages ──────────────────────────────
-        var pinnedTokens = messages
-            .Where(IsPinnedMessage)
-            .Sum(EstimateMessageTokens);
+        // Single-pass categorisation: avoid 4× iteration + duplicate GetText() calls.
+        Message? existingCoreMsg = null;
+        var summaryStack = new List<Message>();
+        var regularMessages = new List<Message>(messages.Count);
+        var pinnedTokens = 0;
+        foreach (var msg in messages)
+        {
+            var kind = ClassifyPinned(msg);
+            switch (kind)
+            {
+                case PinnedKind.Summary:
+                    summaryStack.Add(msg);
+                    pinnedTokens += EstimateMessageTokens(msg);
+                    break;
+                case PinnedKind.CoreMemory:
+                    existingCoreMsg ??= msg;
+                    pinnedTokens += EstimateMessageTokens(msg);
+                    break;
+                default:
+                    regularMessages.Add(msg);
+                    break;
+            }
+        }
         // Reserve some headroom so the new summary itself fits within CompressToTokens.
         var regularBudget = Math.Max(0, _options.CompressToTokens - pinnedTokens - systemPromptTokens - 1200);
 
+        // A single tool_result larger than this cap is elided even when it sits
+        // in the minRecent protection window. Picking budget/4 keeps normal
+        // fs_read payloads untouched while catching pathological cases like a
+        // parallel_research result that dwarfs the rest of the conversation.
+        var singleMessageCap = Math.Max(1_000, regularBudget / 4);
+
         // ── 4. Select regular messages by importance + token budget ───────────
         var (retainedRegular, removedMessages) = SelectMessagesByBudget(
-            regularMessages, regularBudget, _options.MinRecentMessages);
+            regularMessages, regularBudget, _options.MinRecentMessages, singleMessageCap);
 
         // ── 5. Sanitize orphan tool results in the retained set ───────────────
         retainedRegular = SanitizeOrphanToolResults(retainedRegular);
@@ -400,14 +421,37 @@ public class ContextManager
     ///   Score = Recency(0-40) + Role(0-30) + ToolType(-20 to +20)
     /// </summary>
     private static (List<Message> retained, List<Message> removed) SelectMessagesByBudget(
-        IReadOnlyList<Message> messages, int tokenBudget, int minRecentCount = 0)
+        IReadOnlyList<Message> messages, int tokenBudget, int minRecentCount = 0, int? singleMessageTokenCap = null)
     {
         if (messages.Count == 0)
             return (new List<Message>(), new List<Message>());
 
-        var total = messages.Sum(EstimateMessageTokens);
+        // ── Pre-pass: shrink oversized tool_result payloads ──────────────────
+        // A single tool_result larger than singleMessageTokenCap is replaced with
+        // an elided placeholder even when the message is in the minRecent window.
+        // Without this, one ~300 KB parallel_research result can anchor permanent
+        // context overflow that normal compression cannot fix (the oversized
+        // message sits inside the protected recent window).
+        var working = messages;
+        if (singleMessageTokenCap is int cap && cap > 0)
+        {
+            List<Message>? shrunk = null;
+            for (var i = 0; i < messages.Count; i++)
+            {
+                var replaced = ShrinkOversizedToolResults(messages[i], cap);
+                if (!ReferenceEquals(replaced, messages[i]))
+                {
+                    shrunk ??= messages.ToList();
+                    shrunk[i] = replaced;
+                }
+            }
+            if (shrunk != null)
+                working = shrunk;
+        }
+
+        var total = working.Sum(EstimateMessageTokens);
         if (total <= tokenBudget)
-            return (messages.ToList(), new List<Message>());
+            return (working.ToList(), new List<Message>());
 
         // ── Build tool_use/tool_result pair maps ──────────────────────────────
         // toolUseIndex[toolUseId] = message index that contains the tool_use block.
@@ -415,9 +459,9 @@ public class ContextManager
         // toolResultIndex[toolUseId] = message index that contains the matching tool_result block.
         var toolResultIndex = new Dictionary<string, int>(StringComparer.Ordinal);
 
-        for (var i = 0; i < messages.Count; i++)
+        for (var i = 0; i < working.Count; i++)
         {
-            foreach (var block in messages[i].Content)
+            foreach (var block in working[i].Content)
             {
                 if (block is ToolUseContent tu)
                     toolUseIndex[tu.Id] = i;
@@ -428,13 +472,13 @@ public class ContextManager
 
         // ── Protected set ─────────────────────────────────────────────────────
         // The last minRecentCount messages are protected — never removed regardless of budget.
-        var protectedStart = Math.Max(0, messages.Count - minRecentCount);
+        var protectedStart = Math.Max(0, working.Count - minRecentCount);
         var protectedIndices = new HashSet<int>(
-            Enumerable.Range(protectedStart, messages.Count - protectedStart));
+            Enumerable.Range(protectedStart, working.Count - protectedStart));
 
         // Score each message; lower score = candidate for removal first.
-        var scored = messages
-            .Select((msg, i) => (msg, index: i, score: ScoreMessage(msg, i, messages.Count),
+        var scored = working
+            .Select((msg, i) => (msg, index: i, score: ScoreMessage(msg, i, working.Count),
                 tokens: EstimateMessageTokens(msg)))
             .ToList();
 
@@ -552,13 +596,52 @@ public class ContextManager
             var text = block switch
             {
                 TextContent t => t.Text,
-                ToolUseContent tu => JsonSerializer.Serialize(tu.Input),
-                ToolResultContent tr => tr.Content?.ToString() ?? "",
+                ToolUseContent tu => SafeSerializeForEstimate(tu.Input),
+                ToolResultContent tr => SafeSerializeForEstimate(tr.Content),
                 _ => ""
             };
             tokens += EstimateTextTokens(text);
         }
         return tokens;
+    }
+
+    // object.ToString() on a List / JsonElement / anonymous type returns the type name,
+    // not the actual payload — this caused a ~300 KB tool_result to be estimated at zero
+    // tokens, preventing compression from ever triggering. Serialize to JSON for a faithful
+    // byte-count proxy; fall back to ToString() only if serialization throws.
+    private static string SafeSerializeForEstimate(object? value)
+    {
+        if (value is null) return "";
+        if (value is string s) return s;
+        try { return JsonSerializer.Serialize(value); }
+        catch { return value.ToString() ?? ""; }
+    }
+
+    // Returns the message unchanged if no tool_result block exceeds the cap; otherwise
+    // returns a copy where each oversized tool_result has its Content replaced with an
+    // elided marker (ToolUseId is preserved so tool_use/tool_result pairing stays intact).
+    private static Message ShrinkOversizedToolResults(Message msg, int tokenCap)
+    {
+        if (tokenCap <= 0) return msg;
+
+        List<ContentBlock>? rewritten = null;
+        for (var i = 0; i < msg.Content.Count; i++)
+        {
+            if (msg.Content[i] is ToolResultContent tr)
+            {
+                var serialized = SafeSerializeForEstimate(tr.Content);
+                var blockTokens = EstimateTextTokens(serialized);
+                if (blockTokens > tokenCap)
+                {
+                    rewritten ??= new List<ContentBlock>(msg.Content);
+                    rewritten[i] = tr with
+                    {
+                        Content = $"[tool_result elided by ContextManager: {serialized.Length:N0} bytes / ~{blockTokens:N0} tokens, tool_use_id={tr.ToolUseId}]"
+                    };
+                }
+            }
+        }
+        return rewritten is null ? msg : msg with { Content = rewritten };
     }
 
     /// <summary>
@@ -589,17 +672,32 @@ public class ContextManager
 
     // ── Pinned message detection ──────────────────────────────────────────────
 
-    private static bool IsPinnedMessage(Message msg) =>
-        IsSummaryMessage(msg) || IsCoreMemoryMessage(msg);
+    // Single-pass classification: inspects content blocks once instead of allocating a joined string
+    // and scanning it twice (previously IsSummaryMessage + IsCoreMemoryMessage each called GetText()).
+    private enum PinnedKind { None, Summary, CoreMemory }
 
-    private static bool IsSummaryMessage(Message msg) =>
-        msg.Role == MessageRole.System && GetText(msg).Contains(SummaryTag, StringComparison.Ordinal);
+    private static PinnedKind ClassifyPinned(Message msg)
+    {
+        if (msg.Role != MessageRole.System) return PinnedKind.None;
+        foreach (var block in msg.Content)
+        {
+            if (block is TextContent t)
+            {
+                var text = t.Text;
+                if (text.Contains(SummaryTag, StringComparison.Ordinal)) return PinnedKind.Summary;
+                if (text.Contains(CoreMemoryTag, StringComparison.Ordinal)) return PinnedKind.CoreMemory;
+            }
+        }
+        return PinnedKind.None;
+    }
 
-    private static bool IsCoreMemoryMessage(Message msg) =>
-        msg.Role == MessageRole.System && GetText(msg).Contains(CoreMemoryTag, StringComparison.Ordinal);
-
-    private static string GetText(Message msg) =>
-        string.Join("", msg.Content.OfType<TextContent>().Select(t => t.Text));
+    // Still used by MergeSummaryStackAsync to read summary body text.
+    private static string GetText(Message msg)
+    {
+        // Short-circuit the common single-TextContent case to avoid List+Join allocation.
+        if (msg.Content.Count == 1 && msg.Content[0] is TextContent only) return only.Text;
+        return string.Join("", msg.Content.OfType<TextContent>().Select(t => t.Text));
+    }
 
     // ── Existing helpers (unchanged) ──────────────────────────────────────────
 

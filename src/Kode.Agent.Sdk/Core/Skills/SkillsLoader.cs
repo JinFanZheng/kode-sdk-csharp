@@ -413,7 +413,7 @@ public partial class SkillsLoader
     }
 
     /// <summary>
-    /// Maps agentskills.io standard tool names to KodaClaw internal names.
+    /// Maps agentskills.io standard tool names to Kode.Agent.Tools.Builtin tool names.
     /// </summary>
     private static string MapToolAlias(string toolName) => toolName switch
     {

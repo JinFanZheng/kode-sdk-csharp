@@ -26,9 +26,18 @@ public sealed class BashRunTool : ToolBase<BashRunArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "Use bash_run for executing shell commands. Commands are executed in a shell context. " +
-            "For long-running commands, consider using background mode. " +
-            "Always check exit codes to determine success.");
+            "Tool choice:\n" +
+            "- File search → fs_glob (NOT `find` / `ls`)\n" +
+            "- Content search → fs_grep (NOT `grep` / `rg`)\n" +
+            "- Read files → fs_read (NOT `cat` / `head` / `tail`)\n" +
+            "- Edit files → fs_edit / fs_multi_edit (NOT `sed` / `awk`)\n\n" +
+            "Reserve bash_run for genuine shell operations: build/test/package managers, git, one-off scripts. " +
+            "bash_run usually requires approval — each call is expensive for the user.\n\n" +
+            "Long-running commands:\n" +
+            "- Set `background: true` to get a processId back immediately\n" +
+            "- Use bash_logs to read stdout/stderr while it runs\n" +
+            "- Use bash_kill to terminate when no longer needed\n\n" +
+            "Always inspect `exitCode` — non-zero means failure even if stdout looks fine.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(

@@ -19,7 +19,7 @@ public sealed class PermissionManager
     private readonly ToolRunner? _toolRunner;
     private readonly Func<CancellationToken, Task>? _persistAsync;
     private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingApprovals = [];
-    private readonly object _lock = new();
+    private readonly System.Threading.Lock _lock = new();
     private readonly HashSet<string>? _allowTools;
     private readonly HashSet<string>? _denyTools;
     private readonly HashSet<string>? _requireApprovalTools;
@@ -124,8 +124,11 @@ public sealed class PermissionManager
     /// </summary>
     public bool RequiresApproval(string toolName, object? input = null)
     {
+        var decision = Evaluate(toolName);
+
         // Denied tools should be handled separately (do not pause for approval).
-        if (IsDenied(toolName, out _)) return false;
+        if (string.Equals(decision, PermissionModes.DecisionDeny, StringComparison.OrdinalIgnoreCase))
+            return false;
 
         // Command-level check for bash_run: if command matches skill-granted prefix whitelist
         // AND contains no shell metacharacters → bypass approval.
@@ -136,7 +139,7 @@ public sealed class PermissionManager
                 return false;
         }
 
-        return string.Equals(Evaluate(toolName), PermissionModes.DecisionAsk, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(decision, PermissionModes.DecisionAsk, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

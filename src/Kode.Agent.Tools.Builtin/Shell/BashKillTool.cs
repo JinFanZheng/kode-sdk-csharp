@@ -26,8 +26,10 @@ public sealed class BashKillTool : ToolBase<BashKillArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "Use bash_kill to terminate background processes started with bash_run. " +
-            "Provide the process ID returned from the background bash_run call.");
+            "Terminate a background process started by bash_run with `background: true`. " +
+            "Pass the `processId` returned from that call.\n\n" +
+            "Before killing, consider bash_logs — the process may have already finished or emitted what you need. " +
+            "Killing is final: there's no resume.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(

@@ -272,7 +272,8 @@ internal static class SubAgentRunner
         sb.AppendLine("- Use available tools to gather information or perform the task. Be systematic.");
         sb.AppendLine("- Do NOT send messages, modify workspace files outside the task scope, or create approvals.");
         sb.AppendLine("- When you have enough information, write your final answer and STOP. Do not call any more tools after writing your final answer.");
-        sb.AppendLine("- Keep the final answer under 500 words. Be specific and factual.");
+        sb.AppendLine("- Keep the final answer under 500 words. Be specific and factual — return CONCLUSIONS and DECISIONS, not raw tool output.");
+        sb.AppendLine("- Never paste long files, full command output, or bulk transcripts into the final answer. Cite file paths, line ranges, or key fragments instead — the caller can fs_read them directly if needed.");
         sb.AppendLine("- If something cannot be determined, say so explicitly rather than continuing to search.");
 
         return sb.ToString();
@@ -297,8 +298,9 @@ internal static class SubAgentRunner
 
 /// <summary>
 /// Parameters for a single sub-agent invocation.
+/// Record type so orchestration tools can build a shared base and customize via <c>with</c>.
 /// </summary>
-internal sealed class SubAgentRequest
+internal sealed record SubAgentRequest
 {
     public required string Task { get; init; }
     public string? WorkDir { get; init; }

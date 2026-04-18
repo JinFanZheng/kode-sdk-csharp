@@ -12,8 +12,9 @@ public sealed class FsWriteTool : ToolBase<FsWriteArgs>
     public override string Name => "fs_write";
 
     public override string Description =>
-        "Write content to a file. Creates the file if it doesn't exist, " +
-        "or overwrites it if it does. Creates parent directories as needed.";
+        "Write content to a file. Creates the file (plus parent directories) if missing, " +
+        "or fully overwrites an existing file. For targeted edits of existing files prefer fs_edit — " +
+        "it's safer and doesn't require resending the whole content.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<FsWriteArgs>();
 
@@ -22,6 +23,18 @@ public sealed class FsWriteTool : ToolBase<FsWriteArgs>
         ReadOnly = false,
         RequiresApproval = true
     };
+
+    public override ValueTask<string?> GetPromptAsync(ToolContext context)
+    {
+        return ValueTask.FromResult<string?>(
+            "When to use fs_write:\n" +
+            "- Creating a new file\n" +
+            "- Fully rewriting a file whose content is mostly changing\n\n" +
+            "When NOT to use fs_write:\n" +
+            "- Changing a few lines in an existing file — use fs_edit or fs_multi_edit\n" +
+            "- You haven't read the file first — you may overwrite unintended content\n\n" +
+            "The write is a full overwrite: partial content means the rest of the file is lost.");
+    }
 
     protected override async Task<ToolResult> ExecuteAsync(
         FsWriteArgs args,

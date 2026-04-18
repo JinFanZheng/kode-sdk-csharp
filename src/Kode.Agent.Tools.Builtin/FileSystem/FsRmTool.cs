@@ -25,7 +25,11 @@ public sealed class FsRmTool : ToolBase<FsRmArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "Be careful when removing files. Use recursive=true only when intentionally removing directories with contents.");
+            "Deletion is NOT recoverable — there's no trash bin. Before calling fs_rm:\n" +
+            "1. Confirm the exact path with fs_list or fs_glob. A wrong path silently wipes the wrong files.\n" +
+            "2. Set `recursive: true` only when you intentionally want to remove a non-empty directory.\n" +
+            "3. Never use fs_rm to 'clean up' unfamiliar files — investigate first; they may be the user's work.\n\n" +
+            "This tool requires approval; the user sees the path before it runs.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(

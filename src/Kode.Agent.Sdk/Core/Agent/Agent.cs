@@ -60,16 +60,16 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     private volatile int _stepCount;
     private int _iterationCount;
     private int _interrupted;
-    private readonly object _stateLock = new();
+    private readonly System.Threading.Lock _stateLock = new();
     private CancellationTokenSource? _runCts;
-    private readonly object _processingLock = new();
+    private readonly System.Threading.Lock _processingLock = new();
     private Task? _processingTask;
     private CancellationTokenSource? _processingCts;
     private bool _processingQueued;
     private long _processingRunId;
     private long _lastProcessingHeartbeatMs;
     private static readonly TimeSpan ProcessingTimeout = TimeSpan.FromMinutes(5);
-    private readonly object _activeToolCallsLock = new();
+    private readonly System.Threading.Lock _activeToolCallsLock = new();
     private readonly Dictionary<string, CancellationTokenSource> _activeToolCalls = new(StringComparer.Ordinal);
     private long _turnStartedAtMs;   // Unix ms when Working began; 0 = no active turn
     private long _lastActivityAtMs;  // Unix ms when last turn finished; 0 = never
@@ -160,13 +160,18 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 dependencies.LoggerFactory?.CreateLogger<LlmContextSummarizer>())
             : null;
 
-        _toolResultCompressor = dependencies.ModelProvider != null
-                                && _config.Context?.ToolResultCompression?.Enabled == true
-            ? new LlmToolResultCompressor(
+        // Host-injected compressor wins when ToolResultCompression is configured (any Enabled value);
+        // otherwise fall back to the built-in LLM summariser when Enabled=true.
+        _toolResultCompressor = _config.Context?.ToolResultCompression switch
+        {
+            null => null,
+            _ when dependencies.ToolResultCompressor is not null => dependencies.ToolResultCompressor,
+            { Enabled: true } when dependencies.ModelProvider != null => new LlmToolResultCompressor(
                 dependencies.ModelProvider,
                 _config.Model,
-                dependencies.LoggerFactory?.CreateLogger<LlmToolResultCompressor>())
-            : null;
+                dependencies.LoggerFactory?.CreateLogger<LlmToolResultCompressor>()),
+            _ => null
+        };
 
         _contextManager = new ContextManager(
             dependencies.Store,
@@ -2311,7 +2316,8 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                     finalResult,
                     _messages,
                     _config.Context.ToolResultCompression,
-                    cancellationToken);
+                    contextPressure: ComputeContextPressure(),
+                    cancellationToken: cancellationToken);
             }
 
             _toolRunner.UpdateFinalResult(toolUse.Id, finalResult);
@@ -3352,7 +3358,8 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var skills = await _skillsManager.DiscoverAsync(cancellationToken);
         if (skills.Count == 0) return;
 
-        var skillsXml = SkillsInjector.ToPromptXml(skills);
+        var injectionMode = _config.Skills?.InjectionMode ?? SkillsInjectionMode.Full;
+        var skillsXml = SkillsInjector.ToPromptXml(skills, injectionMode);
         if (!string.IsNullOrWhiteSpace(skillsXml))
         {
             _systemPrompt = (_systemPrompt ?? string.Empty) + skillsXml;
@@ -3365,7 +3372,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             Timestamp = NowMs()
         });
 
-        // 1. SkillsConfig.AutoActivate (KodaClaw config path, does not require Template system)
+        // 1. SkillsConfig.AutoActivate (config-driven path, does not require Template system)
         if (_config.Skills?.AutoActivate is { Count: > 0 })
         {
             var autoActivated = await _skillsManager.AutoActivateAsync(_config.Skills.AutoActivate, cancellationToken);

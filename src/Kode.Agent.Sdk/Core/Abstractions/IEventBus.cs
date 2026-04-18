@@ -42,6 +42,19 @@ public interface IEventBus
     /// <param name="since">Optional bookmark to resume from.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Async enumerable of event envelopes.</returns>
+    /// <example>
+    /// <code>
+    /// await foreach (var env in agent.EventBus.SubscribeAsync(EventChannel.Progress, cancellationToken: ct))
+    /// {
+    ///     switch (env.Event)
+    ///     {
+    ///         case TextChunkEvent chunk: Console.Write(chunk.Delta); break;
+    ///         case ToolStartEvent ts:    Console.WriteLine($"[tool] {ts.Call.Name}"); break;
+    ///         case DoneEvent:            return;
+    ///     }
+    /// }
+    /// </code>
+    /// </example>
     IAsyncEnumerable<EventEnvelope> SubscribeAsync(
         EventChannel channels = EventChannel.All,
         Bookmark? since = null,

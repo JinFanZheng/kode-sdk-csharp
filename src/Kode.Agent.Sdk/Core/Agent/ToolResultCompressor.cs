@@ -28,6 +28,21 @@ public record ToolResultCompressionOptions
     public IReadOnlyList<string>? CompressibleTools { get; init; }
 
     /// <summary>
+    /// Extra tool names — on top of <see cref="VerbatimToolPolicy.DefaultVerbatimTools"/> —
+    /// whose results the host considers verbatim and thus must never be elided or
+    /// offloaded. Only consulted by non-lossy compressors (e.g. file-backed).
+    /// </summary>
+    public IReadOnlyCollection<string>? VerbatimTools { get; init; }
+
+    /// <summary>
+    /// Hard upper bound (bytes) for a single offloaded artifact. Payloads exceeding this
+    /// size are inline-truncated instead of written, so a single runaway tool call cannot
+    /// produce a multi-megabyte file on disk. Default: 2 MiB. Set to 0 to disable.
+    /// Only consulted by artifact-backed compressors.
+    /// </summary>
+    public int MaxArtifactBytes { get; init; } = 2 * 1024 * 1024;
+
+    /// <summary>
     /// Model used for compression. Null = agent's primary model.
     /// </summary>
     public string? CompressionModel { get; init; }
@@ -44,11 +59,18 @@ public interface IToolResultCompressor
     /// Returns a (possibly compressed) replacement for <paramref name="result"/>.
     /// The returned result is always structurally valid.
     /// </summary>
+    /// <param name="contextPressure">
+    /// Current ratio of consumed tokens to the compression trigger threshold.
+    /// Values &lt; 1.0 mean we are under the threshold; &gt; 1.0 means over.
+    /// Implementations may use this to scale their threshold dynamically
+    /// (e.g. offload more aggressively when pressure is high).
+    /// </param>
     Task<ToolResult> CompressIfNeededAsync(
         string toolName,
         ToolResult result,
         IReadOnlyList<Message> recentMessages,
         ToolResultCompressionOptions options,
+        float contextPressure = 0f,
         CancellationToken cancellationToken = default);
 }
 
@@ -89,8 +111,10 @@ public sealed class LlmToolResultCompressor : IToolResultCompressor
         ToolResult result,
         IReadOnlyList<Message> recentMessages,
         ToolResultCompressionOptions options,
+        float contextPressure = 0f,
         CancellationToken cancellationToken = default)
     {
+        _ = contextPressure; // LLM compressor ignores pressure; threshold is static.
         if (!result.Success)
             return result;
 
@@ -138,16 +162,12 @@ public sealed class LlmToolResultCompressor : IToolResultCompressor
 
         var systemPrompt =
             """
-            You are a tool-result summarizer for an AI agent. Your job is to condense a large tool
-            output into a concise summary that preserves everything the agent needs to continue its task.
+            Summarize the tool output below so the agent can continue its task without it.
 
-            Rules:
-            - Keep the summary under 300 words.
-            - Preserve key facts: numbers, file paths, error messages, status codes, important names.
-            - If the output is structured (JSON/CSV/table), describe the schema and highlight notable rows.
-            - If the output is command output or logs, capture the overall outcome and any warnings/errors.
-            - Do NOT add commentary or opinions; be neutral and factual.
-            - Output plain text only (no markdown headers).
+            - Under 300 words. Plain text. No commentary or markdown headers.
+            - Preserve: file paths, error messages, status codes, numbers, identifiers.
+            - For structured output (JSON/CSV/table): describe schema and notable rows.
+            - For logs/command output: capture outcome plus any warnings or errors.
             """;
 
         var userContent = BuildUserPrompt(toolName, rawContent, recentMessages);

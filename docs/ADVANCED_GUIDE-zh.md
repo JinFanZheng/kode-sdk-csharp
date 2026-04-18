@@ -809,18 +809,28 @@ var skillsConfig = new SkillsConfig
 {
     // 技能搜索路径
     Paths = ["./.kode/skills", "./skills"],
-    
+
     // 白名单：只加载这些技能
     Include = ["code-review", "testing"],
-    
+
     // 黑名单：排除这些技能
     Exclude = ["deprecated-skill"],
-    
+
     // 受信任源：允许脚本执行
     Trusted = ["code-review"],
-    
+
     // 加载时验证格式
-    ValidateOnLoad = true
+    ValidateOnLoad = true,
+
+    // 会话启动时自动激活的技能（缺失名称自动跳过）
+    AutoActivate = ["koda-workspace"],
+
+    // 启动时向 system prompt 注入多少技能元数据
+    // Full     - name + description + location（默认，对齐 Agent Skills 规范的渐进披露 tier 1）
+    // NamesOnly- 仅注入 name 列表，引导 agent 通过 skill_list 查询详情
+    //            当技能库很大、默认模式过重时使用
+    // None     - 完全不注入；仍会 discovery，skill_list 依然可用
+    InjectionMode = SkillsInjectionMode.Full
 };
 
 // 创建技能管理器
@@ -837,16 +847,50 @@ var skill = await skillsManager.ActivateAsync("code-review");
 
 | 工具 | 描述 |
 |------|------|
-| `skill_list` | 列出可用技能及其激活状态 |
+| `skill_list` | 列出 / 搜索可用技能（支持 `query`、`tags`、`limit`） |
 | `skill_activate` | 激活指定技能 |
 | `skill_resource` | 读取技能资源文件 |
 
 ```csharp
 // Agent 可以通过工具自主管理技能
-// skill_list - 查看可用技能
-// skill_activate - 激活需要的技能
-// skill_resource - 读取技能资源
+// skill_list     - 列出或搜索技能（参数见下）
+// skill_activate - 激活匹配任务的技能
+// skill_resource - 读取 scripts/ references/ assets/ 下的文件
 ```
+
+#### skill_list 参数
+
+| 参数 | 默认 | 行为 |
+|------|------|------|
+| `query` | 无 | 自由文本查询，按 BM25 在 name + description + tags 上排序。当未显式指定 `limit` 时隐式上限为 20。 |
+| `tags`  | 无 | AND 过滤，只返回 `metadata.tags` 同时包含所有给定 tag 的技能（大小写不敏感）。 |
+| `limit` | 不限（有 `query` 时默认 20） | 返回数上限，最大 100。 |
+
+```jsonc
+// LLM 端调用示例
+{
+  "query": "代码评审",
+  "tags": ["quality"],
+  "limit": 5
+}
+```
+
+#### 在技能中声明 tags
+
+Tags 位于 frontmatter 的 `metadata` 自由键值块 —— Agent Skills 规范明确允许
+客户端在此扩展字段。支持两种写法：
+
+```markdown
+---
+name: code-review
+description: 评审 PR 的质量、安全与潜在回归
+metadata:
+  tags: security, quality       # 逗号分隔（YAML 标量）
+---
+```
+
+也可以写成数组：`tags: ["security", "quality"]`。加载时会统一转为小写，
+过滤大小写不敏感。
 
 ---
 

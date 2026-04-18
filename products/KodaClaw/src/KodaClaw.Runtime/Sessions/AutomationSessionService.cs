@@ -271,7 +271,11 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
                 MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
                 CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                 CompressionPrompt = _options.CompressionPrompt,
-                ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
+                ToolResultCompression = new ToolResultCompressionOptions
+                {
+                    Enabled = true,
+                    ThresholdBytes = 81_920,
+                },
             },
             SessionType = "automation",
         };

@@ -818,7 +818,19 @@ var skillsConfig = new SkillsConfig
     Trusted = ["code-review"],
 
     // Validate format on load
-    ValidateOnLoad = true
+    ValidateOnLoad = true,
+
+    // Skills to activate automatically at session start (missing names are skipped)
+    AutoActivate = ["koda-workspace"],
+
+    // How much skill metadata is copied into the system prompt at startup.
+    // Full     - name + description + location (default; aligned with the Agent Skills
+    //            specification's progressive-disclosure tier 1).
+    // NamesOnly- only the skill names; the agent is told to call skill_list for details.
+    //            Use when the skill library is large enough that full metadata is too
+    //            heavy for the system prompt.
+    // None     - skip injection entirely; discovery still happens so skill_list works.
+    InjectionMode = SkillsInjectionMode.Full
 };
 
 // Create skills manager
@@ -835,16 +847,51 @@ var skill = await skillsManager.ActivateAsync("code-review");
 
 | Tool | Description |
 |------|------|
-| `skill_list` | List available skills and their activation status |
+| `skill_list` | List / search available skills (supports `query`, `tags`, `limit`) |
 | `skill_activate` | Activate specified skill |
 | `skill_resource` | Read skill resource files |
 
 ```csharp
 // Agent can autonomously manage skills through tools
-// skill_list - View available skills
-// skill_activate - Activate needed skills
-// skill_resource - Read skill resources
+// skill_list       - List or search skills (see parameters below)
+// skill_activate   - Activate the one that fits the task
+// skill_resource   - Read files under scripts/ references/ assets/
 ```
+
+#### skill_list parameters
+
+| Parameter | Default | Behaviour |
+|-----------|---------|-----------|
+| `query`   | (none)  | Free-text query. Results are ranked by BM25 over name + description + tags. Implicitly caps at 20 when no explicit `limit` is set. |
+| `tags`    | (none)  | AND filter; only skills whose `metadata.tags` include every listed tag (case-insensitive) are returned. |
+| `limit`   | unlimited (20 when `query` is set) | Cap on the number of skills returned. Max 100. |
+
+```jsonc
+// Example LLM-side call
+{
+  "query": "code review",
+  "tags": ["quality"],
+  "limit": 5
+}
+```
+
+#### Declaring tags on a skill
+
+Tags live in the arbitrary `metadata` frontmatter map, which the Agent Skills
+specification reserves for client-specific extensions. Two syntaxes are
+supported:
+
+```markdown
+---
+name: code-review
+description: Review a pull request for quality, security, and regressions
+metadata:
+  tags: security, quality       # comma-separated (scalar YAML)
+---
+```
+
+An array is also accepted (`tags: ["security", "quality"]`). Tags are
+normalised to lowercase on load, so filtering is case-insensitive.
 
 ---
 

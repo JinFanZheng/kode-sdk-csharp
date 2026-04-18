@@ -17,36 +17,25 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("parallel_research")]
 [ToolAttributes(ReadOnly = true, NoEffect = true)]
-public sealed class ParallelResearchTool : ToolBase<ParallelResearchArgs>
+public sealed class ParallelResearchTool : OrchestrationToolBase<ParallelResearchArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public ParallelResearchTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "parallel_research";
 
     public override string Description =>
-        "Run multiple independent research tasks simultaneously, each in an isolated sub-agent. " +
-        "All tasks execute in parallel — the total time is roughly that of the slowest single task " +
-        "rather than the sum of all tasks. " +
-        "Use this when you need to investigate multiple independent topics, files, or questions at once. " +
-        "Sub-agents cannot send messages, modify workspace, or create approvals.";
+        "Run multiple independent research tasks concurrently in isolated sub-agents; " +
+        "returns raw per-task summaries side-by-side. " +
+        "Use fan_out_fan_in instead when you need one integrated conclusion, " +
+        "pipeline when later tasks depend on earlier results.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<ParallelResearchArgs>();
 
@@ -54,18 +43,20 @@ public sealed class ParallelResearchTool : ToolBase<ParallelResearchArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use parallel_research when you have multiple independent questions that each require " +
-            "several tool calls (file reads, searches). Running them in parallel saves significant time. " +
-            "Use isolate_task for a single deep-dive, pipeline for sequential dependent stages. " +
-            "Set maxConcurrency to limit API usage when investigating many topics at once.");
+            "Only use when tasks are truly independent — shared dependencies belong in pipeline. " +
+            "Prefer `fan_out_fan_in` when (a) you have 5+ tasks, or (b) you ultimately need a single integrated conclusion rather than N side-by-side reports — " +
+            "its synthesis sub-agent keeps the aggregated output bounded, while parallel_research returns raw per-task summaries that scale linearly with task count. " +
+            "Cap `maxConcurrency` (e.g. 3–5) to control API spend when investigating many topics. " +
+            "Set `failFast: true` when one failure invalidates the rest; otherwise collect partial results. " +
+            "Sub-agents cannot send messages, modify workspace, or create approvals.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         ParallelResearchArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for parallel_research sub-agents.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         if (args.Tasks is not { Count: > 0 })
             return ToolResult.Fail("parallel_research requires at least one task.");
@@ -77,27 +68,20 @@ public sealed class ParallelResearchTool : ToolBase<ParallelResearchArgs>
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = linkedCts.Token;
 
-        SemaphoreSlim? semaphore = args.MaxConcurrency > 0
+        using var semaphore = args.MaxConcurrency > 0
             ? new SemaphoreSlim(args.MaxConcurrency, args.MaxConcurrency)
             : null;
 
-        try
-        {
-            // Launch all tasks, collecting results into a pre-sized array to preserve order
-            var resultSlots = new TaskResultSlot[args.Tasks.Count];
-            var runningTasks = args.Tasks.Select((t, i) =>
-                RunOneAsync(t, i, args, context, resultSlots, linkedCts, semaphore, token)
-            ).ToArray();
+        // Launch all tasks, collecting results into a pre-sized array to preserve order
+        var resultSlots = new TaskResultSlot[args.Tasks.Count];
+        var runningTasks = args.Tasks.Select((t, i) =>
+            RunOneAsync(t, i, args, context, resultSlots, linkedCts, semaphore, token)
+        ).ToArray();
 
-            // WhenAll collects all, even if some fail (exceptions are surfaced after all complete)
-            await Task.WhenAll(runningTasks);
+        // WhenAll collects all, even if some fail (exceptions are surfaced after all complete)
+        await Task.WhenAll(runningTasks);
 
-            return BuildToolResult(resultSlots, args.Tasks.Count);
-        }
-        finally
-        {
-            semaphore?.Dispose();
-        }
+        return BuildToolResult(resultSlots, args.Tasks.Count);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -132,20 +116,13 @@ public sealed class ParallelResearchTool : ToolBase<ParallelResearchArgs>
                 return;
             }
 
-            var result = await SubAgentRunner.RunAsync(new SubAgentRequest
+            var result = await SubAgentRunner.RunAsync(CreateBaseRequest(context, task.Task) with
             {
-                Task = task.Task,
                 WorkDir = task.WorkDir,
                 Tools = task.Tools,
                 MaxIterations = task.MaxIterations,
                 MaxContextTokens = task.MaxContextTokens,
                 MaxIterationsMode = task.MaxIterationsMode,
-                ParentSandboxOptions = context.SandboxOptions,
-                ModelProvider = _modelProvider,
-                ModelId = _modelId,
-                ToolRegistry = _toolRegistry,
-                SandboxFactory = _sandboxFactory,
-                LoggerFactory = _loggerFactory,
             }, token);
 
             resultSlots[index] = result.Success

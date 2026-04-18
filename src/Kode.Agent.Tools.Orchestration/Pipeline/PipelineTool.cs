@@ -17,36 +17,25 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("pipeline")]
 [ToolAttributes(ReadOnly = false, NoEffect = false)]
-public sealed class PipelineTool : ToolBase<PipelineArgs>
+public sealed class PipelineTool : OrchestrationToolBase<PipelineArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public PipelineTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "pipeline";
 
     public override string Description =>
-        "Execute a multi-stage pipeline where each stage runs in an isolated sub-agent. " +
-        "The output summary of each stage is automatically passed as context to the next stage. " +
-        "Stages share no context window — only the summary is forwarded — preventing context accumulation. " +
-        "Use this for multi-phase tasks (e.g. gather data → analyze → produce report) where " +
-        "the full intermediate results would overflow the current context window.";
+        "Run sequential stages where each stage is an isolated sub-agent and only its summary " +
+        "flows to the next. Use for multi-phase workflows (gather → analyze → report) that would " +
+        "otherwise overflow one context. Use parallel_research when stages are independent, " +
+        "isolate_task for a single deep-dive.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<PipelineArgs>();
 
@@ -54,18 +43,18 @@ public sealed class PipelineTool : ToolBase<PipelineArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use pipeline for multi-phase automation tasks (e.g. HEARTBEAT workflows). " +
-            "Each stage is an isolated sub-agent — only the summary flows forward to the next stage. " +
-            "Give each stage a descriptive name so context handoff is clear. " +
-            "For single-phase deep research use isolate_task instead.");
+            "Each stage's summary is the only context the next stage gets — state in the task " +
+            "exactly what downstream stages need (file paths, key findings, not raw dumps). " +
+            "Give each stage a descriptive `name` so the handoff header is informative. " +
+            "Set `stopOnFailure: true` to halt on first failure; otherwise later stages run with partial context.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         PipelineArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for pipeline sub-agents.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         if (args.Stages is not { Count: > 0 })
             return ToolResult.Fail("Pipeline must have at least one stage.");
@@ -85,20 +74,13 @@ public sealed class PipelineTool : ToolBase<PipelineArgs>
                 ? $"Context from previous stage ({previousName}):\n{previousSummary}\n\n{stage.Task}"
                 : stage.Task;
 
-            var result = await SubAgentRunner.RunAsync(new SubAgentRequest
+            var result = await SubAgentRunner.RunAsync(CreateBaseRequest(context, task) with
             {
-                Task = task,
                 WorkDir = stage.WorkDir,
                 Tools = stage.Tools,
                 MaxIterations = stage.MaxIterations,
                 MaxContextTokens = stage.MaxContextTokens,
                 MaxIterationsMode = stage.MaxIterationsMode,
-                ParentSandboxOptions = context.SandboxOptions,
-                ModelProvider = _modelProvider,
-                ModelId = _modelId,
-                ToolRegistry = _toolRegistry,
-                SandboxFactory = _sandboxFactory,
-                LoggerFactory = _loggerFactory,
                 ParentEventBus = context.Agent?.EventBus,
                 Label = $"pipeline:{stageName}",
                 ToolCallId = context.CallId,

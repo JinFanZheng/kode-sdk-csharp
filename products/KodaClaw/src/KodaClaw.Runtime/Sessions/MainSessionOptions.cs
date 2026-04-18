@@ -1,8 +1,12 @@
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Sdk.Infrastructure.Sandbox;
 using Kode.Agent.Sdk.Tools;
 using Kode.Agent.Store.Json;
+using KodaClaw.Contracts;
+using KodaClaw.Runtime.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Runtime;
 
@@ -117,7 +121,21 @@ public sealed class MainSessionDependencies
 
     public ISandboxFactory? SandboxFactory { get; init; }
 
-    public Microsoft.Extensions.Logging.ILoggerFactory? LoggerFactory { get; init; }
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    /// <summary>
+    /// Workspace root used to locate the per-agent artifacts directory for
+    /// the file-backed tool-result compressor. When null, file-backed
+    /// compression is disabled (the SDK falls back to its built-in LLM
+    /// compressor if <see cref="ToolResultCompressionOptions.Enabled"/> is true).
+    /// </summary>
+    public string? WorkspaceRootPath { get; init; }
+
+    /// <summary>
+    /// Optional diagnostics sink the compressor uses to emit
+    /// <c>tool_result.offloaded</c> events.
+    /// </summary>
+    public IDiagnosticsService? DiagnosticsService { get; init; }
 }
 
 public sealed class DefaultMainSessionAgentDependenciesFactory : IMainSessionAgentDependenciesFactory
@@ -133,6 +151,19 @@ public sealed class DefaultMainSessionAgentDependenciesFactory : IMainSessionAge
     {
         var sessionsRoot = Directory.GetParent(sessionDirectory)?.FullName ?? sessionDirectory;
 
+        IToolResultCompressor? compressor = null;
+        if (!string.IsNullOrWhiteSpace(_dependencies.WorkspaceRootPath))
+        {
+            var artifactStore = new KodaClawArtifactStore(
+                _dependencies.WorkspaceRootPath,
+                _dependencies.DiagnosticsService,
+                _dependencies.LoggerFactory?.CreateLogger<KodaClawArtifactStore>());
+            compressor = new FileBackedToolResultCompressor(
+                artifactStore,
+                sessionId,
+                _dependencies.LoggerFactory?.CreateLogger<FileBackedToolResultCompressor>());
+        }
+
         return new AgentDependencies
         {
             Store = new JsonAgentStore(sessionsRoot),
@@ -140,6 +171,7 @@ public sealed class DefaultMainSessionAgentDependenciesFactory : IMainSessionAge
             SandboxFactory = _dependencies.SandboxFactory ?? new LocalSandboxFactory(),
             ModelProvider = _dependencies.ModelProvider,
             LoggerFactory = _dependencies.LoggerFactory,
+            ToolResultCompressor = compressor,
         };
     }
 }

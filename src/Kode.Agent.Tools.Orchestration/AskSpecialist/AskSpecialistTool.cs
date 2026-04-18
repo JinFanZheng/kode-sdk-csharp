@@ -13,35 +13,25 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("ask_specialist")]
 [ToolAttributes(ReadOnly = true, NoEffect = true)]
-public sealed class AskSpecialistTool : ToolBase<AskSpecialistArgs>
+public sealed class AskSpecialistTool : OrchestrationToolBase<AskSpecialistArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public AskSpecialistTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "ask_specialist";
 
     public override string Description =>
-        "Ask a specialist sub-agent to complete a task from a specific expert perspective. " +
-        "The sub-agent adopts the given specialist role (e.g. 'security engineer', 'database architect') " +
-        "and approaches the task accordingly. " +
-        "Use this when the task requires domain expertise without changing the current agent's persona.";
+        "Run a task in a sub-agent that adopts a named specialist role " +
+        "(e.g. 'security engineer', 'database architect') for domain-specific analysis. " +
+        "Use spawn_agent instead when the persona + tool whitelist is reusable across calls " +
+        "and worth storing in a JSON template.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<AskSpecialistArgs>();
 
@@ -49,17 +39,18 @@ public sealed class AskSpecialistTool : ToolBase<AskSpecialistArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use ask_specialist when a task needs a specific expert perspective: " +
-            "security reviews, architecture critiques, compliance checks, performance analysis. " +
-            "Describe the specialist role clearly — it becomes their identity and shapes their analysis.");
+            "State `specialistRole` as a concrete identity — it shapes how the sub-agent reasons. " +
+            "Good: 'Senior security engineer auditing auth flows', 'Principal Postgres DBA'. " +
+            "Vague roles ('expert', 'reviewer') produce vague analysis. " +
+            "The sub-agent sees only the role and task — include any required background in the task itself.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         AskSpecialistArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for ask_specialist sub-agent.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         if (string.IsNullOrWhiteSpace(args.SpecialistRole))
             return ToolResult.Fail("SpecialistRole must not be empty.");
@@ -67,20 +58,13 @@ public sealed class AskSpecialistTool : ToolBase<AskSpecialistArgs>
         var childWorkDir = args.WorkDir ?? context.SandboxOptions?.WorkingDirectory;
         var systemPrompt = BuildSpecialistSystemPrompt(args.SpecialistRole, childWorkDir);
 
-        var result = await SubAgentRunner.RunAsync(new SubAgentRequest
+        var result = await SubAgentRunner.RunAsync(CreateBaseRequest(context, args.Task) with
         {
-            Task = args.Task,
             WorkDir = args.WorkDir,
             Tools = args.Tools,
             MaxIterations = args.MaxIterations,
             MaxContextTokens = args.MaxContextTokens,
             MaxIterationsMode = args.MaxIterationsMode,
-            ParentSandboxOptions = context.SandboxOptions,
-            ModelProvider = _modelProvider,
-            ModelId = _modelId,
-            ToolRegistry = _toolRegistry,
-            SandboxFactory = _sandboxFactory,
-            LoggerFactory = _loggerFactory,
             SystemPromptOverride = systemPrompt,
             ParentEventBus = context.Agent?.EventBus,
             Label = args.SpecialistRole,
@@ -112,6 +96,7 @@ public sealed class AskSpecialistTool : ToolBase<AskSpecialistArgs>
         sb.AppendLine("- Do NOT send messages, modify workspace files outside the task scope, or create approvals.");
         sb.AppendLine("- Produce a concise, expert-level response under 500 words.");
         sb.AppendLine("- If something cannot be determined with the available information, say so explicitly.");
+        sb.AppendLine("- Respond in the same language as the task.");
 
         return sb.ToString();
     }

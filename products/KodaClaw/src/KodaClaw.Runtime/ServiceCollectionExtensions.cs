@@ -1,5 +1,6 @@
 using System.Net.Http;
 using KodaClaw.Contracts;
+using KodaClaw.Runtime.Diagnostics;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Extensions;
 using Kode.Agent.Sdk.Infrastructure.Providers;
@@ -55,9 +56,18 @@ public static class ServiceCollectionExtensions
             .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
         services.AddHttpClient(nameof(OpenAIResponsesProvider))
             .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
-        services.AddHttpClient(nameof(AnthropicProvider))
+        var anthropicBuilder = services.AddHttpClient(nameof(AnthropicProvider))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler())
             .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
+        var httpDumpDir = Environment.GetEnvironmentVariable("KODACLAW_HTTP_DUMP_DIR");
+        if (!string.IsNullOrWhiteSpace(httpDumpDir))
+        {
+            var keepAll = string.Equals(
+                Environment.GetEnvironmentVariable("KODACLAW_HTTP_DUMP_MODE"),
+                "all",
+                StringComparison.OrdinalIgnoreCase);
+            anthropicBuilder.AddHttpMessageHandler(() => new HttpDumpHandler(httpDumpDir, keepAll));
+        }
         services.TryAddSingleton<IRuntimeModelProviderFactory, DefaultRuntimeModelProviderFactory>();
         services.TryAddSingleton<DynamicModelProvider>();
         services.TryAddSingleton<IModelProvider, AccountAwareModelProvider>();
@@ -179,6 +189,8 @@ public static class ServiceCollectionExtensions
                 ToolRegistry = toolRegistry,
                 SandboxFactory = sandboxFactory,
                 LoggerFactory = loggerFactory,
+                WorkspaceRootPath = workspaceService.RootPath,
+                DiagnosticsService = diagnosticsService,
             });
         });
         services.TryAddSingleton<IMemorySessionSummaryService, MemorySessionSummaryService>();

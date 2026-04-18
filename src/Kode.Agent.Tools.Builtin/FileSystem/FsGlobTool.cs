@@ -13,8 +13,8 @@ public sealed class FsGlobTool : ToolBase<FsGlobArgs>
     public override string Name => "fs_glob";
 
     public override string Description =>
-        "Find files matching a glob pattern. Returns a list of matching file paths. " +
-        "Defaults to 200 results; use maxResults to adjust the limit.";
+        "Find files matching a glob pattern. Returns matching file paths (default limit 200). " +
+        "Use for discovering files by name/extension; pair with fs_grep when you need to search content.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<FsGlobArgs>();
 
@@ -23,6 +23,18 @@ public sealed class FsGlobTool : ToolBase<FsGlobArgs>
         ReadOnly = true,
         NoEffect = true
     };
+
+    public override ValueTask<string?> GetPromptAsync(ToolContext context)
+    {
+        return ValueTask.FromResult<string?>(
+            "Glob patterns:\n" +
+            "- `**/*.cs` — all .cs files recursively\n" +
+            "- `src/**/*.ts` — all .ts files under src/\n" +
+            "- `**/{foo,bar}.md` — foo.md or bar.md anywhere\n" +
+            "- `!node_modules/**` — exclusion (if supported by sandbox)\n\n" +
+            "Prefer fs_glob over `bash_run ls/find` — it's purpose-built and sandbox-safe. " +
+            "When you hit the 200-result cap, tighten the pattern rather than raising maxResults.");
+    }
 
     protected override async Task<ToolResult> ExecuteAsync(
         FsGlobArgs args,

@@ -14,29 +14,42 @@ namespace Kode.Agent.Tools.Builtin;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
+    // Tools registered across all three entry points (DI, registry, toolkit).
+    private static readonly Type[] CoreBuiltinToolTypes =
+    [
+        // File system
+        typeof(FsReadTool),
+        typeof(FsWriteTool),
+        typeof(FsGlobTool),
+        typeof(FsGrepTool),
+        typeof(FsEditTool),
+        typeof(FsRmTool),
+        typeof(FsListTool),
+        // Shell
+        typeof(BashRunTool),
+        typeof(BashKillTool),
+        typeof(BashLogsTool),
+        // Todo
+        typeof(TodoReadTool),
+        typeof(TodoWriteTool),
+    ];
+
+    // Extra tools registered only via IToolRegistry (Skills, History).
+    private static readonly Type[] ExtraRegistryToolTypes =
+    [
+        typeof(SkillListTool),
+        typeof(SkillActivateTool),
+        typeof(SkillResourceTool),
+        typeof(HistorySearchTool),
+    ];
+
     /// <summary>
     /// Adds all built-in tools to the service collection.
     /// </summary>
     public static IServiceCollection AddBuiltinTools(this IServiceCollection services)
     {
-        // File system tools
-        services.AddSingleton<ITool, FsReadTool>();
-        services.AddSingleton<ITool, FsWriteTool>();
-        services.AddSingleton<ITool, FsGlobTool>();
-        services.AddSingleton<ITool, FsGrepTool>();
-        services.AddSingleton<ITool, FsEditTool>();
-        services.AddSingleton<ITool, FsRmTool>();
-        services.AddSingleton<ITool, FsListTool>();
-
-        // Shell tools
-        services.AddSingleton<ITool, BashRunTool>();
-        services.AddSingleton<ITool, BashKillTool>();
-        services.AddSingleton<ITool, BashLogsTool>();
-
-        // Todo tools
-        services.AddSingleton<ITool, TodoReadTool>();
-        services.AddSingleton<ITool, TodoWriteTool>();
-
+        foreach (var toolType in CoreBuiltinToolTypes)
+            services.AddSingleton(typeof(ITool), toolType);
         return services;
     }
 
@@ -45,34 +58,14 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IToolRegistry RegisterBuiltinTools(this IToolRegistry registry)
     {
-        // File system tools
-        registry.Register(new FsReadTool());
-        registry.Register(new FsWriteTool());
-        registry.Register(new FsGlobTool());
-        registry.Register(new FsGrepTool());
-        registry.Register(new FsEditTool());
-        registry.Register(new FsRmTool());
-        registry.Register(new FsListTool());
-        
-        // Shell tools
-        registry.Register(new BashRunTool());
-        registry.Register(new BashKillTool());
-        registry.Register(new BashLogsTool());
-
-        // Todo tools (without service)
-        registry.Register(new TodoReadTool());
-        registry.Register(new TodoWriteTool());
-        
-        // Skills tools
-        registry.Register(new SkillListTool());
-        registry.Register(new SkillActivateTool());
-        registry.Register(new SkillResourceTool());
-
-        // History tools
-        registry.Register(new HistorySearchTool());
-
+        foreach (var toolType in CoreBuiltinToolTypes)
+            registry.Register((ITool)Activator.CreateInstance(toolType)!);
+        foreach (var toolType in ExtraRegistryToolTypes)
+            registry.Register((ITool)Activator.CreateInstance(toolType)!);
         return registry;
     }
+
+    internal static IReadOnlyList<Type> CoreToolTypes => CoreBuiltinToolTypes;
 }
 
 /// <summary>
@@ -82,22 +75,7 @@ public sealed class BuiltinToolKit : ToolKit
 {
     protected override void RegisterTools()
     {
-        // File system tools
-        RegisterTool(new FsReadTool());
-        RegisterTool(new FsWriteTool());
-        RegisterTool(new FsGlobTool());
-        RegisterTool(new FsGrepTool());
-        RegisterTool(new FsEditTool());
-        RegisterTool(new FsRmTool());
-        RegisterTool(new FsListTool());
-
-        // Shell tools
-        RegisterTool(new BashRunTool());
-        RegisterTool(new BashKillTool());
-        RegisterTool(new BashLogsTool());
-
-        // Todo tools
-        RegisterTool(new TodoReadTool());
-        RegisterTool(new TodoWriteTool());
+        foreach (var toolType in ServiceCollectionExtensions.CoreToolTypes)
+            RegisterTool((ITool)Activator.CreateInstance(toolType)!);
     }
 }

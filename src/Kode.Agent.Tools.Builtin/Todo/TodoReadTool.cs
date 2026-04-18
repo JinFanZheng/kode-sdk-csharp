@@ -25,8 +25,10 @@ public sealed class TodoReadTool : ToolBase<TodoReadArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "Use todo_read to retrieve the current list of todos. " +
-            "This helps track progress on multi-step tasks.");
+            "Read the current todo list with status of each item. " +
+            "Call at the start of a resumed conversation, when the user asks about progress, " +
+            "or before todo_write to avoid clobbering concurrent updates. " +
+            "Skip if the task is a single trivial step — todos are overhead for short work.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(

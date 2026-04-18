@@ -15,35 +15,24 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("context_distill")]
 [ToolAttributes(ReadOnly = true, NoEffect = true)]
-public sealed class ContextDistillTool : ToolBase<ContextDistillArgs>
+public sealed class ContextDistillTool : OrchestrationToolBase<ContextDistillArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public ContextDistillTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "context_distill";
 
     public override string Description =>
-        "Distill large content (tool output, file contents, logs) into a focused summary. " +
-        "A sub-agent reads the content and extracts only what is relevant to the focus question, " +
-        "returning a concise summary that fits comfortably in the current context window. " +
-        "No tool calls are made — purely text reasoning.";
+        "Pass large text (tool output, file dumps, logs) and a focus question to a sub-agent; " +
+        "returns only the distilled content relevant to the question. " +
+        "Pure text reasoning — no tool calls. Use isolate_task if the distillation needs live file reads.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<ContextDistillArgs>();
 
@@ -51,17 +40,17 @@ public sealed class ContextDistillTool : ToolBase<ContextDistillArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use context_distill when you have large text (logs, file dumps, tool output) " +
-            "that exceeds what fits in the next prompt. Pass it here with a specific focus question " +
-            "to get a concise targeted summary back.");
+            "`focusQuestion` must be specific ('What env vars does this config reference?' — not 'summarize this'). " +
+            "Tune `maxOutputWords` to the downstream step's need: too tight drops detail, too loose wastes tokens. " +
+            "Use this for extraction and summarization, not structured transformation.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         ContextDistillArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for context_distill sub-agent.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         if (string.IsNullOrWhiteSpace(args.Content))
             return ToolResult.Fail("Content must not be empty.");
@@ -72,18 +61,11 @@ public sealed class ContextDistillTool : ToolBase<ContextDistillArgs>
         var maxWords = Math.Clamp(args.MaxOutputWords, 50, 1000);
         var task = BuildDistillTask(args.Content, args.FocusQuestion, maxWords);
 
-        var result = await SubAgentRunner.RunAsync(new SubAgentRequest
+        var result = await SubAgentRunner.RunAsync(CreateBaseRequest(context, task) with
         {
-            Task = task,
             Tools = [],              // no tool calls — pure reasoning
             AllowNoTools = true,
             MaxIterations = 3,       // single response expected
-            ParentSandboxOptions = context.SandboxOptions,
-            ModelProvider = _modelProvider,
-            ModelId = _modelId,
-            ToolRegistry = _toolRegistry,
-            SandboxFactory = _sandboxFactory,
-            LoggerFactory = _loggerFactory,
         }, cancellationToken);
 
         if (!result.Success)
@@ -109,5 +91,6 @@ public sealed class ContextDistillTool : ToolBase<ContextDistillArgs>
 
          Extract and summarise only the information relevant to the focus question above.
          Keep your response under {maxWords} words. Be specific and factual. Omit anything unrelated.
+         Respond in the same language as the focus question.
          """;
 }

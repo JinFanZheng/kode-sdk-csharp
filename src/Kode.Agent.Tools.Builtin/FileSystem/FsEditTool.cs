@@ -26,8 +26,14 @@ public sealed class FsEditTool : ToolBase<FsEditArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "When editing files, provide enough context in oldString to uniquely identify the location. " +
-            "Include 3+ lines of context before and after the target text.");
+            "Edit workflow:\n" +
+            "1. Call fs_read first — you must know the current content to craft a matching `oldString`.\n" +
+            "2. `oldString` must match the file byte-for-byte (indentation, whitespace, line endings).\n" +
+            "3. `oldString` must be unique in the file, or the edit is rejected. " +
+            "Include 3+ lines of surrounding context to disambiguate — don't match a bare identifier.\n" +
+            "4. Use `replaceAll: true` only for genuine rename-all cases (variable renaming, string replacement). " +
+            "Otherwise keep it false so accidental duplicates fail loudly.\n" +
+            "5. For several edits to the same file, use fs_multi_edit in one call rather than chaining fs_edit.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(
@@ -59,10 +65,8 @@ public sealed class FsEditTool : ToolBase<FsEditArgs>
                     "or provide more context to uniquely identify the location.");
             }
 
-            // Perform replacement
-            var newContent = args.ReplaceAll
-                ? content.Replace(args.OldString, args.NewString)
-                : content.Replace(args.OldString, args.NewString);
+            // Count check above guarantees that unique-match and replace-all cases are equivalent here.
+            var newContent = content.Replace(args.OldString, args.NewString);
 
             await context.Sandbox.WriteFileAsync(args.Path, newContent, cancellationToken);
 

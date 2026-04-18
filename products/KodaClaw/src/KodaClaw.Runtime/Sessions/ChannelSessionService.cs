@@ -162,7 +162,11 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                             CompressionPrompt = binding.ThreadType == ChannelThreadType.DirectMessage
                                 ? _options.DmCompressionPrompt
                                 : _options.GroupCompressionPrompt,
-                            ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
+                            ToolResultCompression = new ToolResultCompressionOptions
+                            {
+                                Enabled = true,
+                                ThresholdBytes = 81_920,
+                            },
                         },
                     },
                     cancellationToken: cancellationToken);
@@ -824,7 +828,11 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                 CompressionPrompt = isDirectMessage
                     ? _options.DmCompressionPrompt
                     : _options.GroupCompressionPrompt,
-                ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
+                ToolResultCompression = new ToolResultCompressionOptions
+                {
+                    Enabled = true,
+                    ThresholdBytes = 81_920,
+                },
             },
         };
     }

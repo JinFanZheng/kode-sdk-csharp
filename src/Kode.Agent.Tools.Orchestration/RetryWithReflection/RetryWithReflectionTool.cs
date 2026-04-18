@@ -18,37 +18,25 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("retry_with_reflection")]
 [ToolAttributes(ReadOnly = true, NoEffect = true)]
-public sealed class RetryWithReflectionTool : ToolBase<RetryWithReflectionArgs>
+public sealed class RetryWithReflectionTool : OrchestrationToolBase<RetryWithReflectionArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public RetryWithReflectionTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "retry_with_reflection";
 
     public override string Description =>
-        "Run a task in an isolated sub-agent and automatically retry on failure. " +
-        "Each retry receives the previous error and a reflection prompt so the sub-agent " +
-        "can diagnose what went wrong and approach the problem differently. " +
-        "Use this for tasks that may fail due to transient issues or minor misunderstandings " +
-        "that a second attempt can self-correct. " +
-        "The sub-agent cannot send messages, modify workspace, or create approvals.";
+        "Run a task in a sub-agent and retry on failure; each retry receives the previous error " +
+        "plus a reflection prompt to approach the problem differently. " +
+        "Use for transient errors (wrong path, format drift, minor tool misuse). " +
+        "Use validate_and_fix when success is defined by explicit quality criteria, not just 'didn't crash'.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<RetryWithReflectionArgs>();
 
@@ -56,18 +44,17 @@ public sealed class RetryWithReflectionTool : ToolBase<RetryWithReflectionArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use retry_with_reflection for unattended tasks that may fail due to transient issues " +
-            "(wrong path, unexpected output format, minor tool misuse). " +
-            "Set maxRetries=1 for quick tasks, 2-3 for complex ones. " +
-            "Even on final failure the result includes all attempt records so you can diagnose the issue.");
+            "`maxRetries: 1` for quick tasks, 2–3 for complex ones (clamped to 5). " +
+            "All attempt records are returned even on final failure — inspect them to diagnose systemic issues. " +
+            "If attempts keep failing the same way, the task description is wrong; don't just raise retries.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         RetryWithReflectionArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for retry_with_reflection sub-agent.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
         var totalAttempts = Math.Clamp(args.MaxRetries, 0, 5) + 1;
         var attemptRecords = new List<object>(totalAttempts);
@@ -79,20 +66,13 @@ public sealed class RetryWithReflectionTool : ToolBase<RetryWithReflectionArgs>
                 ? args.Task
                 : BuildRetryTask(args.Task, attempt - 1, previousError!);
 
-            var result = await SubAgentRunner.RunAsync(new SubAgentRequest
+            var result = await SubAgentRunner.RunAsync(CreateBaseRequest(context, task) with
             {
-                Task = task,
                 WorkDir = args.WorkDir,
                 Tools = args.Tools,
                 MaxIterations = args.MaxIterationsPerAttempt,
                 MaxContextTokens = args.MaxContextTokens,
                 MaxIterationsMode = args.MaxIterationsMode,
-                ParentSandboxOptions = context.SandboxOptions,
-                ModelProvider = _modelProvider,
-                ModelId = _modelId,
-                ToolRegistry = _toolRegistry,
-                SandboxFactory = _sandboxFactory,
-                LoggerFactory = _loggerFactory,
                 ParentEventBus = context.Agent?.EventBus,
                 Label = $"retry_with_reflection:{attempt}/{totalAttempts}",
                 ToolCallId = context.CallId,
@@ -144,5 +124,6 @@ public sealed class RetryWithReflectionTool : ToolBase<RetryWithReflectionArgs>
          - What should change this time to avoid the same failure?
 
          Now retry the original task with this understanding.
+         Respond in the same language as the original task.
          """;
 }

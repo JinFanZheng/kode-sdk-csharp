@@ -27,9 +27,19 @@ public sealed class TodoWriteTool : ToolBase<TodoWriteArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "Use todo_write to update the todo list. Provide the complete list of todos. " +
-            "Only one todo should be marked as 'in_progress' at a time. " +
-            "Use status values: 'Pending', 'InProgress', 'Completed'.");
+            "When to use todos:\n" +
+            "- Tasks with 3+ distinct steps, or when the user lists multiple items\n" +
+            "- Work you'll revisit across multiple responses\n" +
+            "- Skip for single-step or purely conversational tasks\n\n" +
+            "Rules:\n" +
+            "- The call REPLACES the list — always send the complete set, not a diff\n" +
+            "- Exactly one todo may be `InProgress` at a time\n" +
+            "- Mark `InProgress` BEFORE starting work; mark `Completed` immediately after finishing " +
+            "(don't batch completions)\n" +
+            "- Status values: `Pending` | `InProgress` | `Completed`\n" +
+            "- Each todo needs a non-empty `id` and `title`\n\n" +
+            "If work is blocked, keep it `InProgress` and add a new todo describing the blocker — " +
+            "don't mark it `Completed`.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(

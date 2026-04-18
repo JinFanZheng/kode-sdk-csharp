@@ -16,36 +16,25 @@ namespace Kode.Agent.Tools.Orchestration;
 /// </summary>
 [Tool("isolate_task")]
 [ToolAttributes(ReadOnly = true, NoEffect = true)]
-public sealed class IsolateTaskTool : ToolBase<IsolateTaskArgs>
+public sealed class IsolateTaskTool : OrchestrationToolBase<IsolateTaskArgs>
 {
-    private readonly IModelProvider _modelProvider;
-    private readonly string _modelId;
-    private readonly IToolRegistry _toolRegistry;
-    private readonly ISandboxFactory _sandboxFactory;
-    private readonly Microsoft.Extensions.Logging.ILoggerFactory? _loggerFactory;
-
     public IsolateTaskTool(
         IModelProvider modelProvider,
         string modelId,
         IToolRegistry toolRegistry,
         ISandboxFactory sandboxFactory,
         Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null)
+        : base(modelProvider, modelId, toolRegistry, sandboxFactory, loggerFactory)
     {
-        _modelProvider = modelProvider;
-        _modelId = modelId;
-        _toolRegistry = toolRegistry;
-        _sandboxFactory = sandboxFactory;
-        _loggerFactory = loggerFactory;
     }
 
     public override string Name => "isolate_task";
 
     public override string Description =>
-        "Run a multi-step investigation task in an isolated sub-agent. " +
-        "The sub-agent has its own context window; only its final summary is returned here. " +
-        "Use this when a task requires many tool calls (reading files, searching code, browsing) " +
-        "that would otherwise fill the current context window. " +
-        "The sub-agent cannot send messages, modify workspace, or create approvals.";
+        "Run a deep-research task in an isolated sub-agent; only the final summary returns, " +
+        "protecting the parent's context from large intermediate tool results. " +
+        "Prefer ask_specialist when the task needs a specific expert lens, " +
+        "parallel_research when several independent investigations can run at once.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<IsolateTaskArgs>();
 
@@ -53,33 +42,26 @@ public sealed class IsolateTaskTool : ToolBase<IsolateTaskArgs>
 
     public override ValueTask<string?> GetPromptAsync(ToolContext context) =>
         ValueTask.FromResult<string?>(
-            "Use isolate_task when you need to do deep research that requires many tool calls " +
-            "(e.g. reading 10+ files, analyzing a codebase, scraping multiple pages). " +
-            "The sub-agent result is a plain-text summary — ask for exactly what you need in the task description. " +
-            "Specify workDir when the task is focused on a directory outside the current workspace.");
+            "Ask for exactly what you need in the task description — the result is a plain-text summary, " +
+            "not structured data. Whitelist only the tools the sub-agent actually needs via `tools`. " +
+            "Set `workDir` only when the task targets a directory outside the current workspace. " +
+            "The sub-agent cannot send messages, modify workspace, or create approvals.");
 
     protected override async Task<ToolResult> ExecuteAsync(
         IsolateTaskArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_modelId))
-            return ToolResult.Fail("No model ID configured for isolate_task sub-agent.");
+        if (EnsureModelConfigured(Name) is { } missingModel)
+            return missingModel;
 
-        var result = await SubAgentRunner.RunAsync(new SubAgentRequest
+        var result = await SubAgentRunner.RunAsync(CreateBaseRequest(context, args.Task) with
         {
-            Task = args.Task,
             WorkDir = args.WorkDir,
             Tools = args.Tools,
             MaxIterations = args.MaxIterations,
             MaxContextTokens = args.MaxContextTokens,
             MaxIterationsMode = args.MaxIterationsMode,
-            ParentSandboxOptions = context.SandboxOptions,
-            ModelProvider = _modelProvider,
-            ModelId = _modelId,
-            ToolRegistry = _toolRegistry,
-            SandboxFactory = _sandboxFactory,
-            LoggerFactory = _loggerFactory,
             ParentEventBus = context.Agent?.EventBus,
             Label = "isolate_task",
             ToolCallId = context.CallId,
