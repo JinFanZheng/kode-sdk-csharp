@@ -276,6 +276,38 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var messages = await dependencies.Store.LoadMessagesAsync(agentId, cancellationToken);
         agent._messages.AddRange(messages);
 
+        // One-shot cleanup for sessions persisted before MessageQueue DedupKey: collapse
+        // runs of byte-identical system-reminder payloads (e.g. file-change bursts). Only
+        // affects history that is provably redundant; if anything is collapsed we persist
+        // immediately so the cleanup is durable across future resumes.
+        var collapsed = agent.CollapseConsecutiveDuplicateReminders();
+        if (collapsed > 0)
+        {
+            agent._eventBus.EmitMonitor(new AgentRecoveredEvent
+            {
+                Type = "agent_recovered",
+                Reason = "reminder_dedup",
+                Detail = new { removed = collapsed }
+            });
+            await agent.SaveStateAsync(cancellationToken);
+        }
+
+        // One-shot cleanup for sessions whose tool_results were persisted before the current
+        // offload threshold took effect: bring legacy oversized ToolResultContent payloads in
+        // line with the active policy. Guarded by (a) a configured non-lossy compressor and
+        // (b) ToolResultCompression.Enabled — both are required for the live path too.
+        var offloaded = await agent.OffloadLegacyOversizedToolResultsAsync(cancellationToken);
+        if (offloaded.count > 0)
+        {
+            agent._eventBus.EmitMonitor(new AgentRecoveredEvent
+            {
+                Type = "agent_recovered",
+                Reason = "legacy_tool_result_offload",
+                Detail = new { count = offloaded.count, totalBytes = offloaded.bytes }
+            });
+            await agent.SaveStateAsync(cancellationToken);
+        }
+
         // Load tool call records
         var toolRecords = await dependencies.Store.LoadToolCallRecordsAsync(agentId, cancellationToken);
         agent._toolRunner.LoadToolCallRecords(toolRecords);
@@ -1282,10 +1314,13 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var response = await StreamModelResponseAsync(request, cancellationToken);
         await _hookManager.RunPostModelAsync(response, cancellationToken);
 
-        // Empty content with no tools/text/thinking.
-        // Some models (e.g. GLM-5-Turbo) return empty on context overflow rather than an error code.
-        // Attempt one forced compression + retry before giving up.
-        if (response.Content.Count == 0)
+        // Force-compress + retry trigger. Two paths converge here:
+        //  (1) Empty content with no tools/text/thinking — some models (e.g. GLM-5-Turbo)
+        //      return empty on context overflow rather than an error code.
+        //  (2) Explicit ContextOverflow stop_reason — the AnthropicProvider surfaced a
+        //      non-standard overflow signal (e.g. "model_context_window_exceeded") that the
+        //      SDK enum would have otherwise masked as EndTurn.
+        if (response.Content.Count == 0 || response.StopReason == ModelStopReason.ContextOverflow)
         {
             var forced = await _contextManager.CompressAsync(
                 _messages, _eventBus.GetTimelineSnapshot(),
@@ -3598,10 +3633,16 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         // The queue is drained at the start of every StepAsync (line ~1079), so the reminder
         // will be delivered before the next model call without any cross-thread mutation.
         var reminder = $"检测到外部修改：{rel}。请重新使用 fs_read 确认文件内容，并在必要时向用户同步。";
+        // DedupKey collapses duplicate pending reminders for the same file while the
+        // previous one is still queued. Filesystem watchers can fire many times for a
+        // single editor save (autosave, SCM writes, mtime flaps), and without this the
+        // conversation accumulates 10+ identical system-reminders back-to-back, wasting
+        // context and confusing the model.
         _messageQueue.Send(reminder, new SendOptions
         {
             Kind = PendingKind.Reminder,
-            Reminder = new ReminderOptions { Category = "file", SkipStandardEnding = false }
+            Reminder = new ReminderOptions { Category = "file", SkipStandardEnding = false },
+            DedupKey = $"file-change:{rel}"
         });
     }
 
@@ -3846,6 +3887,141 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     /// excluded to avoid breaking tool_use / tool_result pairing.
     /// </summary>
     /// <returns>Number of messages removed.</returns>
+    // Collapses runs of identical user-role reminder messages into a single copy.
+    // Triggered at resume for sessions that predate the MessageQueue DedupKey and
+    // accumulated 10+ copies of the same file-change reminder. Only collapses exact
+    // byte-equal payloads and only within a run of consecutive user messages, so
+    // real user turns or tool_results can never be collapsed.
+    private int CollapseConsecutiveDuplicateReminders()
+    {
+        var removed = 0;
+        for (var i = _messages.Count - 1; i > 0; i--)
+        {
+            var cur = _messages[i];
+            var prev = _messages[i - 1];
+            if (cur.Role != MessageRole.User || prev.Role != MessageRole.User) continue;
+            if (!IsSingleTextReminder(cur, out var curText)) continue;
+            if (!IsSingleTextReminder(prev, out var prevText)) continue;
+            if (!string.Equals(curText, prevText, StringComparison.Ordinal)) continue;
+            _messages.RemoveAt(i);
+            removed++;
+        }
+        return removed;
+    }
+
+    private static bool IsSingleTextReminder(Message msg, out string text)
+    {
+        text = "";
+        if (msg.Content.Count != 1) return false;
+        if (msg.Content[0] is not TextContent t) return false;
+        if (!t.Text.StartsWith("<system-reminder>", StringComparison.Ordinal)) return false;
+        text = t.Text;
+        return true;
+    }
+
+    /// <summary>
+    /// Walks <c>_messages</c> once and offloads any legacy oversized <see cref="ToolResultContent"/>
+    /// payload to the configured artifact-backed compressor. Idempotent: the compressor skips
+    /// content that is already a placeholder, already below threshold, or produced by a verbatim
+    /// tool. Failures are swallowed so resume never aborts on legacy data.
+    /// </summary>
+    /// <returns>(count, bytes) pair: number of payloads replaced and the total original byte size.</returns>
+    private async Task<(int count, long bytes)> OffloadLegacyOversizedToolResultsAsync(CancellationToken cancellationToken)
+    {
+        if (_toolResultCompressor is null) return (0, 0);
+        var options = _config.Context?.ToolResultCompression;
+        if (options is null || !options.Enabled) return (0, 0);
+
+        // Build toolUseId → toolName index by scanning forward. A tool_result at index i can
+        // only refer to a tool_use on a prior Assistant message, so a single pass suffices.
+        var toolNameById = new Dictionary<string, string>(StringComparer.Ordinal);
+        var replacedCount = 0;
+        long replacedBytes = 0;
+
+        for (var i = 0; i < _messages.Count; i++)
+        {
+            var msg = _messages[i];
+
+            if (msg.Role == MessageRole.Assistant)
+            {
+                foreach (var block in msg.Content)
+                {
+                    if (block is ToolUseContent tu && !string.IsNullOrEmpty(tu.Id))
+                        toolNameById[tu.Id] = tu.Name;
+                }
+                continue;
+            }
+
+            if (msg.Role != MessageRole.User) continue;
+
+            List<ContentBlock>? rebuilt = null;
+            for (var j = 0; j < msg.Content.Count; j++)
+            {
+                var block = msg.Content[j];
+                if (block is not ToolResultContent tr)
+                {
+                    rebuilt?.Add(block);
+                    continue;
+                }
+
+                if (!toolNameById.TryGetValue(tr.ToolUseId, out var toolName))
+                {
+                    // Unknown tool (tool_use gone or not yet seen): safest to leave alone.
+                    rebuilt?.Add(block);
+                    continue;
+                }
+
+                try
+                {
+                    var replacement = await _toolResultCompressor.TryOffloadLegacyContentAsync(
+                        toolName, tr.Content, options, cancellationToken);
+
+                    if (replacement is null)
+                    {
+                        rebuilt?.Add(block);
+                        continue;
+                    }
+
+                    // Record approximate original byte size for diagnostics.
+                    var originalBytes = tr.Content switch
+                    {
+                        null => 0,
+                        string s => s.Length,
+                        _ => TryEstimateBytes(tr.Content)
+                    };
+                    replacedBytes += originalBytes;
+                    replacedCount++;
+
+                    rebuilt ??= new List<ContentBlock>(msg.Content.Take(j));
+                    rebuilt.Add(tr with { Content = replacement });
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Per-block failure must not derail resume. Leave the original inline;
+                    // the compressor's internal logger has already recorded the failure.
+                    rebuilt?.Add(block);
+                }
+            }
+
+            if (rebuilt is not null)
+            {
+                _messages[i] = msg with { Content = rebuilt };
+            }
+        }
+
+        return (replacedCount, replacedBytes);
+    }
+
+    private static int TryEstimateBytes(object content)
+    {
+        try { return System.Text.Json.JsonSerializer.Serialize(content).Length; }
+        catch { return 0; }
+    }
+
     private int SanitizeDanglingUserTurns()
     {
         // Index of the first message after the last assistant response (0 when no assistant exists).

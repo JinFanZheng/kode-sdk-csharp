@@ -72,6 +72,33 @@ public interface IToolResultCompressor
         ToolResultCompressionOptions options,
         float contextPressure = 0f,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One-shot offload of a raw, pre-persisted tool-result payload at resume time.
+    /// Used to bring legacy oversized <c>ToolResultContent.Content</c> payloads written
+    /// before the current threshold policy into line without losing data.
+    /// <para>
+    /// Contract:
+    /// <list type="bullet">
+    /// <item><description>Return a replacement placeholder value (same shape as the live
+    /// offload path) to be swapped into <c>ToolResultContent.Content</c>.</description></item>
+    /// <item><description>Return <c>null</c> when offload is skipped for any reason
+    /// (payload below threshold, tool is verbatim, already a placeholder, artifact
+    /// store failure). Callers must keep the original content in that case.</description></item>
+    /// <item><description>Implementations must never return a shape that could be
+    /// mistaken for the original payload — callers rely on null-vs-value to decide
+    /// whether to mutate history.</description></item>
+    /// </list>
+    /// </para>
+    /// Default implementation is a no-op so existing compressors (LLM-backed, custom
+    /// host compressors) remain behaviourally unchanged.
+    /// </summary>
+    Task<object?> TryOffloadLegacyContentAsync(
+        string toolName,
+        object? content,
+        ToolResultCompressionOptions options,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<object?>(null);
 }
 
 /// <summary>

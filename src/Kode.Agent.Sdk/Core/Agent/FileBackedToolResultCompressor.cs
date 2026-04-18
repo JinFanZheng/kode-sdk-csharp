@@ -295,4 +295,131 @@ public sealed class FileBackedToolResultCompressor : IToolResultCompressor
         try { return JsonSerializer.Serialize(value, SerializerOptions); }
         catch { return value.ToString() ?? ""; }
     }
+
+    /// <summary>
+    /// Resume-time offload: legacy <c>ToolResultContent.Content</c> payloads written
+    /// before the current <see cref="ToolResultCompressionOptions.ThresholdBytes"/> took
+    /// effect can balloon a resumed context past the model's window on the very first
+    /// turn. We offload them to the artifact store using the same shape as the live
+    /// path, so the agent sees the usual placeholder-and-hint structure.
+    /// <para>
+    /// Differs from <see cref="CompressIfNeededAsync"/> in two ways:
+    /// no <c>contextPressure</c> scaling (we don't know it at resume), and input is a
+    /// raw content object rather than a <see cref="ToolResult"/>.
+    /// </para>
+    /// </summary>
+    public async Task<object?> TryOffloadLegacyContentAsync(
+        string toolName,
+        object? content,
+        ToolResultCompressionOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        if (content is null) return null;
+        if (string.IsNullOrWhiteSpace(toolName)) return null;
+        if (VerbatimToolPolicy.IsVerbatim(toolName, options.VerbatimTools)) return null;
+        if (IsAlreadyOffloadedPlaceholder(content)) return null;
+
+        var serialized = Serialize(content);
+        if (serialized.Length <= options.ThresholdBytes) return null;
+
+        // Match the live path's defensive cap: refuse to write multi-megabyte artifacts.
+        // Leave the oversized payload in place so force-compress can still fold it into
+        // a summary rather than producing a giant on-disk file we'd never read again.
+        if (options.MaxArtifactBytes > 0 && serialized.Length > options.MaxArtifactBytes)
+        {
+            if (_logger is not null && _logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    "Legacy '{Tool}' result ({Bytes:N0} bytes) exceeds MaxArtifactBytes ({Cap:N0}); leaving inline",
+                    toolName, serialized.Length, options.MaxArtifactBytes);
+            }
+            return null;
+        }
+
+        try
+        {
+            var reference = await _store.WriteAsync(
+                new ArtifactWriteRequest(
+                    SessionId: _sessionId,
+                    ToolName: toolName,
+                    Payload: serialized,
+                    ContextPressure: 0f,
+                    EffectiveThreshold: options.ThresholdBytes),
+                cancellationToken);
+
+            var preview = BuildSemanticPreview(content, serialized);
+
+            if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation(
+                    "Offloaded legacy '{Tool}' result ({Bytes:N0} bytes) to {Path} at resume",
+                    toolName,
+                    serialized.Length,
+                    reference.RelativePath);
+            }
+
+            return new
+            {
+                compressed = true,
+                artifact = true,
+                tool = toolName,
+                originalBytes = serialized.Length,
+                artifactPath = reference.RelativePath,
+                agentId = _sessionId,
+                preview,
+                previewBytes = preview.Length,
+                hint = BuildHint(reference.RelativePath, serialized.Length),
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            if (_logger is not null && _logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Resume-time offload failed for '{Tool}'; leaving inline",
+                    toolName);
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Detects objects shaped like the placeholder this compressor writes. Must be
+    /// tolerant of three lifecycle shapes: fresh anonymous object (live path),
+    /// JsonElement (round-tripped through <c>JsonAgentStore</c>), and IDictionary
+    /// (some custom stores rehydrate to dict). Returning a false positive here means
+    /// a legitimate payload never gets offloaded; a false negative means we might
+    /// re-offload an already-offloaded payload, producing a new artifact but not
+    /// losing data. Err toward false positive (skip) on ambiguity.
+    /// </summary>
+    private static bool IsAlreadyOffloadedPlaceholder(object content)
+    {
+        switch (content)
+        {
+            case JsonElement je when je.ValueKind == JsonValueKind.Object:
+                return je.TryGetProperty("compressed", out var c) && c.ValueKind == JsonValueKind.True
+                    && je.TryGetProperty("artifact", out var a) && a.ValueKind == JsonValueKind.True;
+            case System.Collections.IDictionary dict:
+                return TruthyField(dict["compressed"]) && TruthyField(dict["artifact"]);
+            default:
+                // Anonymous types: read via reflection-free serialize-then-inspect. Cheap
+                // because anonymous placeholder objects are tiny.
+                try
+                {
+                    var json = JsonSerializer.Serialize(content);
+                    using var doc = JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object) return false;
+                    return root.TryGetProperty("compressed", out var c2) && c2.ValueKind == JsonValueKind.True
+                        && root.TryGetProperty("artifact", out var a2) && a2.ValueKind == JsonValueKind.True;
+                }
+                catch
+                {
+                    return false;
+                }
+        }
+    }
+
+    private static bool TruthyField(object? value) => value is bool b && b;
 }

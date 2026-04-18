@@ -214,4 +214,143 @@ public sealed class FileBackedToolResultCompressorTests
         previewDoc.RootElement.GetProperty("cancelled").GetBoolean().Should().BeFalse();
         previewDoc.RootElement.GetProperty("reason").ValueKind.Should().Be(JsonValueKind.Null);
     }
+
+    // ---------------------------------------------------------------------
+    // TryOffloadLegacyContentAsync: resume-time sanitizer behaviour
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_NullContent_ReturnsNull()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        (await c.TryOffloadLegacyContentAsync("bash_run", null, Options(100))).Should().BeNull();
+        store.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_BelowThreshold_ReturnsNull()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        (await c.TryOffloadLegacyContentAsync("bash_run", "small output", Options(100))).Should().BeNull();
+        store.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_VerbatimTool_ReturnsNull_EvenIfHuge()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        var big = new string('x', 10_000);
+        (await c.TryOffloadLegacyContentAsync("fs_read", big, Options(100))).Should().BeNull();
+        store.Writes.Should().BeEmpty(because: "fs_read output must survive verbatim for follow-up fs_edit");
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_AlreadyPlaceholder_ReturnsNull()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        // shape matches what live-path offload produces
+        var placeholder = new
+        {
+            compressed = true,
+            artifact = true,
+            tool = "bash_run",
+            originalBytes = 80_000,
+            artifactPath = "cache/artifacts/agent-1/prior.json",
+        };
+        (await c.TryOffloadLegacyContentAsync("bash_run", placeholder, Options(100))).Should().BeNull();
+        store.Writes.Should().BeEmpty(because: "re-offloading an artifact placeholder would create a new artifact for every resume");
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_AlreadyPlaceholder_JsonElement_ReturnsNull()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        var json = """{"compressed":true,"artifact":true,"tool":"bash_run","artifactPath":"x"}""";
+        using var doc = JsonDocument.Parse(json);
+        (await c.TryOffloadLegacyContentAsync("bash_run", doc.RootElement, Options(100))).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_OversizedString_OffloadsAndReturnsPlaceholder()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        var payload = new string('a', 5_000);
+
+        var replacement = await c.TryOffloadLegacyContentAsync("bash_run", payload, Options(1_000));
+
+        replacement.Should().NotBeNull();
+        store.Writes.Should().HaveCount(1);
+        store.Writes[0].ToolName.Should().Be("bash_run");
+        store.Writes[0].Payload.Should().Be(payload);
+
+        // Replacement is recognisable as a placeholder by our detection heuristic,
+        // which means a *second* pass would be a no-op (idempotency).
+        var second = await c.TryOffloadLegacyContentAsync("bash_run", replacement, Options(1_000));
+        second.Should().BeNull();
+        store.Writes.Should().HaveCount(1, because: "second pass must not re-offload");
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_OversizedPoco_OffloadsWithSerializedSize()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        var payload = new
+        {
+            exitCode = 0,
+            stdout = new string('s', 3_000),
+            stderr = new string('e', 3_000),
+        };
+
+        var replacement = await c.TryOffloadLegacyContentAsync("bash_run", payload, Options(1_000));
+
+        replacement.Should().NotBeNull();
+        store.Writes.Should().HaveCount(1);
+        store.Writes[0].Payload.Length.Should().BeGreaterThan(6_000);
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_ExceedsMaxArtifactBytes_ReturnsNull()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        var huge = new string('a', 10_000);
+        var opts = new ToolResultCompressionOptions
+        {
+            Enabled = true,
+            ThresholdBytes = 1_000,
+            MaxArtifactBytes = 5_000,
+        };
+
+        (await c.TryOffloadLegacyContentAsync("bash_run", huge, opts)).Should().BeNull();
+        store.Writes.Should().BeEmpty(
+            because: "payloads above the hard cap stay inline rather than generating a multi-MB artifact");
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_ArtifactStoreFails_ReturnsNull_DoesNotThrow()
+    {
+        var store = new InMemoryArtifactStore { ThrowOnWrite = new IOException("disk full") };
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        var payload = new string('a', 5_000);
+
+        var replacement = await c.TryOffloadLegacyContentAsync("bash_run", payload, Options(1_000));
+
+        replacement.Should().BeNull(because: "resume must not abort on disk failure; original content stays inline");
+    }
+
+    [Fact]
+    public async Task TryOffloadLegacyContent_EmptyToolName_ReturnsNull()
+    {
+        var store = new InMemoryArtifactStore();
+        var c = new FileBackedToolResultCompressor(store, "agent-1");
+        (await c.TryOffloadLegacyContentAsync("", new string('a', 5_000), Options(1_000))).Should().BeNull();
+        (await c.TryOffloadLegacyContentAsync("   ", new string('a', 5_000), Options(1_000))).Should().BeNull();
+    }
 }

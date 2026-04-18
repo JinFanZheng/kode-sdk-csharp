@@ -288,6 +288,21 @@ public sealed class AnthropicProvider : IModelProvider
                 var stopReason = apiStopReason != null
                     ? ConvertStopReason((AnthropicStopReason)apiStopReason)
                     : ModelStopReason.EndTurn;
+
+                // Providers fronted by Anthropic's SSE shape sometimes return non-standard
+                // stop_reason strings on HTTP 200 (e.g. GLM's "model_context_window_exceeded").
+                // The SDK nullifies unknown enum values, so we inspect the raw JSON and map
+                // known overflow signals to ContextOverflow — the run loop treats that as an
+                // explicit signal to force-compress and retry.
+                if (TryParseRawStopReason(evt.Json, out var rawStopReason) &&
+                    IsContextOverflowSignal(rawStopReason))
+                {
+                    stopReason = ModelStopReason.ContextOverflow;
+                    _logger?.LogWarning(
+                        "Provider reported non-standard overflow stop_reason: {StopReason} (model={Model})",
+                        rawStopReason, parameters.Model);
+                }
+
                 var inputTokens = (int)(messageStartInputTokens > 0 ? messageStartInputTokens : (messageDelta.Usage.InputTokens ?? 0));
                 var outputTokens = (int)messageDelta.Usage.OutputTokens;
 
@@ -648,6 +663,35 @@ public sealed class AnthropicProvider : IModelProvider
         if (usage.TryGetProperty("output_tokens", out var outputEl))
             outputEl.TryGetInt32(out outputTokens);
         return inputTokens > 0 || outputTokens > 0;
+    }
+
+    // Extract the raw stop_reason string from a message_delta SSE event. Used to
+    // detect non-standard values the Anthropic SDK nullifies (see IsContextOverflowSignal).
+    private static bool TryParseRawStopReason(JsonElement rawJson, out string stopReason)
+    {
+        stopReason = string.Empty;
+        if (rawJson.ValueKind != JsonValueKind.Object) return false;
+        if (!rawJson.TryGetProperty("delta", out var delta)) return false;
+        if (!delta.TryGetProperty("stop_reason", out var el)) return false;
+        if (el.ValueKind != JsonValueKind.String) return false;
+        stopReason = el.GetString() ?? string.Empty;
+        return !string.IsNullOrEmpty(stopReason);
+    }
+
+    // Known non-standard overflow signals from Anthropic-compatible providers.
+    // GLM-5-Turbo: "model_context_window_exceeded" — returned on HTTP 200 with zero usage
+    //   when the request exceeds the model's context window.
+    // Extend this list as new providers are integrated; prefer exact match to avoid
+    // misclassifying unrelated error strings as overflow.
+    private static bool IsContextOverflowSignal(string stopReason)
+    {
+        return stopReason switch
+        {
+            "model_context_window_exceeded" => true,
+            "context_length_exceeded" => true,
+            "context_window_exceeded" => true,
+            _ => false
+        };
     }
 }
 

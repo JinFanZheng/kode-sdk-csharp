@@ -165,7 +165,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                             ToolResultCompression = new ToolResultCompressionOptions
                             {
                                 Enabled = true,
-                                ThresholdBytes = 81_920,
+                                ThresholdBytes = _options.ToolResultThresholdBytes,
                             },
                         },
                     },
@@ -831,7 +831,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                 ToolResultCompression = new ToolResultCompressionOptions
                 {
                     Enabled = true,
-                    ThresholdBytes = 81_920,
+                    ThresholdBytes = _options.ToolResultThresholdBytes,
                 },
             },
         };

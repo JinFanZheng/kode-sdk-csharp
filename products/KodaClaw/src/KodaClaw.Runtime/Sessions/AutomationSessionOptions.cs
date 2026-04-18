@@ -36,4 +36,10 @@ public sealed class AutomationSessionOptions
     /// Set this field in appsettings or DI configuration to override.
     /// </summary>
     public string CompressionPrompt { get; init; } = AutomationCompressionPrompts.Default;
+
+    /// <summary>
+    /// Tool-result payload size (serialized bytes) at or above which the result is offloaded
+    /// to the artifact store. See <see cref="MainSessionOptions.ToolResultThresholdBytes"/> for details.
+    /// </summary>
+    public int ToolResultThresholdBytes { get; init; } = 30_000;
 }

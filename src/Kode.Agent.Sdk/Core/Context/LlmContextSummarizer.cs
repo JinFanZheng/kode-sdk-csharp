@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace Kode.Agent.Sdk.Core.Context;
@@ -132,6 +133,7 @@ public class LlmContextSummarizer : IContextSummarizer
         sb.AppendLine("=== Removed conversation history ===");
 
         var totalToolCalls = 0;
+        var totalToolResults = 0;
         string? lastPollKey = null;
 
         foreach (var msg in removedMessages)
@@ -144,6 +146,21 @@ public class LlmContextSummarizer : IContextSummarizer
                 var text = string.Join(" ", msg.Content.OfType<TextContent>().Select(t => t.Text));
                 if (!string.IsNullOrWhiteSpace(text))
                     sb.AppendLine($"[User]: {Preview(text, 400)}");
+
+                // Render tool_result previews so a removal batch dominated by tool outputs
+                // still produces a meaningful summary body instead of just the header.
+                // Without this, tool_result-only user messages contribute nothing and the
+                // LLM replies "No conversation history was provided".
+                foreach (var tr in msg.Content.OfType<ToolResultContent>())
+                {
+                    if (sb.Length > MaxContextChars) break;
+                    totalToolResults++;
+                    var serialized = SerializeToolResultContent(tr.Content);
+                    if (string.IsNullOrWhiteSpace(serialized)) continue;
+                    var shortId = tr.ToolUseId.Length > 12 ? tr.ToolUseId[..12] : tr.ToolUseId;
+                    var marker = tr.IsError ? "ToolError" : "ToolResult";
+                    sb.AppendLine($"[{marker}:{shortId}]: {Preview(serialized, 300)}");
+                }
             }
             else if (msg.Role == MessageRole.Assistant)
             {
@@ -173,12 +190,26 @@ public class LlmContextSummarizer : IContextSummarizer
             }
         }
 
-        if (totalToolCalls > 0)
-            sb.AppendLine($"(Total {totalToolCalls} tool calls in removed history)");
+        if (totalToolCalls > 0 || totalToolResults > 0)
+            sb.AppendLine($"(Total {totalToolCalls} tool calls, {totalToolResults} tool results in removed history)");
 
         return sb.ToString();
     }
 
     private static string Preview(string text, int limit) =>
         text.Length > limit ? text[..limit] + "…" : text;
+
+    // ToolResultContent.Content is typed as `object` and may arrive as:
+    //   - string (plain text tool output, or a shrink placeholder from ContextManager)
+    //   - JsonElement (round-tripped through JsonAgentStore — nested POCO becomes an Object kind)
+    //   - POCO / anonymous type (fresh from tool execution in the same process)
+    // For all shapes we want a textual projection that preserves signal. Raw .ToString() on a
+    // POCO or JsonElement returns the type name, which would leave the summary empty.
+    private static string SerializeToolResultContent(object? content)
+    {
+        if (content is null) return "";
+        if (content is string s) return s;
+        try { return JsonSerializer.Serialize(content); }
+        catch { return content.ToString() ?? ""; }
+    }
 }

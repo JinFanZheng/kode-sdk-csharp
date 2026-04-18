@@ -191,7 +191,14 @@ public enum ModelStopReason
     /// <summary>Stop sequence hit.</summary>
     StopSequence,
     /// <summary>Tool use requested.</summary>
-    ToolUse
+    ToolUse,
+    /// <summary>
+    /// Model reports the request exceeded its context window (non-standard signal).
+    /// Surfaced for providers that report overflow via a stop_reason string on HTTP 200
+    /// rather than an error status (e.g. GLM's "model_context_window_exceeded").
+    /// Triggers a force-compress-and-retry in the agent run loop.
+    /// </summary>
+    ContextOverflow
 }
 
 /// <summary>

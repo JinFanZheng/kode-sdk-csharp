@@ -106,6 +106,17 @@ public sealed class MainSessionOptions
     /// product may want to emphasise ticket IDs and resolution status over file paths).
     /// </summary>
     public string CompressionPrompt { get; init; } = "";
+
+    /// <summary>
+    /// Tool-result payload size (serialized bytes) at or above which the result is offloaded
+    /// to the artifact store via <see cref="FileBackedToolResultCompressor"/>. Defaults to 30 KB,
+    /// chosen to catch real-world bash/fs tool outputs (30–50 KB range) that would otherwise
+    /// accumulate in context and trigger force-compress loops.
+    /// <br/>
+    /// At low context pressure the effective threshold doubles; at high pressure it is halved
+    /// (floored at 16 KB). See <see cref="FileBackedToolResultCompressor.ScaleThreshold"/>.
+    /// </summary>
+    public int ToolResultThresholdBytes { get; init; } = 30_000;
 }
 
 public interface IMainSessionAgentDependenciesFactory

@@ -501,7 +501,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                             ToolResultCompression = new ToolResultCompressionOptions
                             {
                                 Enabled = true,
-                                ThresholdBytes = 81_920,
+                                ThresholdBytes = _options.ToolResultThresholdBytes,
                             },
                         },
                     },
@@ -754,7 +754,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                 ToolResultCompression = new ToolResultCompressionOptions
                 {
                     Enabled = true,
-                    ThresholdBytes = 81_920,
+                    ThresholdBytes = _options.ToolResultThresholdBytes,
                 },
             },
         };

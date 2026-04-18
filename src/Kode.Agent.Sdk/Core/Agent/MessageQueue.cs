@@ -20,6 +20,15 @@ public record SendOptions
     public PendingKind Kind { get; init; } = PendingKind.User;
     public IReadOnlyDictionary<string, object?>? Metadata { get; init; }
     public ReminderOptions? Reminder { get; init; }
+
+    /// <summary>
+    /// Optional key used by <see cref="MessageQueue.Send(string, SendOptions?)"/> to drop
+    /// duplicates that are still pending. When a new send arrives with a key equal to any
+    /// still-queued entry, the new send is ignored and the existing id is returned.
+    /// Intended for reminder bursts (e.g. file-change events firing repeatedly) where
+    /// collapsing to a single notification preserves correctness without flooding context.
+    /// </summary>
+    public string? DedupKey { get; init; }
 }
 
 public record PendingMessage
@@ -28,6 +37,7 @@ public record PendingMessage
     public required Message Message { get; init; }
     public required PendingKind Kind { get; init; }
     public IReadOnlyDictionary<string, object?>? Metadata { get; init; }
+    public string? DedupKey { get; init; }
 }
 
 public record MessageQueueOptions
@@ -106,7 +116,8 @@ public sealed class MessageQueue
             Kind = kind,
             Metadata = opts.Metadata is null
                 ? new Dictionary<string, object?> { ["id"] = id }
-                : new Dictionary<string, object?>(opts.Metadata) { ["id"] = id }
+                : new Dictionary<string, object?>(opts.Metadata) { ["id"] = id },
+            DedupKey = opts.DedupKey
         };
 
         lock (_lock)
@@ -114,6 +125,16 @@ public sealed class MessageQueue
             if (_completed)
             {
                 throw new InvalidOperationException("MessageQueue is completed");
+            }
+            if (opts.DedupKey != null)
+            {
+                foreach (var existing in _pending)
+                {
+                    if (existing.DedupKey == opts.DedupKey)
+                    {
+                        return existing.Id;
+                    }
+                }
             }
             _pending.Add(pending);
         }

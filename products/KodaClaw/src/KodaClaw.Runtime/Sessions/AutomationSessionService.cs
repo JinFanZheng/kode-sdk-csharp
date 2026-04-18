@@ -274,7 +274,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
                 ToolResultCompression = new ToolResultCompressionOptions
                 {
                     Enabled = true,
-                    ThresholdBytes = 81_920,
+                    ThresholdBytes = _options.ToolResultThresholdBytes,
                 },
             },
             SessionType = "automation",

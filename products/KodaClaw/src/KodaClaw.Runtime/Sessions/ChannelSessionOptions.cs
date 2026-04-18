@@ -67,4 +67,10 @@ public sealed class ChannelSessionOptions
     /// Set to empty string to fall back to the LlmContextSummarizer built-in default.
     /// </summary>
     public string GroupCompressionPrompt { get; init; } = ChannelCompressionPrompts.Group;
+
+    /// <summary>
+    /// Tool-result payload size (serialized bytes) at or above which the result is offloaded
+    /// to the artifact store. See <see cref="MainSessionOptions.ToolResultThresholdBytes"/> for details.
+    /// </summary>
+    public int ToolResultThresholdBytes { get; init; } = 30_000;
 }
