@@ -64,8 +64,10 @@ internal static class SkillFrontmatterParser
     }
 
     /// <summary>
-    /// Reads the description directly from the frontmatter block,
-    /// returning null when the field is absent (avoids SDK body-fallback).
+    /// Returns the description when explicitly set in frontmatter (never body-fallback).
+    /// Checks for a top-level <c>description:</c> key in the frontmatter block, then
+    /// delegates to <see cref="SkillsLoader.ParseFrontmatter"/> — which supports YAML
+    /// block scalars (<c>|</c> and <c>&gt;</c>) for multi-line values.
     /// </summary>
     private static string? ExplicitDescription(string content)
     {
@@ -75,15 +77,25 @@ internal static class SkillFrontmatterParser
         if (end < 0) return null;
 
         var frontmatter = content[(start + 3)..end];
+        var hasDescription = false;
         foreach (var line in frontmatter.Split('\n'))
         {
+            // Only top-level keys — indented lines belong to a nested block (e.g. metadata:)
+            if (line.Length > 0 && (line[0] == ' ' || line[0] == '\t')) continue;
             if (line.StartsWith("description:", StringComparison.OrdinalIgnoreCase))
             {
-                var value = line["description:".Length..].Trim().Trim('"', '\'');
-                return string.IsNullOrWhiteSpace(value) ? null : value;
+                hasDescription = true;
+                break;
             }
         }
-        return null;
+
+        if (!hasDescription) return null;
+
+        SkillMetadata meta;
+        try { meta = SkillsLoader.ParseFrontmatter(content); }
+        catch { return null; }
+
+        return string.IsNullOrWhiteSpace(meta.Description) ? null : meta.Description;
     }
 
     private static string? GetMetaString(IReadOnlyDictionary<string, JsonElement>? meta, string key)

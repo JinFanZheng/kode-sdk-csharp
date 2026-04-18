@@ -187,4 +187,63 @@ public sealed class SkillFrontmatterParserTests
 
         SkillFrontmatterParser.Parse(content).Description.Should().BeNull();
     }
+
+    // ─── Parse: multi-line description via YAML block scalars ──────────────
+
+    [Fact]
+    public void Parse_Description_FoldedScalar_JoinsLines()
+    {
+        const string content = """
+            ---
+            name: my-skill
+            description: >
+              Use this skill whenever the user wants to
+              do some multi-step task that needs a long
+              trigger description.
+            ---
+            """;
+
+        SkillFrontmatterParser.Parse(content).Description
+            .Should().Be("Use this skill whenever the user wants to do some multi-step task that needs a long trigger description.");
+    }
+
+    [Fact]
+    public void Parse_Description_LiteralScalar_PreservesNewlines()
+    {
+        const string content = """
+            ---
+            name: my-skill
+            description: |
+              Line A
+              Line B
+            ---
+            """;
+
+        SkillFrontmatterParser.Parse(content).Description
+            .Should().Be("Line A\nLine B");
+    }
+
+    [Fact]
+    public void Parse_Description_FoldedScalar_DoesNotEatSiblingFields()
+    {
+        const string content = """
+            ---
+            name: my-skill
+            description: >
+              multi-line
+              desc
+            compatibility: KodaClaw 1.x
+            metadata:
+              kind: optional
+              version: "1.0"
+            ---
+            """;
+
+        var result = SkillFrontmatterParser.Parse(content);
+
+        result.Description.Should().Be("multi-line desc");
+        result.Compatibility.Should().Be("KodaClaw 1.x");
+        result.Kind.Should().Be("optional");
+        result.Version.Should().Be("1.0");
+    }
 }

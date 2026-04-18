@@ -256,16 +256,25 @@ public sealed class PermissionManager
                 // best-effort persistence; ignore failures
             }
 
-            // Wait for decision
+            // Wait for decision. Cancel the sentinel delay on every exit path so the
+            // WhenAny-backing Task.Delay doesn't linger as an orphan until GC.
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token));
-
-            if (completedTask == tcs.Task)
+            var delayTask = Task.Delay(Timeout.Infinite, cts.Token);
+            try
             {
-                return await tcs.Task;
-            }
+                var completedTask = await Task.WhenAny(tcs.Task, delayTask);
 
-            throw new OperationCanceledException(cancellationToken);
+                if (completedTask == tcs.Task)
+                {
+                    return await tcs.Task;
+                }
+
+                throw new OperationCanceledException(cancellationToken);
+            }
+            finally
+            {
+                cts.Cancel();
+            }
         }
         finally
         {

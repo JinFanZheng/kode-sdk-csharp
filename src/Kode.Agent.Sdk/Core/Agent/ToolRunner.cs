@@ -7,11 +7,13 @@ namespace Kode.Agent.Sdk.Core.Agent;
 /// </summary>
 public sealed class ToolRunner : IAsyncDisposable
 {
+    private static readonly JsonSerializerOptions PreviewJsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly IToolRegistry _toolRegistry;
     private readonly int _maxConcurrency;
     private readonly SemaphoreSlim _semaphore;
     private readonly Dictionary<string, ToolCallRecord> _activeToolCalls = [];
-    private readonly object _lock = new();
+    private readonly System.Threading.Lock _lock = new();
 
     public ToolRunner(IToolRegistry toolRegistry, int maxConcurrency = 3)
     {
@@ -538,7 +540,7 @@ public sealed class ToolRunner : IAsyncDisposable
     {
         try
         {
-            var text = value is string s ? s : JsonSerializer.Serialize(value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            var text = value is string s ? s : JsonSerializer.Serialize(value, PreviewJsonOptions);
             if (text.Length <= limit) return text;
             return text[..limit] + "…";
         }

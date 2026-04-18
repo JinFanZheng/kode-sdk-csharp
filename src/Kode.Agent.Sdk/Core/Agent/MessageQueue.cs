@@ -55,7 +55,7 @@ public sealed class MessageQueue
 {
     private readonly MessageQueueOptions _options;
     private readonly List<PendingMessage> _pending = [];
-    private readonly object _lock = new();
+    private readonly System.Threading.Lock _lock = new();
     private bool _completed;
 
     public MessageQueue(MessageQueueOptions options)
@@ -156,28 +156,20 @@ public sealed class MessageQueue
             batch = _pending.ToArray();
         }
 
-        try
+        // Failure propagates: pending entries remain in the queue for a subsequent retry.
+        foreach (var entry in batch)
         {
-            // First append to message history
-            foreach (var entry in batch)
-            {
-                await _options.AddMessageAsync(entry.Message, entry.Kind, cancellationToken);
-            }
-
-            // Persist success before removing from queue
-            await _options.PersistAsync(cancellationToken);
-
-            lock (_lock)
-            {
-                // Remove only entries that were flushed (leave any newly queued ones intact)
-                var ids = new HashSet<string>(batch.Select(b => b.Id), StringComparer.Ordinal);
-                _pending.RemoveAll(item => ids.Contains(item.Id));
-            }
+            await _options.AddMessageAsync(entry.Message, entry.Kind, cancellationToken);
         }
-        catch
+
+        // Persist success before removing from queue
+        await _options.PersistAsync(cancellationToken);
+
+        lock (_lock)
         {
-            // Failure: keep pending messages for retry
-            throw;
+            // Remove only entries that were flushed (leave any newly queued ones intact)
+            var ids = new HashSet<string>(batch.Select(b => b.Id), StringComparer.Ordinal);
+            _pending.RemoveAll(item => ids.Contains(item.Id));
         }
     }
 

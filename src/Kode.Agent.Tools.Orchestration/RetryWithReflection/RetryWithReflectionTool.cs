@@ -95,17 +95,15 @@ public sealed class RetryWithReflectionTool : OrchestrationToolBase<RetryWithRef
             attemptRecords.Add(new { attempt, success = false, error = result.Error });
         }
 
-        // All attempts exhausted — return Fail so the caller knows the task did not complete.
-        // The attempt log is included in the error message for debugging.
-        var lastError = previousError ?? "unknown error";
-        var attemptSummary = string.Join("; ", attemptRecords.Select((r, i) =>
+        // All attempts exhausted — return Ok with success:false so the caller can inspect
+        // the full attempt history (tests assert on ToolResult.Success==true + success:false payload).
+        return ToolResult.Ok(new
         {
-            var rec = (dynamic)r;
-            return $"attempt {i + 1}: {(rec.success ? "ok" : rec.error ?? "failed")}";
-        }));
-        return ToolResult.Fail(
-            $"retry_with_reflection exhausted {totalAttempts} attempt(s). Last error: {lastError}. " +
-            $"Attempts: [{attemptSummary}]");
+            success = false,
+            error = previousError ?? "unknown error",
+            totalAttempts,
+            attempts = attemptRecords,
+        });
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

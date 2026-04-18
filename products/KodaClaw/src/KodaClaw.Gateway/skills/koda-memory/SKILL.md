@@ -2,12 +2,12 @@
 name: koda-memory
 description: 记忆管理指南——三层记忆架构（热/温/冷）、MEMORY.md 分层索引、topics 主题索引、记忆元数据、时序数据分离、session 清理、Nightly Auto Dream 整合。当 Agent 需要存储、检索、整合或管理用户上下文记忆时触发。
 license: MIT
+compatibility: KodaClaw 1.x
+allowed-tools: workspace_memory_append workspace_protocol_update workspace_read fs_grep fs_glob
 metadata:
   kind: builtin-core
   version: "3.2"
-  compatibility: KodaClaw 1.x
-  allowed-tools: workspace_memory_append workspace_protocol_update workspace_read fs_grep fs_glob
-  tags: [memory, workspace, context, persistence, search, topics, metadata]
+  tags: "memory, workspace, context, persistence, search, topics, metadata"
 ---
 
 # KodaClaw Memory — 记忆管理指南 v3.2

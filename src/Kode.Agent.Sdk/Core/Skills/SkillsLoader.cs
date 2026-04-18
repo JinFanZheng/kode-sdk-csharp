@@ -76,9 +76,11 @@ public partial class SkillsLoader
     {
         var skillFile = Path.Combine(skillPath, SkillFileName);
         var content = await _sandbox.ReadFileAsync(skillFile, cancellationToken);
-        
-        var (metadata, body) = ParseSkillFile(content);
-        
+
+        var warnings = new List<string>();
+        var (metadata, body) = ParseSkillFile(content, bodyFallback: true, warnings);
+        LogSpecWarnings(skillPath, warnings);
+
         // Load resources
         var resources = await LoadResourcesAsync(skillPath, cancellationToken);
         
@@ -138,8 +140,10 @@ public partial class SkillsLoader
     {
         var skillFile = Path.Combine(skillPath, SkillFileName);
         var content = await _sandbox.ReadFileAsync(skillFile, cancellationToken);
-        
-        var (metadata, _) = ParseSkillFile(content);
+
+        var warnings = new List<string>();
+        var (metadata, _) = ParseSkillFile(content, bodyFallback: true, warnings);
+        LogSpecWarnings(skillPath, warnings);
         
         return new Skill
         {
@@ -157,14 +161,40 @@ public partial class SkillsLoader
     /// <summary>
     /// Parses SKILL.md frontmatter from raw content string.
     /// Exposed for host-layer parsers to reuse without requiring ISandbox.
+    /// Does not fall back to body-derived description when the frontmatter field is absent.
     /// </summary>
     public static SkillMetadata ParseFrontmatter(string content)
     {
-        var (metadata, _) = ParseSkillFile(content);
+        var (metadata, _) = ParseSkillFile(content, bodyFallback: false, warnings: null);
         return metadata;
     }
 
-    private static (SkillMetadata Metadata, string Body) ParseSkillFile(string content)
+    /// <summary>
+    /// Parses SKILL.md frontmatter and reports deviations from the agentskills.io spec
+    /// (e.g. placing <c>allowed-tools</c> / <c>compatibility</c> inside <c>metadata:</c>,
+    /// or using a YAML flow sequence as a metadata value).
+    /// </summary>
+    public static SkillMetadata ParseFrontmatter(string content, out IReadOnlyList<string> warnings)
+    {
+        var collected = new List<string>();
+        var (metadata, _) = ParseSkillFile(content, bodyFallback: false, collected);
+        warnings = collected;
+        return metadata;
+    }
+
+    private void LogSpecWarnings(string skillPath, List<string> warnings)
+    {
+        if (warnings.Count == 0 || _logger is null) return;
+        foreach (var w in warnings)
+        {
+            _logger.LogWarning("Skill {Path} deviates from agentskills.io spec: {Warning}", skillPath, w);
+        }
+    }
+
+    private static (SkillMetadata Metadata, string Body) ParseSkillFile(
+        string content,
+        bool bodyFallback = true,
+        List<string>? warnings = null)
     {
         var name = "";
         var description = "";
@@ -182,10 +212,12 @@ public partial class SkillsLoader
             body = content[(frontmatterMatch.Index + frontmatterMatch.Length)..].Trim();
 
             var inMetadataBlock = false;
+            var lines = frontmatter.Split('\n');
 
-            // Simple YAML parsing
-            foreach (var line in frontmatter.Split('\n'))
+            for (int i = 0; i < lines.Length; i++)
             {
+                var line = lines[i];
+
                 // Metadata sub-lines (indented)
                 if (inMetadataBlock)
                 {
@@ -195,9 +227,32 @@ public partial class SkillsLoader
                         if (subColonIndex > 0)
                         {
                             var subKey = line[..subColonIndex].Trim();
-                            var subValue = line[(subColonIndex + 1)..].Trim().Trim('"', '\'');
+                            var subValueRaw = line[(subColonIndex + 1)..].Trim();
+                            var subValue = subValueRaw.Trim('"', '\'');
                             if (!string.IsNullOrEmpty(subKey))
                             {
+                                // Spec deviation checks (agentskills.io): allowed-tools and
+                                // compatibility are top-level fields, and metadata values must
+                                // be strings (not flow sequences).
+                                if (warnings is not null)
+                                {
+                                    if (subKey.Equals("allowed-tools", StringComparison.OrdinalIgnoreCase) ||
+                                        subKey.Equals("allowedtools", StringComparison.OrdinalIgnoreCase) ||
+                                        subKey.Equals("allowed_tools", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        warnings.Add("'allowed-tools' is a top-level field per agentskills.io spec; move it out of 'metadata:'.");
+                                    }
+                                    else if (subKey.Equals("compatibility", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        warnings.Add("'compatibility' is a top-level field per agentskills.io spec; move it out of 'metadata:'.");
+                                    }
+
+                                    if (subValueRaw.Length >= 2 && subValueRaw[0] == '[' && subValueRaw[^1] == ']')
+                                    {
+                                        warnings.Add($"metadata.{subKey} uses a YAML flow sequence; metadata values must be strings per agentskills.io spec (use a quoted comma-separated string instead).");
+                                    }
+                                }
+
                                 metadataDict ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
                                 metadataDict[subKey] = JsonSerializer.SerializeToElement(subValue);
                             }
@@ -214,7 +269,17 @@ public partial class SkillsLoader
                 if (colonIndex <= 0) continue;
 
                 var key = line[..colonIndex].Trim().ToLowerInvariant();
-                var value = line[(colonIndex + 1)..].Trim().Trim('"', '\'');
+                var rawAfterColon = line[(colonIndex + 1)..];
+
+                string value;
+                if (TryReadBlockScalarIndicator(rawAfterColon, out var blockStyle, out var blockChomping))
+                {
+                    value = ConsumeBlockScalar(lines, ref i, blockStyle, blockChomping);
+                }
+                else
+                {
+                    value = rawAfterColon.Trim().Trim('"', '\'');
+                }
 
                 switch (key)
                 {
@@ -266,7 +331,7 @@ public partial class SkillsLoader
             throw new InvalidOperationException("Skill name is required");
         }
 
-        if (string.IsNullOrEmpty(description))
+        if (string.IsNullOrEmpty(description) && bodyFallback)
         {
             // Use first paragraph as description
             var lines = body.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -282,6 +347,125 @@ public partial class SkillsLoader
             AllowedTools = allowedTools,
             Metadata = metadataDict
         }, body);
+    }
+
+    /// <summary>
+    /// Detects a YAML block scalar indicator (<c>|</c>, <c>&gt;</c>) with optional
+    /// chomping modifier (<c>-</c> strip, <c>+</c> keep) immediately after <c>key:</c>.
+    /// Trailing comments (<c># ...</c>) are ignored.
+    /// </summary>
+    private static bool TryReadBlockScalarIndicator(string rawAfterColon, out char style, out char chomping)
+    {
+        style = '\0';
+        chomping = '\0';
+
+        var token = rawAfterColon.Trim();
+        // Strip trailing inline comment
+        var hashIndex = token.IndexOf('#');
+        if (hashIndex >= 0)
+        {
+            token = token[..hashIndex].TrimEnd();
+        }
+
+        if (token.Length == 0 || token.Length > 2) return false;
+        var first = token[0];
+        if (first != '|' && first != '>') return false;
+        style = first;
+
+        if (token.Length == 2)
+        {
+            var second = token[1];
+            if (second != '-' && second != '+') return false;
+            chomping = second;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Consumes a YAML block scalar starting after the current line. Advances <paramref name="index"/>
+    /// to the last line consumed; the outer loop increments past it. Lines less-indented than the
+    /// first non-blank block line terminate the scalar without being consumed.
+    /// </summary>
+    private static string ConsumeBlockScalar(string[] lines, ref int index, char style, char chomping)
+    {
+        int? blockIndent = null;
+        var collected = new List<string>();
+        int pendingBlank = 0;
+        int lastConsumed = index;
+
+        for (int j = index + 1; j < lines.Length; j++)
+        {
+            var ln = lines[j];
+
+            if (string.IsNullOrWhiteSpace(ln))
+            {
+                // Don't commit to consuming blank lines until we see a real content line
+                // at or beyond the block indent — otherwise a blank line before the next
+                // top-level key would be swallowed.
+                pendingBlank++;
+                continue;
+            }
+
+            int lineIndent = 0;
+            while (lineIndent < ln.Length && ln[lineIndent] == ' ')
+                lineIndent++;
+
+            if (blockIndent == null)
+            {
+                // First content line establishes block indent. Require at least 1 space;
+                // a fully un-indented first line terminates the empty block immediately.
+                if (lineIndent == 0) break;
+                blockIndent = lineIndent;
+            }
+
+            if (lineIndent < blockIndent) break;
+
+            for (int k = 0; k < pendingBlank; k++) collected.Add("");
+            pendingBlank = 0;
+
+            collected.Add(ln[blockIndent.Value..]);
+            lastConsumed = j;
+        }
+
+        index = lastConsumed;
+
+        if (collected.Count == 0) return "";
+
+        string result;
+        if (style == '|')
+        {
+            // Literal: keep all line breaks
+            result = string.Join('\n', collected);
+        }
+        else
+        {
+            // Folded: non-blank lines join with a space; blank lines become a newline
+            var sb = new System.Text.StringBuilder();
+            foreach (var ln in collected)
+            {
+                if (ln.Length == 0)
+                {
+                    sb.Append('\n');
+                }
+                else
+                {
+                    if (sb.Length > 0 && sb[^1] != '\n')
+                        sb.Append(' ');
+                    sb.Append(ln);
+                }
+            }
+            result = sb.ToString();
+        }
+
+        // Chomping: default ("clip") and "+" ("keep") both are fine as-is for our trimmed
+        // collection; only "-" ("strip") needs to drop trailing newlines.
+        if (chomping == '-')
+        {
+            result = result.TrimEnd('\n');
+        }
+
+        return result;
     }
 
     private async Task<SkillResources?> LoadResourcesAsync(
