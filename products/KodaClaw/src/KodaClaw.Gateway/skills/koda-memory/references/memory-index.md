@@ -3,6 +3,8 @@ name: memory-index
 description: MEMORY.md 分层索引（Critical/Active/Index）、来源溯源、分层规则
 ---
 
+# MEMORY.md 分层索引
+
 ## Execution Procedure
 
 ```pseudocode

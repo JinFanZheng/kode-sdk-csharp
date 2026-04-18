@@ -7,7 +7,7 @@ metadata:
   version: "3.2"
   compatibility: KodaClaw 1.x
   allowed-tools: workspace_memory_append workspace_protocol_update workspace_read fs_grep fs_glob
-  tags: "memory, workspace, context, persistence, search, topics, metadata"
+  tags: [memory, workspace, context, persistence, search, topics, metadata]
 ---
 
 # KodaClaw Memory — 记忆管理指南 v3.2
@@ -16,27 +16,22 @@ KodaClaw 采用三层记忆架构管理用户上下文：热记忆（每次加�
 
 ## Execution Procedure
 
-```pseudocode
-# 入口 1：日常写入 — 对话中触发
-remember(input):
-  read("references/time-series-separation.md")  # 判断是否时序数据
-  read("references/memory-metadata.md")          # 确认元数据格式
-  if not need_memory(input) → return  // 写入判断五问法
-  if is_time_series(input) → write_data_channel(input) → return
-  dedup = search_existing(input)
-  if dedup found → update(dedup) else → append(input, priority, tags)
+```python
+def remember():
+    """当对话中出现值得记录的信息、决策、教训时触发"""
+    read("references/time-series-separation.md")  # 判断是否时序数据
+    read("references/memory-metadata.md")          # 确认元数据格式
+    # 写入判断五问法 → workspace_memory_append()
+    # 重要规则 → workspace_protocol_update()
 
-# 入口 2：Nightly 整合 — HEARTBEAT 自动触发
-consolidate():
-  read("references/memory-architecture.md")      # 三层架构和降级规则
-  read("references/memory-index.md")             # Critical/Active/Index 分层标准
-  read("references/memory-metadata.md")          # 元数据格式要求
-  read("references/topics-guide.md")             # topics 维护规则
-  read("references/nightly-consolidation.md")    # 六阶段完整流程
-  collect daily_logs + sessions + MEMORY.md
-  merge, dedup, tag → rewrite MEMORY.md (Critical ≤20, Active ≤50)
-  update_topics(≤15) → cleanup archive → freshness_review
-  validate_references → git_commit()
+def consolidate():
+    """Nightly Agent 每日整合时触发"""
+    read("references/memory-architecture.md")      # 三层架构和降级规则
+    read("references/memory-index.md")             # Critical/Active/Index 分层标准
+    read("references/memory-metadata.md")          # 元数据格式要求
+    read("references/topics-guide.md")             # topics 维护规则
+    read("references/nightly-consolidation.md")    # 六阶段完整流程
+    # 执行六阶段整合 → workspace_protocol_update() 重写 MEMORY.md
 ```
 
 ## TOC
@@ -52,7 +47,6 @@ consolidate():
 - [Nightly 整合](#nightly-整合)
 - [何时不写记忆](#何时不写记忆)
 
----
 
 ## 记忆架构
 
@@ -171,7 +165,6 @@ Session 轮转时自动生成摘要存入 `workspace/memory/sessions/`（≥5 �
 
 **应写**：重要决策、关键信息（职位变化/项目背景/偏好）、未来需引用的事件、待跟进计划、教训和 bug 记录。
 
----
 
 | 文件 | 用途 | 变化频率 |
 |------|------|---------|

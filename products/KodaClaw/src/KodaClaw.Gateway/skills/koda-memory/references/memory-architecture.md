@@ -3,6 +3,8 @@ name: memory-architecture
 description: 三层记忆架构（热/温/冷）的生命周期管理、优先级规则、降级机制
 ---
 
+# 三层记忆架构
+
 ## Execution Procedure
 
 ```pseudocode

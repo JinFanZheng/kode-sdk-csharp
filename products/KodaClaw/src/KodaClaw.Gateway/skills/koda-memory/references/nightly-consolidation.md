@@ -3,6 +3,8 @@ name: nightly-consolidation
 description: Auto Dream 六阶段整合流程、session 清理规则、索引验证
 ---
 
+# Nightly Consolidation（Auto Dream）
+
 ## Execution Procedure
 
 ```pseudocode

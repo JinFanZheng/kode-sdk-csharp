@@ -1,16 +1,17 @@
 ---
 name: time-series-separation
-description: 时序数据分离规则、识别标准、处理方式、写入判断五问法
+description: 时序数据分离规则——识别标准、处理方式、写入判断五问法
 ---
 
-```pseudocode
+# 时序数据分离
+
+## Execution Procedure
+
+```python
 def is_time_series(data):
     """判断数据是否为时序/监控快照"""
 ```
 
-    \判断数据是否为时序/监控快照\```
-
-# 时序数据分离
 
 重复性、周期性的时序数据不写入 memory 系统，写入独立的数据通道。
 

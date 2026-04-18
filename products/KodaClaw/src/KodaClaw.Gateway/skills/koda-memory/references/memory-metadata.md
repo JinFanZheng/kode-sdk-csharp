@@ -1,16 +1,17 @@
 ---
 name: memory-metadata
-description: 记忆元数据规范（tags/updated/source/valid_until）、标签规范、过期机制
+description: 记忆元数据规范——标签体系、更新时间、来源溯源、有效期机制
 ---
 
-```pseudocode
+# 记忆元数据规范
+
+## Execution Procedure
+
+```python
 def format_metadata(content, tags, source):
     """为记忆条目生成标准元数据格式"""
 ```
 
-    \为记忆条目生成标准元数据格式\```
-
-# 记忆元数据规范
 
 每条记忆条目应包含元数据，便于检索和过期管理。
 
