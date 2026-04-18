@@ -51,8 +51,8 @@ KodaClaw 采用热-温-冷三层记忆架构，由 Nightly Agent 语义判断管
 ### 工程/技术
 - [技术教训]
 
-### 交易
-- [交易教训]
+### 项目/工作
+- [项目信息]
 
 ### 生活/职业
 - [生活信息]
@@ -66,7 +66,7 @@ KodaClaw 采用热-温-冷三层记忆架构，由 Nightly Agent 语义判断管
 ### 分层规则
 
 - **Critical 层**：用户核心偏好（permanent）、当前进行中的长期目标、未来 session 极可能需要的信息。严格控制 ≤ 20 条，超出时合并同类项或降级
-- **Active 层**：按主题分组，每组 ≤ 5 条。主题包括但不限于：工程/技术、交易、生活/职业、Agent协作、项目。超出时合并或降级到 dormant
+- **Active 层**：按主题分组，每组 ≤ 5 条。主题包括但不限于：工程/技术、项目/工作、生活/职业、Agent协作。超出时合并或降级到 dormant
 - **Index 层**：只存文件路径和一句话描述，不展开内容。需要时通过 `workspace_read` 或 `fs_grep` 按需读取
 
 ### 来源溯源
@@ -74,7 +74,7 @@ KodaClaw 采用热-温-冷三层记忆架构，由 Nightly Agent 语义判断管
 每条记忆应附来源链接，便于溯源：
 - `→ daily/2026-04-17`（当日记忆日志）
 - `→ sessions/2026-04-13-main-abc.md`（session 摘要）
-- `→ topics/crypto-trading-signals`（主题详情）
+- `→ topics/project-architecture`（主题详情）
 - `→ archive/daily/2026-04-08.md`（已归档的源文件）
 
 ⚠️ Nightly 整合时，daily 源文件移入 `memory/archive/daily/` 而非删除，保持引用链完整。
@@ -86,8 +86,8 @@ KodaClaw 采用热-温-冷三层记忆架构，由 Nightly Agent 语义判断管
 每条记忆条目应包含元数据，便于检索和过期管理：
 
 ```markdown
-- OKX order-algo 接口 bug：同时传 tpTriggerPx 和 slTriggerPx 时 tp 被忽略。解决：拆成两个独立 algo order
-  tags: [okx, api, bug, trading]
+- REST API 分页参数 bug：同时传 page 和 offset 时 offset 被忽略。解决：拆成两个独立查询接口
+  tags: [api, bug, pagination]
   updated: 2026-04-17
   source: → daily/2026-04-17
 ```
@@ -103,9 +103,9 @@ KodaClaw 采用热-温-冷三层记忆架构，由 Nightly Agent 语义判断管
 
 ### 标签规范
 
-- 标签用小写英文，用连字符连接（如 `okx`、`api-bug`、`trading`）
-- 同一概念使用统一标签，避免同义词分裂（如统一用 `okx` 而非混用 `OKX`/`okx-api`）
-- 常用标签参考：`[工程]` okx, api, csharp, go, web `[交易]` trading, signal, position `[生活]` career, health, travel `[Agent]` skill, automation, heartbeat
+- 标签用小写英文，用连字符连接（如 `api`、`bug-fix`、`frontend`）
+- 同一概念使用统一标签，避免同义词分裂（如统一用 `postgres` 而非混用 `PostgreSQL`/`pg-db`）
+- 标签由各实例根据用户实际情况自定义，不预设固定标签集。示例：`[工程]` api, bug-fix, csharp, go, web `[项目]` project-name, release, deploy `[生活]` career, health, travel `[Agent]` skill, automation, heartbeat
 
 ### 过期机制
 
@@ -124,21 +124,21 @@ KodaClaw 采用热-温-冷三层记忆架构，由 Nightly Agent 语义判断管
 ### 识别标准
 
 以下类型的数据属于时序数据，不应使用 `workspace_memory_append`：
-- 周期性监控快照（如每小时交易监控：持仓/价格/多空比/费率）
-- 无状态变化的例行记录（如"无持仓、无交易信号、交还heartbeat"）
-- 仪表盘式数据（如账户权益、FNG指数）
+- 周期性监控快照（如每小时服务监控：CPU/内存/请求数/错误率）
+- 无状态变化的例行记录（如"服务正常、无异常、交还heartbeat"）
+- 仪表盘式数据（如账户余额、队列长度、在线人数）
 
 ### 处理方式
 
-- 监控数据写入 `workspace/data/market-snapshots/YYYY-MM-DD.jsonl`（JSON Lines 格式）
-- daily memory 中**只记录状态变化事件**：开仓、平仓、策略调整、异常事件、结论性判断
+- 监控数据写入 `workspace/data/snapshots/YYYY-MM-DD.jsonl`（JSON Lines 格式）
+- daily memory 中**只记录状态变化事件**：故障、恢复、配置变更、异常事件、结论性判断
 - Heartbeat automation 的监控输出直接写 data 目录，不经过 memory
 
 ### 示例
 
-❌ 不该写的：`已知仓位：无 | 账户权益：119.16 USDT | SOL $88.15 | ... | 无接近信号无交易信号，交给heartbeat正常监控`
+❌ 不该写的：`服务状态：正常运行 | 账户余额：1,234.56 | CPU 12% | 无异常，交给heartbeat正常监控`
 
-✅ 该写的：`OKX order-algo接口bug：同时传tp和sl时tp字段被忽略。解决：拆成两个独立algo order` 或 `余额从168U→119U，手动操作连续亏损，Van承认不再手动操作`
+✅ 该写的：`REST API分页bug：同时传page和offset时offset字段被忽略。解决：拆成两个独立查询接口` 或 `部署流程从手动改为CI/CD，发布时间从30分钟缩短到5分钟`
 
 ---
 
@@ -148,10 +148,10 @@ KodaClaw 采用热-温-冷三层记忆架构，由 Nightly Agent 语义判断管
 
 ```
 workspace/memory/topics/
-  crypto-trading-signals.md
+  project-architecture.md
   code-discipline.md
   frontend-architecture.md
-  yangshuo-trip-plan.md
+  deployment-guide.md
 ```
 
 ### 目录唯一性
@@ -184,7 +184,7 @@ tags: [frontend, react, vite]
 
 ```
 workspace_read(target="topics")                              # 列出所有 topic 文件
-workspace_read(target="topics", path="crypto-trading-signals")  # 读取指定 topic
+workspace_read(target="topics", path="project-architecture")  # 读取指定 topic
 ```
 
 ---
@@ -196,10 +196,10 @@ workspace_read(target="topics", path="crypto-trading-signals")  # 读取指定 t
 ```
 # 关键词搜索（内容匹配）
 fs_grep(pattern="React 框架", path="workspace/")
-fs_grep(pattern="okx bug", path="workspace/memory/")
+fs_grep(pattern="api bug", path="workspace/memory/")
 
 # 标签搜索（通过元数据标签）
-fs_grep(pattern="tags:.*trading", path="workspace/MEMORY.md")
+fs_grep(pattern="tags:.*frontend", path="workspace/MEMORY.md")
 
 # 目录发现（列出文件）
 fs_glob(pattern="workspace/memory/dormant/*.md")    # 列出所有温记忆
@@ -226,7 +226,7 @@ fs_glob(pattern="workspace/memory/topics/*.md")     # 列出所有主题索引
 
 ```
 workspace_memory_append(
-  content="OKX order-algo 接口 bug：同时传 tpTriggerPx 和 slTriggerPx 时 tp 被忽略。解决：拆成两个独立 algo order",
+  content="REST API 分页参数 bug：同时传 page 和 offset 时 offset 被忽略。解决：拆成两个独立查询接口",
   priority="standard",
   date="2026-04-17"
 )
@@ -245,7 +245,7 @@ workspace_memory_append(
 
 ### 优先级选择
 
-- `permanent`：用户核心身份、长期不变的偏好（Obsidian 路径、核心价值观）
+- `permanent`：用户核心身份、长期不变的偏好（工作环境路径、核心价值观）
 - `lasting`：重要决策、项目背景、生活变动（入职、搬家、旅行计划）
 - `standard`（默认）：技术教训、bug 记录、一般事件
 - `ephemeral`：临时信息、当天有效的内容（通常不需要写 memory）
@@ -257,8 +257,8 @@ workspace_protocol_update(
   target="memory",
   section="工程/技术",
   content="""
-- OKX TPSL OCO bug，需拆分为独立订单
-  tags: [okx, api, bug] updated: 2026-04-17 source: → daily/2026-04-17
+- REST API 分页 bug，需拆分为独立查询接口
+  tags: [api, bug, pagination] updated: 2026-04-17 source: → daily/2026-04-17
 """
 )
 ```
