@@ -1,3 +1,4 @@
+using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Events;
 using Kode.Agent.Sdk.Diagnostics;
 using Kode.Agent.Sdk.Infrastructure.Providers;
@@ -301,6 +302,13 @@ public sealed partial class Agent
             KodeAgentMetrics.TokensOutput.Add(usage.OutputTokens, modelDimensions);
             modelActivity?.SetTag("gen_ai.usage.input_tokens", usage.InputTokens);
             modelActivity?.SetTag("gen_ai.usage.output_tokens", usage.OutputTokens);
+
+            // Calibrate the local CJK-aware estimator against what the provider actually billed.
+            // Uses the raw (uncalibrated) estimate of the messages we just sent so the EMA in
+            // ContextManager can converge to the real ratio.
+            var systemPromptTokens = ContextManager.EstimateSystemPromptTokens(request.SystemPrompt);
+            var rawEstimate = _contextManager.EstimateMessagesTokensRaw(request.Messages, systemPromptTokens);
+            _contextManager.RecordServerUsage(usage.InputTokens, rawEstimate);
         }
 
         modelStopwatch.Stop();

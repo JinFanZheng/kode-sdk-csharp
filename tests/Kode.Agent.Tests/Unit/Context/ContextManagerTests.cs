@@ -282,13 +282,234 @@ public sealed class ContextManagerTests
         {
             MaxTokens = 50,
             CompressToTokens = 20,
+            MinRecentMessages = 2,
         };
         var manager = CreateManager(options, new StaticContextSummarizer());
-        var messages = new List<Message> { UserMsg("short") }; // ~10 tokens alone
+        // Enough messages that the MinRecentMessages=2 floor still leaves material to remove,
+        // otherwise the short-circuit (nothing eligible for removal) would kick in.
+        var messages = new List<Message>
+        {
+            UserMsg("one"), UserMsg("two"), UserMsg("three"),
+            UserMsg("four"), UserMsg("five"), UserMsg("six"),
+        };
 
         // With system prompt tokens pushing total over 50
         var result = await manager.CompressAsync(messages, [], systemPromptTokens: 100);
         result.Should().NotBeNull("system prompt tokens should push total over MaxTokens");
+        result!.RemovedMessages.Should().NotBeEmpty();
+    }
+
+    // ── Phase 2: server-side token calibration ────────────────────────────────
+
+    [Fact]
+    public void RecordServerUsage_DefaultFactorIsOne()
+    {
+        var manager = CreateManager();
+        manager.CalibrationFactor.Should().Be(1.0);
+    }
+
+    [Fact]
+    public void RecordServerUsage_UpdatesFactorTowardActualRatio()
+    {
+        var manager = CreateManager();
+
+        // Server reports 2× our raw estimate → factor should move toward 2.0 via EMA.
+        manager.RecordServerUsage(actualInputTokens: 2000, rawEstimate: 1000);
+
+        // EMA with 0.3 smoothing on first sample: 1.0 × 0.7 + 2.0 × 0.3 = 1.3
+        manager.CalibrationFactor.Should().BeApproximately(1.3, 0.01);
+    }
+
+    [Fact]
+    public void RecordServerUsage_ConvergesWithRepeatedSamples()
+    {
+        var manager = CreateManager();
+
+        for (var i = 0; i < 20; i++)
+            manager.RecordServerUsage(actualInputTokens: 1800, rawEstimate: 1000);
+
+        // After many samples at 1.8, the EMA should be close to 1.8.
+        manager.CalibrationFactor.Should().BeApproximately(1.8, 0.05);
+    }
+
+    [Theory]
+    [InlineData(0, 1000)]        // no usage reported
+    [InlineData(1000, 0)]        // no raw estimate (corrupt call)
+    [InlineData(50, 1000)]       // sample = 0.05, below floor 0.5
+    [InlineData(10_000, 1000)]   // sample = 10, above ceiling 5.0
+    public void RecordServerUsage_IgnoresNoiseAndBadInputs(int actual, int raw)
+    {
+        var manager = CreateManager();
+        manager.RecordServerUsage(actual, raw);
+        manager.CalibrationFactor.Should().Be(1.0, "sample should be rejected as noise");
+    }
+
+    [Fact]
+    public void Analyze_AppliesCalibrationFactorToTotalTokens()
+    {
+        var manager = CreateManager();
+        var messages = new List<Message> { UserMsg("hello world") };
+
+        var raw = manager.EstimateMessagesTokensRaw(messages, systemPromptTokens: 0);
+        raw.Should().BeGreaterThan(0);
+
+        // Before calibration
+        var before = manager.Analyze(messages);
+        before.TotalTokens.Should().Be(raw, "factor starts at 1.0");
+
+        // Drive factor toward 2.0 with 30 samples
+        for (var i = 0; i < 30; i++)
+            manager.RecordServerUsage(actualInputTokens: 2000, rawEstimate: 1000);
+
+        var after = manager.Analyze(messages);
+        after.TotalTokens.Should().BeGreaterThan(before.TotalTokens, "calibrated total scales up with factor");
+        // ~2× the raw value (tolerate EMA residual)
+        after.TotalTokens.Should().BeInRange((int)(raw * 1.7), (int)(raw * 2.1));
+    }
+
+    [Fact]
+    public void Analyze_ShouldCompress_FiresWhenCalibratedTotalExceedsThreshold()
+    {
+        // Raw estimate sits just under the 0.9×MaxTokens threshold; after we drive
+        // the factor up, the same raw estimate crosses the threshold in real units.
+        var manager = CreateManager(new ContextManagerOptions { MaxTokens = 20 });
+        var messages = new List<Message> { UserMsg("short") };
+
+        var raw = manager.EstimateMessagesTokensRaw(messages);
+        raw.Should().BeLessThan(18, "raw should start below the 0.9×20 = 18 threshold");
+        manager.Analyze(messages).ShouldCompress.Should().BeFalse();
+
+        // Drive factor toward ~5× so the same raw estimate represents 5× real tokens,
+        // which exceeds the threshold.
+        for (var i = 0; i < 100; i++)
+            manager.RecordServerUsage(actualInputTokens: 5 * raw, rawEstimate: raw);
+
+        manager.Analyze(messages).ShouldCompress.Should().BeTrue(
+            "post-calibration, the same raw estimate represents more real tokens");
+    }
+
+    // ── Phase 2: micro-compaction of superseded tool results ─────────────────
+
+    private static Message MsgWithToolUseInput(string toolUseId, string toolName, object input) =>
+        new Message
+        {
+            Role = MessageRole.Assistant,
+            Content =
+            [
+                new ToolUseContent
+                {
+                    Id = toolUseId,
+                    Name = toolName,
+                    Input = System.Text.Json.JsonSerializer.SerializeToElement(input)
+                }
+            ]
+        };
+
+    private static Message MsgWithToolResultPayload(string toolUseId, string payload) =>
+        new Message
+        {
+            Role = MessageRole.User,
+            Content = [new ToolResultContent { ToolUseId = toolUseId, Content = payload }]
+        };
+
+    [Fact]
+    public void MicroCompact_NoDuplicates_ReturnsEquivalentList()
+    {
+        var messages = new List<Message>
+        {
+            MsgWithToolUseInput("tu-1", "fs_read", new { path = "a.cs" }),
+            MsgWithToolResultPayload("tu-1", "file A content"),
+            MsgWithToolUseInput("tu-2", "fs_read", new { path = "b.cs" }),
+            MsgWithToolResultPayload("tu-2", "file B content"),
+        };
+
+        var compacted = ContextManager.MicroCompactSupersededToolResults(messages);
+
+        compacted.Should().HaveCount(4);
+        // payloads intact
+        ((string?)((ToolResultContent)compacted[1].Content[0]).Content).Should().Be("file A content");
+        ((string?)((ToolResultContent)compacted[3].Content[0]).Content).Should().Be("file B content");
+    }
+
+    [Fact]
+    public void MicroCompact_FsRead_OlderResultSuperseded()
+    {
+        var messages = new List<Message>
+        {
+            MsgWithToolUseInput("tu-1", "fs_read", new { path = "a.cs" }),
+            MsgWithToolResultPayload("tu-1", "old content of a.cs"),
+            UserMsg("do something else"),
+            MsgWithToolUseInput("tu-2", "fs_read", new { path = "a.cs" }),
+            MsgWithToolResultPayload("tu-2", "fresh content of a.cs"),
+        };
+
+        var compacted = ContextManager.MicroCompactSupersededToolResults(messages);
+
+        compacted.Should().HaveCount(5);
+        // first result stubbed to point at tu-2
+        var olderResult = (ToolResultContent)compacted[1].Content[0];
+        ((string?)olderResult.Content).Should().Contain("superseded").And.Contain("tu-2");
+        // later result still intact
+        ((string?)((ToolResultContent)compacted[4].Content[0]).Content).Should().Be("fresh content of a.cs");
+        // tool_use pairing preserved
+        olderResult.ToolUseId.Should().Be("tu-1");
+    }
+
+    [Fact]
+    public void MicroCompact_FsRead_DifferentRangesKeptIndependent()
+    {
+        // Reading the same file with different line ranges is not redundant — keep both.
+        var messages = new List<Message>
+        {
+            MsgWithToolUseInput("tu-1", "fs_read", new { path = "a.cs", startLine = 1, endLine = 50 }),
+            MsgWithToolResultPayload("tu-1", "lines 1-50"),
+            MsgWithToolUseInput("tu-2", "fs_read", new { path = "a.cs", startLine = 51, endLine = 100 }),
+            MsgWithToolResultPayload("tu-2", "lines 51-100"),
+        };
+
+        var compacted = ContextManager.MicroCompactSupersededToolResults(messages);
+
+        ((string?)((ToolResultContent)compacted[1].Content[0]).Content).Should().Be("lines 1-50");
+        ((string?)((ToolResultContent)compacted[3].Content[0]).Content).Should().Be("lines 51-100");
+    }
+
+    [Fact]
+    public void MicroCompact_BashLogs_RepeatedPollingCollapsed()
+    {
+        var messages = new List<Message>
+        {
+            MsgWithToolUseInput("tu-1", "bash_logs", new { processId = 42 }),
+            MsgWithToolResultPayload("tu-1", "partial output 1"),
+            MsgWithToolUseInput("tu-2", "bash_logs", new { processId = 42 }),
+            MsgWithToolResultPayload("tu-2", "partial output 2"),
+            MsgWithToolUseInput("tu-3", "bash_logs", new { processId = 42 }),
+            MsgWithToolResultPayload("tu-3", "final output"),
+        };
+
+        var compacted = ContextManager.MicroCompactSupersededToolResults(messages);
+
+        ((string?)((ToolResultContent)compacted[1].Content[0]).Content).Should().Contain("superseded");
+        ((string?)((ToolResultContent)compacted[3].Content[0]).Content).Should().Contain("superseded");
+        ((string?)((ToolResultContent)compacted[5].Content[0]).Content).Should().Be("final output");
+    }
+
+    [Fact]
+    public void MicroCompact_BashRun_NeverTouched()
+    {
+        // bash_run is not in MicroCompactableTools — same command twice must keep both results
+        // (each execution can have side effects and distinct output).
+        var messages = new List<Message>
+        {
+            MsgWithToolUseInput("tu-1", "bash_run", new { command = "ls" }),
+            MsgWithToolResultPayload("tu-1", "first ls output"),
+            MsgWithToolUseInput("tu-2", "bash_run", new { command = "ls" }),
+            MsgWithToolResultPayload("tu-2", "second ls output"),
+        };
+
+        var compacted = ContextManager.MicroCompactSupersededToolResults(messages);
+
+        ((string?)((ToolResultContent)compacted[1].Content[0]).Content).Should().Be("first ls output");
+        ((string?)((ToolResultContent)compacted[3].Content[0]).Content).Should().Be("second ls output");
     }
 
     // ── Helper summarizer that captures calls ─────────────────────────────────

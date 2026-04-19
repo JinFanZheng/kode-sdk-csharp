@@ -172,8 +172,30 @@ public sealed class OpenAIResponsesProvider : IModelProvider
     {
         var body = new JsonObject { ["model"] = request.Model };
 
-        if (!string.IsNullOrEmpty(request.SystemPrompt))
-            body["instructions"] = request.SystemPrompt;
+        // Memory blocks (core-memory / context-summary) arrive as system-role messages
+        // from ContextManager.  The Responses API has no multi-block "system" field, so
+        // we concatenate them onto the instructions string. Dropping them (as the old
+        // BuildInputItems filter still does for the input array) used to defeat the
+        // three-layer compression and caused the model to re-overflow on the same turn.
+        var memoryTexts = new List<string>();
+        foreach (var m in request.Messages)
+        {
+            if (m.Role != MessageRole.System) continue;
+            foreach (var block in m.Content)
+            {
+                if (block is TextContent t && !string.IsNullOrWhiteSpace(t.Text))
+                    memoryTexts.Add(t.Text);
+            }
+        }
+
+        var hasSystemPrompt = !string.IsNullOrEmpty(request.SystemPrompt);
+        if (hasSystemPrompt || memoryTexts.Count > 0)
+        {
+            var parts = new List<string>();
+            if (hasSystemPrompt) parts.Add(request.SystemPrompt!);
+            parts.AddRange(memoryTexts);
+            body["instructions"] = string.Join("\n\n", parts);
+        }
 
         if (request.MaxTokens.HasValue)
             body["max_output_tokens"] = request.MaxTokens.Value;

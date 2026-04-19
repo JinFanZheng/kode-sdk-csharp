@@ -234,6 +234,21 @@ public sealed class OpenAIProvider : IModelProvider
             messages.Add(new SystemChatMessage(request.SystemPrompt));
         }
 
+        // Preserve memory blocks (core-memory / context-summary) carried as system-role
+        // messages from ContextManager.  Dropping them silently (as the old filter did)
+        // defeats the three-layer compression and causes the model to re-overflow on the
+        // same conversation.  OpenAI accepts multiple SystemChatMessage entries at the
+        // head of the messages array.
+        foreach (var msg in request.Messages)
+        {
+            if (msg.Role != MessageRole.System) continue;
+            foreach (var text in msg.Content.OfType<TextContent>())
+            {
+                if (!string.IsNullOrWhiteSpace(text.Text))
+                    messages.Add(new SystemChatMessage(text.Text));
+            }
+        }
+
         foreach (var msg in request.Messages)
         {
             if (msg.Role == MessageRole.System) continue;

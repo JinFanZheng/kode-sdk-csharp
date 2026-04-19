@@ -161,6 +161,26 @@ public class ContextManager
     private const string SummaryTag = "<context-summary";
     private const string CoreMemoryTag = "<core-memory";
 
+    // Server-side token-usage calibration.
+    // The raw CJK-aware estimator can drift from a provider's real tokenizer by as much
+    // as 2× (tokenizer family, tool-result JSON shape, etc.). Each time the model streams
+    // back its input_tokens count we fold that ratio into _calibrationFactor via an EMA,
+    // so subsequent ShouldCompress decisions track reality instead of the heuristic.
+    //
+    // Samples outside [MinCalibrationFactor, MaxCalibrationFactor] are discarded as noise
+    // (e.g. short 0-token first turns, or a broken provider response).
+    private const double CalibrationSmoothing = 0.3;
+    private const double MinCalibrationFactor = 0.5;
+    private const double MaxCalibrationFactor = 5.0;
+    private double _calibrationFactor = 1.0;
+
+    /// <summary>
+    /// Current calibration factor (server-real-tokens ÷ local-raw-estimate).
+    /// 1.0 means the local estimator matches the server; &gt;1.0 means the local
+    /// estimator under-counts and thresholds are scaled up accordingly.
+    /// </summary>
+    public double CalibrationFactor => _calibrationFactor;
+
     public ContextManager(
         IAgentStore store,
         string agentId,
@@ -190,29 +210,46 @@ public class ContextManager
     /// </param>
     public ContextUsage Analyze(IReadOnlyList<Message> messages, int systemPromptTokens = 0)
     {
-        var totalTokens = systemPromptTokens;
-
-        foreach (var message in messages)
-        {
-            totalTokens += 4; // per-message overhead
-            foreach (var block in message.Content)
-            {
-                var text = block switch
-                {
-                    TextContent t => t.Text,
-                    ToolUseContent tu => JsonSerializer.Serialize(tu.Input),
-                    ToolResultContent tr => tr.Content?.ToString() ?? "",
-                    _ => ""
-                };
-                totalTokens += EstimateTextTokens(text);
-            }
-        }
+        var rawTotal = EstimateMessagesTokensRaw(messages, systemPromptTokens);
+        var calibratedTotal = (int)(rawTotal * _calibrationFactor);
 
         return new ContextUsage(
-            TotalTokens: totalTokens,
+            TotalTokens: calibratedTotal,
             MessageCount: messages.Count,
-            ShouldCompress: totalTokens > (int)(_options.MaxTokens * 0.9)
+            ShouldCompress: calibratedTotal > (int)(_options.MaxTokens * 0.9)
         );
+    }
+
+    /// <summary>
+    /// Returns the raw (uncalibrated) token estimate for the given messages.
+    /// Pair with the server-returned <c>input_tokens</c> when calling
+    /// <see cref="RecordServerUsage"/> to update the calibration factor.
+    /// </summary>
+    public int EstimateMessagesTokensRaw(IReadOnlyList<Message> messages, int systemPromptTokens = 0)
+    {
+        var total = systemPromptTokens;
+        foreach (var msg in messages)
+            total += EstimateMessageTokens(msg);
+        return total;
+    }
+
+    /// <summary>
+    /// Calibrate the local token estimator against the server-returned <c>input_tokens</c>.
+    /// Called after every successful streaming response with the raw estimate of the
+    /// messages that were sent. Uses an EMA so one outlier cannot destabilise the factor;
+    /// samples outside <c>[0.5, 5.0]</c> are ignored as noise.
+    /// </summary>
+    public void RecordServerUsage(int actualInputTokens, int rawEstimate)
+    {
+        if (actualInputTokens <= 0 || rawEstimate <= 0) return;
+        var sample = (double)actualInputTokens / rawEstimate;
+        if (sample < MinCalibrationFactor || sample > MaxCalibrationFactor) return;
+
+        var previous = _calibrationFactor;
+        _calibrationFactor = previous * (1 - CalibrationSmoothing) + sample * CalibrationSmoothing;
+        _logger?.LogDebug(
+            "Token calibration updated: {Previous:F3} → {Factor:F3} (sample={Sample:F3}, actual={Actual}, raw={Raw})",
+            previous, _calibrationFactor, sample, actualInputTokens, rawEstimate);
     }
 
     /// <summary>
@@ -291,8 +328,23 @@ public class ContextManager
                     break;
             }
         }
-        // Reserve some headroom so the new summary itself fits within CompressToTokens.
-        var regularBudget = Math.Max(0, _options.CompressToTokens - pinnedTokens - systemPromptTokens - 1200);
+        // ── 3. Micro-compact superseded tool_results before budget selection ──
+        // Idempotent cache-busters (bash_logs polling, repeated fs_read of the same range)
+        // leave behind older payloads that a later call has already rendered useless. Stub
+        // them out first — this often brings the raw total back under budget without touching
+        // any message structurally, so SelectMessagesByBudget has less work to do (or nothing
+        // to remove at all). Loses no information the agent could act on.
+        var compactedRegular = MicroCompactSupersededToolResults(regularMessages);
+        // swap in the compacted list for all downstream steps (budget, select, sanitize)
+        regularMessages = compactedRegular;
+
+        // CompressToTokens and the 1200 summary-headroom are expressed in *real* provider
+        // tokens; pinnedTokens and systemPromptTokens are raw (uncalibrated) estimates.
+        // Convert the real numbers into raw units before subtracting so that SelectMessagesByBudget
+        // — which operates in raw units — gets a budget that actually reflects the user's intent.
+        var compressTokensRaw = (int)(_options.CompressToTokens / _calibrationFactor);
+        var summaryHeadroomRaw = (int)(1200 / _calibrationFactor);
+        var regularBudget = Math.Max(0, compressTokensRaw - pinnedTokens - systemPromptTokens - summaryHeadroomRaw);
 
         // A single tool_result larger than this cap is elided even when it sits
         // in the minRecent protection window. Picking budget/4 keeps normal
@@ -304,23 +356,64 @@ public class ContextManager
         var (retainedRegular, removedMessages) = SelectMessagesByBudget(
             regularMessages, regularBudget, _options.MinRecentMessages, singleMessageCap);
 
+        // Force-mode hard-truncate: when the model already refused (overflow / empty
+        // response) but our CJK-aware estimate still said we fit, the budget-based
+        // selector returns removed=[]. Fall back to a deterministic tail cut so we
+        // actually free room — the estimate was wrong, trust the model.
+        if (force && removedMessages.Count == 0 && regularMessages.Count > _options.MinRecentMessages)
+        {
+            var keep = _options.MinRecentMessages;
+            var cutoff = regularMessages.Count - keep;
+            retainedRegular = regularMessages.Skip(cutoff).ToList();
+            removedMessages = regularMessages.Take(cutoff).ToList();
+            _logger?.LogWarning(
+                "Force-compress hard-truncate engaged: estimate undercounted tokens; " +
+                "removed {Removed} messages, kept last {Kept} (budget={Budget})",
+                removedMessages.Count, retainedRegular.Count, regularBudget);
+        }
+
+        // Decide whether the call has any meaningful work to do.
+        // Two independent motivations keep a compression pass alive:
+        //   (a) removedMessages is non-empty → there is new material to summarise.
+        //   (b) summaryStack is at/over MaxSummaryDepth → a merge is overdue even if no
+        //       new material is present (prevents unbounded stack growth across idle cycles).
+        // When neither holds, short-circuit. This avoids the pre-fix behaviour of producing a
+        // placeholder "No conversation history" summary that got stacked and overwrote a
+        // healthy core-memory block with "[None]".
+        var mergeOverdue = summaryStack.Count >= _options.MaxSummaryDepth;
+        if (removedMessages.Count == 0 && !mergeOverdue)
+        {
+            _logger?.LogDebug(
+                "Compression requested but no messages eligible for removal and no merge " +
+                "overdue (force={Force}, regular={Count}, minRecent={Min}, stackDepth={Depth}); " +
+                "returning no-op.",
+                force, regularMessages.Count, _options.MinRecentMessages, summaryStack.Count);
+            return null;
+        }
+
         // ── 5. Sanitize orphan tool results in the retained set ───────────────
         retainedRegular = SanitizeOrphanToolResults(retainedRegular);
 
-        // ── 6. Generate summary (and optionally update core-memory) ───────────
-        var summaryResult = await _summarizer.SummarizeAsync(removedMessages, _options, cancellationToken);
+        // ── 6. Generate summary (only when there is new material) ─────────────
+        // Skipping this when removedMessages is empty avoids sending an empty payload to
+        // the LLM, which would otherwise return a degenerate "No conversation history was
+        // provided" response and pollute the stack / overwrite core-memory.
+        SummaryResult? summaryResult = null;
+        Message? newSummaryMsg = null;
+        if (removedMessages.Count > 0)
+        {
+            summaryResult = await _summarizer.SummarizeAsync(removedMessages, _options, cancellationToken);
+            newSummaryMsg = Message.System(
+                $"<context-summary timestamp=\"{DateTimeOffset.UtcNow:O}\" window=\"{windowId}\">\n{summaryResult.Summary}\n</context-summary>"
+            );
+        }
 
-        // ── 7. Build new summary message (stacked, never replaced) ───────────
-        var newSummaryMsg = Message.System(
-            $"<context-summary timestamp=\"{DateTimeOffset.UtcNow:O}\" window=\"{windowId}\">\n{summaryResult.Summary}\n</context-summary>"
-        );
-
-        // ── 7b. Merge summary stack if depth limit reached ────────────────────
+        // ── 7. Merge summary stack if depth limit reached ─────────────────────
         // Prevents the summary stack from accumulating unbounded tokens across many compressions.
         // When the limit is hit, all existing summaries are recursively merged into one.
         // The merge may also return an updated core-memory block (P4 fix).
         string? mergedCoreMemoryUpdate = null;
-        if (summaryStack.Count >= _options.MaxSummaryDepth)
+        if (mergeOverdue)
         {
             var originalDepth = summaryStack.Count;
             var (mergedMsg, coreUpdate) = await MergeSummaryStackAsync(summaryStack, cancellationToken);
@@ -333,7 +426,7 @@ public class ContextManager
 
         // ── 8. Update or preserve core-memory block ───────────────────────────
         // Priority: current-compression update > merge update > keep existing.
-        var effectiveCoreUpdate = summaryResult.CoreMemoryUpdate ?? mergedCoreMemoryUpdate;
+        var effectiveCoreUpdate = summaryResult?.CoreMemoryUpdate ?? mergedCoreMemoryUpdate;
         Message? coreMsg = null;
         if (_options.EnableCoreMemory && !string.IsNullOrWhiteSpace(effectiveCoreUpdate))
         {
@@ -347,20 +440,27 @@ public class ContextManager
         }
 
         // ── 9. Reconstruct full message list ──────────────────────────────────
-        // Order: [core-memory?] [summary-1] … [summary-N] [new-summary] [recent…]
+        // Order: [core-memory?] [summary-1] … [summary-N] [new-summary?] [recent…]
         var reconstructed = new List<Message>();
         if (coreMsg != null) reconstructed.Add(coreMsg);
         reconstructed.AddRange(summaryStack);
-        reconstructed.Add(newSummaryMsg);
+        if (newSummaryMsg != null) reconstructed.Add(newSummaryMsg);
         reconstructed.AddRange(retainedRegular);
+
+        // The CompressionResult.Summary field is observational (used for monitor events);
+        // prefer the freshly-produced summary, fall back to the merged one when a merge
+        // happened without new material.
+        var resultSummaryMsg = newSummaryMsg ?? summaryStack[^1];
 
         // ── 10. Save compression record ───────────────────────────────────────
         var ratio = (double)retainedRegular.Count / Math.Max(1, regularMessages.Count);
         await SnapshotAccessedFilesAsync(filePool, sandbox, timestamp, cancellationToken);
 
-        var summaryPreview = summaryResult.Summary.Length > 500
-            ? summaryResult.Summary[..500]
-            : summaryResult.Summary;
+        var summaryTextForRecord = summaryResult?.Summary
+            ?? string.Join("\n", resultSummaryMsg.Content.OfType<TextContent>().Select(t => t.Text));
+        var summaryPreview = summaryTextForRecord.Length > 500
+            ? summaryTextForRecord[..500]
+            : summaryTextForRecord;
 
         await SaveCompressionRecordAsync(new CompressionRecord
         {
@@ -380,11 +480,11 @@ public class ContextManager
             "Compressed context: {Removed} regular messages removed, {Retained} retained " +
             "(ratio {Ratio:P}); summary stack depth {Depth}; core-memory {CoreStatus}",
             removedMessages.Count, retainedRegular.Count, ratio,
-            summaryStack.Count + 1,
+            summaryStack.Count + (newSummaryMsg != null ? 1 : 0),
             coreMsg != null ? "updated" : "none");
 
         return new CompressionResult(
-            Summary: newSummaryMsg,
+            Summary: resultSummaryMsg,
             RemovedMessages: removedMessages,
             RetainedMessages: reconstructed,
             WindowId: windowId,
@@ -689,6 +789,85 @@ public class ContextManager
             }
         }
         return PinnedKind.None;
+    }
+
+    // ── Micro-compaction: supersede older idempotent tool results ─────────────
+
+    // Tool calls whose later invocations with identical arguments fully supersede the
+    // earlier result (polling + unchanged re-reads). Keyed case-insensitively. Matches
+    // only tools where a later result is *equivalent or strictly fresher* — never use for
+    // mutating tools or tools where each call has semantic value (bash_run, fs_write).
+    private static readonly HashSet<string> MicroCompactableTools =
+        new(StringComparer.OrdinalIgnoreCase) { "fs_read", "fs_grep", "fs_glob", "fs_list", "bash_logs" };
+
+    /// <summary>
+    /// Replaces the payload of each tool_result whose tool_use has been superseded by a later
+    /// call with identical arguments. Used for polling-style and re-read tool patterns where
+    /// the later invocation's output fully covers the earlier one.
+    /// <list type="bullet">
+    ///   <item>Key = (tool_name, canonical-JSON(input)). Identical tuple → older wins elision.</item>
+    ///   <item>The tool_use block stays intact; only the tool_result body is replaced with a
+    ///     stub pointing at the superseding call-id so the agent can still trace the flow.</item>
+    ///   <item>Tool pairing is preserved — SanitizeOrphanToolResults and the pair-atomic removal
+    ///     in SelectMessagesByBudget both continue to work unchanged.</item>
+    /// </list>
+    /// </summary>
+    internal static List<Message> MicroCompactSupersededToolResults(IReadOnlyList<Message> messages)
+    {
+        // Pass 1: walk in order, record the latest tool_use_id per (tool, input-hash) key.
+        // Any earlier id hitting the same key is marked as superseded.
+        var supersededBy = new Dictionary<string, string>(StringComparer.Ordinal);
+        var latestPerKey = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var msg in messages)
+        {
+            foreach (var block in msg.Content)
+            {
+                if (block is not ToolUseContent tu) continue;
+                if (!MicroCompactableTools.Contains(tu.Name)) continue;
+                var key = $"{tu.Name}|{CanonicalInputKey(tu.Input)}";
+                if (latestPerKey.TryGetValue(key, out var prevId))
+                {
+                    // prevId is now superseded by tu.Id
+                    supersededBy[prevId] = tu.Id;
+                }
+                latestPerKey[key] = tu.Id;
+            }
+        }
+
+        if (supersededBy.Count == 0) return messages.ToList();
+
+        // Pass 2: rewrite matching tool_result payloads to a stub that preserves the link.
+        var result = new List<Message>(messages.Count);
+        foreach (var msg in messages)
+        {
+            List<ContentBlock>? rewritten = null;
+            for (var i = 0; i < msg.Content.Count; i++)
+            {
+                if (msg.Content[i] is ToolResultContent tr && supersededBy.TryGetValue(tr.ToolUseId, out var newerId))
+                {
+                    rewritten ??= new List<ContentBlock>(msg.Content);
+                    rewritten[i] = tr with
+                    {
+                        Content = $"[tool_result superseded by {newerId}: a later call with identical arguments produced a fresher result]"
+                    };
+                }
+            }
+            result.Add(rewritten is null ? msg : msg with { Content = rewritten });
+        }
+        return result;
+    }
+
+    // Canonical key for a tool input payload. We serialize to JSON then hash — comparing
+    // by serialised string is enough for ordinal equality and we don't need a structural
+    // diff. ToString() on JsonElement/anonymous types returns the type name, so raw .ToString
+    // would falsely collapse every input into the same bucket.
+    private static string CanonicalInputKey(object? input)
+    {
+        if (input is null) return "";
+        if (input is string s) return s;
+        try { return JsonSerializer.Serialize(input); }
+        catch { return input.ToString() ?? ""; }
     }
 
     // Still used by MergeSummaryStackAsync to read summary body text.

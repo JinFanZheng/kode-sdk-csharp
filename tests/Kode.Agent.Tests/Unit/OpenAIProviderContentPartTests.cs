@@ -228,6 +228,43 @@ public sealed class OpenAIProviderContentPartTests
         userMsg.GetProperty("content").ValueKind.Should().Be(JsonValueKind.String);
     }
 
+    // Bug #1 regression: system-role messages (core-memory / context-summary
+    // emitted by ContextManager) were silently dropped by the old filter, which
+    // defeated the three-layer compression architecture and caused the model to
+    // re-overflow on compressed sessions. They must reach the API as additional
+    // system-role messages at the head of the array.
+    [Fact]
+    public async Task CompleteAsync_WithSystemRoleMemoryMessages_PreservesThemAsSystemMessages()
+    {
+        var (provider, bodies) = CreateProviderWithCapture();
+
+        await provider.CompleteAsync(new ModelRequest
+        {
+            Model = "glm-4v-plus",
+            SystemPrompt = "You are helpful.",
+            Messages =
+            [
+                Message.System("<core-memory updated=\"2026-04-19T10:00:00\">\n## Current Task\nfix bugs\n</core-memory>"),
+                Message.System("<context-summary timestamp=\"2026-04-19T10:00:00\" window=\"w1\">\nSummary text\n</context-summary>"),
+                Message.User("continue"),
+            ],
+            MaxTokens = 10
+        });
+
+        bodies.Should().ContainSingle();
+        using var doc = JsonDocument.Parse(bodies[0]);
+        var systemMessages = doc.RootElement.GetProperty("messages")
+            .EnumerateArray()
+            .Where(m => m.GetProperty("role").GetString() == "system")
+            .ToList();
+
+        systemMessages.Should().HaveCount(3, "main prompt + core-memory + summary");
+        var bodyText = bodies[0];
+        bodyText.Should().Contain("core-memory");
+        bodyText.Should().Contain("context-summary");
+        bodyText.Should().Contain("You are helpful.");
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================

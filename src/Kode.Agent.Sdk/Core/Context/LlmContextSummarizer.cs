@@ -65,6 +65,14 @@ public class LlmContextSummarizer : IContextSummarizer
         ContextManagerOptions options,
         CancellationToken cancellationToken = default)
     {
+        // Defensive short-circuit: an empty removal batch produces the degenerate
+        // "No conversation history was provided" reply from the LLM, which then
+        // overwrites a healthy core-memory block with "[None]" placeholders and
+        // stacks a meaningless summary. Return an empty result so the caller can
+        // treat it as a no-op. (ContextManager now also guards at the call site.)
+        if (removedMessages.Count == 0)
+            return new SummaryResult(string.Empty, null);
+
         try
         {
             var model = options.CompressionModel ?? _primaryModel ?? "claude-haiku-4-5-20251001";

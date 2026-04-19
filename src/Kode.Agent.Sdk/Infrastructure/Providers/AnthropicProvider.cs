@@ -374,6 +374,21 @@ public sealed class AnthropicProvider : IModelProvider
 
     private MessageCreateParams BuildMessageParameters(ModelRequest request)
     {
+        // Collect memory blocks carried as system-role messages (e.g. core-memory and
+        // context-summary emitted by ContextManager). These MUST reach the model — dropping
+        // them defeats the three-layer compression architecture and causes the model to
+        // re-overflow on the same conversation.
+        var memoryTexts = new List<string>();
+        foreach (var m in request.Messages)
+        {
+            if (m.Role != MessageRole.System) continue;
+            foreach (var block in m.Content)
+            {
+                if (block is TextContent t && !string.IsNullOrWhiteSpace(t.Text))
+                    memoryTexts.Add(t.Text);
+            }
+        }
+
         var messages = request.Messages
             .Where(m => m.Role != MessageRole.System)
             .Select(ConvertMessage)
@@ -394,13 +409,32 @@ public sealed class AnthropicProvider : IModelProvider
             ? new ThinkingConfigParam(new ThinkingConfigEnabled { BudgetTokens = request.ThinkingBudget ?? 8000 })
             : null;
 
+        // MessageCreateParams.System accepts either a plain string or List<TextBlockParam>
+        // via implicit conversion (see Anthropic SDK 12.9.0 MessageCreateParamsSystem).
+        // Use the list form whenever memory blocks are present so each block is delivered
+        // as a separate system content part (matches Anthropic's documented multi-block layout).
+        MessageCreateParamsSystem system;
+        if (memoryTexts.Count == 0)
+        {
+            system = !string.IsNullOrEmpty(request.SystemPrompt) ? request.SystemPrompt : null!;
+        }
+        else
+        {
+            var blocks = new List<TextBlockParam>();
+            if (!string.IsNullOrEmpty(request.SystemPrompt))
+                blocks.Add(new TextBlockParam { Text = request.SystemPrompt });
+            foreach (var text in memoryTexts)
+                blocks.Add(new TextBlockParam { Text = text });
+            system = blocks;
+        }
+
         return new MessageCreateParams
         {
             Model = request.Model,
             Messages = messages,
             MaxTokens = request.MaxTokens ?? 4096,
             Temperature = request.EnableThinking == true ? 1.0 : request.Temperature,
-            System = !string.IsNullOrEmpty(request.SystemPrompt) ? request.SystemPrompt : null!,
+            System = system,
             Tools = tools,
             StopSequences = stopSequences,
             Thinking = thinking
