@@ -47,6 +47,9 @@ public sealed class ILinkMessageItem
 
     [JsonPropertyName("file_item")]
     public ILinkFileItem? FileItem { get; init; }
+
+    [JsonPropertyName("video_item")]
+    public ILinkVideoItem? VideoItem { get; init; }
 }
 
 public sealed class ILinkTextItem
@@ -85,6 +88,15 @@ public sealed class ILinkFileItem
 
     [JsonPropertyName("len")]
     public string Len { get; init; } = "0";
+}
+
+public sealed class ILinkVideoItem
+{
+    [JsonPropertyName("media")]
+    public ILinkMedia? Media { get; init; }
+
+    [JsonPropertyName("video_size")]
+    public long VideoSize { get; init; }
 }
 
 // ── 上传媒体 ──────────────────────────────────────────────────

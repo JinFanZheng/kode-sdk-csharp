@@ -316,6 +316,30 @@ public sealed class TelegramConnectorIntegrationTests
             SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 99003 });
         }
+
+        public Task<TelegramSendMessageResult> SendVideoAsync(
+            string botToken,
+            long chatId,
+            Stream video,
+            string contentType,
+            string? caption,
+            int? durationSeconds = null,
+            CancellationToken cancellationToken = default)
+        {
+            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
+            return Task.FromResult(new TelegramSendMessageResult { MessageId = 99004 });
+        }
+
+        public Task<TelegramSendMessageResult> EditMessageTextAsync(
+            string botToken,
+            long chatId,
+            long messageId,
+            string text,
+            string? parseMode = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new TelegramSendMessageResult { MessageId = messageId });
+        }
     }
 
     private sealed record SendCall(string Token, long ChatId, string Text);

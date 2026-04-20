@@ -227,6 +227,80 @@ public sealed class WeChatMediaConnectorTests
         }
     }
 
+    // ── 出站：发送视频附件（type=5 video_item）─────────────────────────────────
+
+    [Fact]
+    public async Task SendAsync_with_video_attachment_should_call_sendmessage_with_video_item()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmpDir);
+
+        try
+        {
+            // 16 字节原文 → PKCS7 pad 成 32 字节密文
+            var videoBytes = Encoding.UTF8.GetBytes("fake-video-bytes");
+            const int expectedEncryptedSize = 32;
+
+            var mediaStore = new InMemoryMediaStore();
+            var mediaId = await mediaStore.PreloadAsync("clip.mp4", "video/mp4", videoBytes);
+
+            var cdnClient = new StubWeChatCdnClient(videoBytes, returnEncryptQueryParam: "enc_video_001");
+            var apiClient = new StubWeChatApiClient([]);
+
+            var connector = new WeChatConnector(
+                apiClient, cdnClient,
+                new WeChatAuthManager(),
+                BuildWorkspaceOptions(tmpDir),
+                NullLogger<WeChatConnector>.Instance,
+                mediaStore: mediaStore);
+
+            var account = BuildAccount();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+
+            await connector.StartAsync(account, (_, _) => Task.CompletedTask, cts.Token);
+
+            // 模拟入站消息建立 contextToken 缓存
+            apiClient.EnqueueMessage(new ILinkMessage
+            {
+                MessageId = 9002,
+                FromUserId = "wxid_target_v",
+                ContextToken = "ctx_video_outbound",
+                ItemList = [new ILinkMessageItem { Type = 1, TextItem = new ILinkTextItem { Text = "hi" } }]
+            });
+            await Task.Delay(200, CancellationToken.None);
+
+            var draft = new ChannelOutboundDraft(
+                DraftId: Guid.NewGuid().ToString(),
+                BindingId: "binding-video-001",
+                ConnectorKind: ChannelConnectorKind.WeChat,
+                AccountId: account.Id,
+                ExternalThreadId: "wxid_target_v",
+                MessageText: "",
+                MediaAttachments: [new MediaReference(mediaId, "video/mp4", "clip.mp4")]);
+
+            await connector.SendAsync(draft, cts.Token);
+            await connector.StopAsync(account.Id);
+
+            apiClient.SentMediaItems.Should().HaveCount(1);
+            var item = apiClient.SentMediaItems[0];
+            item.Type.Should().Be(5); // ILinkMessageTypeVideo
+            item.VideoItem.Should().NotBeNull();
+            item.VideoItem!.Media.Should().NotBeNull();
+            item.VideoItem!.Media!.EncryptQueryParam.Should().Be("enc_video_001");
+            item.VideoItem!.VideoSize.Should().Be(expectedEncryptedSize);
+            item.ImageItem.Should().BeNull();
+            item.FileItem.Should().BeNull();
+
+            apiClient.UploadUrlRequests.Should().ContainSingle();
+            apiClient.UploadUrlRequests[0].MediaType.Should().Be(2); // ILinkMediaTypeVideo
+            cdnClient.UploadedCount.Should().Be(1);
+        }
+        finally
+        {
+            Directory.Delete(tmpDir, recursive: true);
+        }
+    }
+
     // ── 出站：单个媒体失败不阻断文字发送 ────────────────────────────────────────
 
     [Fact]
@@ -283,6 +357,7 @@ public sealed class WeChatMediaConnectorTests
 
         public List<string> SentTexts { get; } = [];
         public List<ILinkMessageItem> SentMediaItems { get; } = [];
+        public List<ILinkGetUploadUrlRequest> UploadUrlRequests { get; } = [];
 
         public void EnqueueMessage(ILinkMessage msg) => _queue.Enqueue(msg);
 
@@ -315,11 +390,14 @@ public sealed class WeChatMediaConnectorTests
         }
 
         public Task<ILinkGetUploadUrlResponse> GetUploadUrlAsync(
-            ILinkGetUploadUrlRequest request, CancellationToken ct = default) =>
-            Task.FromResult(new ILinkGetUploadUrlResponse
+            ILinkGetUploadUrlRequest request, CancellationToken ct = default)
+        {
+            UploadUrlRequests.Add(request);
+            return Task.FromResult(new ILinkGetUploadUrlResponse
             {
                 UploadParam = new ILinkUploadParam { Url = "https://stub-cdn/upload" }
             });
+        }
 
         public Task<ILinkQrCodeResponse> GetQrCodeAsync(CancellationToken ct = default) =>
             Task.FromResult(new ILinkQrCodeResponse());

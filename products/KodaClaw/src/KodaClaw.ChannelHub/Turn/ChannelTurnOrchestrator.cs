@@ -32,6 +32,7 @@ public sealed class ChannelTurnOrchestrator
     private readonly IChannelAccountRepository _channelAccountRepository;
     private readonly ChannelDeliveryGovernanceService _deliveryGovernanceService;
     private readonly ChannelDeliveryDispatchService _deliveryDispatchService;
+    private readonly ChannelConnectorKindResolver? _connectorResolver;
     private readonly IApprovalRepository? _approvalRepository;
     private readonly ChannelDeliveryApprovalService? _deliveryApprovalService;
     private readonly IChannelAuditRepository? _channelAuditRepository;
@@ -63,6 +64,7 @@ public sealed class ChannelTurnOrchestrator
         ChannelCommandDispatcher? commandDispatcher = null,
         ChannelSessionOptions? sessionOptions = null,
         KodaClawWorkspaceOptions? workspaceOptions = null,
+        ChannelConnectorKindResolver? connectorResolver = null,
         ILogger<ChannelTurnOrchestrator>? logger = null)
     {
         _ingestionService = ingestionService ?? throw new ArgumentNullException(nameof(ingestionService));
@@ -81,6 +83,7 @@ public sealed class ChannelTurnOrchestrator
         _modelProvider = modelProvider;
         _commandDispatcher = commandDispatcher;
         _sessionOptions = sessionOptions ?? new ChannelSessionOptions();
+        _connectorResolver = connectorResolver;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelTurnOrchestrator>.Instance;
         var workspaceRoot = workspaceOptions?.ResolveRootPath();
         _dedupeFilePath = !string.IsNullOrWhiteSpace(workspaceRoot)
@@ -303,13 +306,51 @@ public sealed class ChannelTurnOrchestrator
             AgentRunResult runResult;
             var progressWasSent = false;
 
-            // Determine effective progress streaming: per-turn override takes priority over session option.
+            // KC-7203: Decide between ChannelProgressIndicator (edit-in-place) and
+            // ChannelProgressStreamer (intermediate-text delivery). Mutex — at most one is activated.
+            var (indicatorEnabled, indicatorStyle) = TryReadProgressIndicatorSetting(account);
+            var connectorSupportsEdit = false;
+            if (_connectorResolver is not null
+                && _connectorResolver.TryGet(account.ConnectorKind, out var resolvedConnector)
+                && resolvedConnector is not null)
+            {
+                connectorSupportsEdit = resolvedConnector.SupportsEdit;
+            }
+            var useIndicator = indicatorEnabled && connectorSupportsEdit;
+
+            // Streamer still gets per-turn override priority over session option,
+            // but only matters when the indicator path is NOT chosen.
             var effectiveProgressStreaming = turnContext.EnableProgressStreamingOverride ?? _sessionOptions.EnableProgressStreaming;
 
-            // Progress streaming: subscribe to EventBus before RunAsync so no events are missed.
             CancellationTokenSource? subscribeCts = null;
             Task<bool>? progressTask = null;
-            if (effectiveProgressStreaming)
+            Task<ChannelProgressIndicatorResult>? indicatorTask = null;
+            var turnStartedAt = DateTimeOffset.UtcNow;
+
+            if (useIndicator)
+            {
+                subscribeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var indicatorEvents = handle.Agent.EventBus.SubscribeAsync(
+                    EventChannel.Progress | EventChannel.Monitor,
+                    since: null,
+                    kinds: ["breakpoint_changed", "tool:start", "tool:end", "done"],
+                    cancellationToken: subscribeCts.Token);
+
+                var agent = handle.Agent;
+                // agent.StepCount 是 session 累计值，用户视角的"第 N 步"应是本 turn 相对值。
+                var stepBaseline = agent.StepCount;
+                indicatorTask = ChannelProgressIndicator.RunAsync(
+                    events: indicatorEvents,
+                    sendInitial: (text, ct) => _deliveryDispatchService.SendProgressInitialAsync(
+                        account, processing.Binding, text, ct),
+                    edit: (msgId, text, ct) => _deliveryDispatchService.EditProgressAsync(
+                        account, processing.Binding, msgId, text, ct),
+                    getStepCount: () => Math.Max(1, agent.StepCount - stepBaseline),
+                    turnStartedAt: turnStartedAt,
+                    options: new ChannelProgressIndicator.Options(Style: indicatorStyle),
+                    cancellationToken: subscribeCts.Token);
+            }
+            else if (effectiveProgressStreaming)
             {
                 subscribeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var progressEvents = handle.Agent.EventBus.SubscribeAsync(
@@ -345,9 +386,46 @@ public sealed class ChannelTurnOrchestrator
             {
                 if (subscribeCts is not null)
                 {
-                    subscribeCts.Cancel();
-                    try { progressWasSent = await (progressTask ?? Task.FromResult(false)); }
-                    catch (OperationCanceledException) { progressWasSent = false; }
+                    if (indicatorTask is not null)
+                    {
+                        // Indicator 必须消费到 DoneEvent 才能写入 ✓ 完成 / ✗ 已取消 终态。
+                        // Agent 发送顺序为 BreakpointChanged(Ready) → DoneEvent，若这里立即 Cancel，
+                        // 订阅队列里的 DoneEvent 会被丢弃，终态定格在 "🔄 思考中…"。
+                        // 给一个短宽限期让 indicator 自然返回；超时或外部取消才兜底 Cancel。
+                        var graceTask = Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+                        Task completed;
+                        try
+                        {
+                            completed = await Task.WhenAny(indicatorTask, graceTask).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            completed = graceTask;
+                        }
+
+                        if (completed != indicatorTask)
+                        {
+                            subscribeCts.Cancel();
+                        }
+
+                        try
+                        {
+                            var indicatorResult = await indicatorTask.ConfigureAwait(false);
+                            progressWasSent = indicatorResult.ReachedDone && !indicatorResult.Degraded;
+                            RecordIndicatorDiagnostic(indicatorResult, processing.Binding);
+                        }
+                        catch (OperationCanceledException) { }
+                    }
+                    else if (progressTask is not null)
+                    {
+                        subscribeCts.Cancel();
+                        try { progressWasSent = await progressTask; }
+                        catch (OperationCanceledException) { progressWasSent = false; }
+                    }
+                    else
+                    {
+                        subscribeCts.Cancel();
+                    }
                 }
             }
             var execution = new ChannelTurnExecutionResult(
@@ -834,6 +912,89 @@ public sealed class ChannelTurnOrchestrator
     }
 
 
+
+    /// <summary>
+    /// Reads the progress indicator configuration from <see cref="ChannelAccount.ConfigurationJson"/>.
+    /// Shape: <c>{ "progressIndicator": { "enabled": bool, "style": "verbose"|"compact" } }</c>.
+    /// Returns <c>(false, "verbose")</c> when the key is missing or the JSON is malformed.
+    /// </summary>
+    private static (bool Enabled, string Style) TryReadProgressIndicatorSetting(ChannelAccount account)
+    {
+        if (string.IsNullOrWhiteSpace(account.ConfigurationJson))
+        {
+            return (false, ChannelProgressIndicator.StyleVerbose);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(account.ConfigurationJson);
+            if (!doc.RootElement.TryGetProperty("progressIndicator", out var section)
+                || section.ValueKind != JsonValueKind.Object)
+            {
+                return (false, ChannelProgressIndicator.StyleVerbose);
+            }
+
+            var enabled = section.TryGetProperty("enabled", out var enabledProp)
+                && enabledProp.ValueKind == JsonValueKind.True;
+
+            var style = ChannelProgressIndicator.StyleVerbose;
+            if (section.TryGetProperty("style", out var styleProp)
+                && styleProp.ValueKind == JsonValueKind.String)
+            {
+                var raw = styleProp.GetString();
+                if (string.Equals(raw, ChannelProgressIndicator.StyleCompact, StringComparison.OrdinalIgnoreCase))
+                {
+                    style = ChannelProgressIndicator.StyleCompact;
+                }
+            }
+
+            return (enabled, style);
+        }
+        catch (JsonException)
+        {
+            return (false, ChannelProgressIndicator.StyleVerbose);
+        }
+    }
+
+    private void RecordIndicatorDiagnostic(ChannelProgressIndicatorResult result, ThreadBinding binding)
+    {
+        if (_diagnosticsService is null)
+        {
+            return;
+        }
+
+        var eventType = result.Degraded
+            ? "channel.progress_indicator.degraded"
+            : "channel.progress_indicator.completed";
+        var level = result.Degraded ? "warn" : "info";
+        var message = result.Degraded
+            ? $"Progress indicator degraded (reason={result.FailureReason ?? "unknown"})."
+            : $"Progress indicator completed with {result.EditsSucceeded} successful edits.";
+
+        _diagnosticsService.Record(new DiagnosticEvent(
+            Id: $"diag-channel-indicator-{Guid.NewGuid():N}",
+            Source: TurnSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow,
+            SessionId: binding.SessionId,
+            CorrelationId: _correlationContextAccessor?.CorrelationId,
+            Attributes: new Dictionary<string, string?>
+            {
+                ["bindingId"] = binding.Id,
+                ["accountId"] = binding.AccountId,
+                ["connectorKind"] = binding.ConnectorKind.ToString(),
+                ["externalThreadId"] = binding.ExternalThreadId,
+                ["initialSent"] = result.InitialSent.ToString(),
+                ["degraded"] = result.Degraded.ToString(),
+                ["reachedDone"] = result.ReachedDone.ToString(),
+                ["editsAttempted"] = result.EditsAttempted.ToString(),
+                ["editsSucceeded"] = result.EditsSucceeded.ToString(),
+                ["externalMessageId"] = result.ExternalMessageId,
+                ["failureReason"] = result.FailureReason,
+            }));
+    }
 
     // Fixed by Nietzsche: load persisted dedup state from disk on startup.
     // Re-populates the in-memory set with recently processed message IDs so

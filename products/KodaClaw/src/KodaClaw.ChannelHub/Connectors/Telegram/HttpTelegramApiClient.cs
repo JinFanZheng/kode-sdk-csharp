@@ -159,6 +159,90 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         return envelope.Result;
     }
 
+    public async Task<TelegramSendMessageResult> SendVideoAsync(
+        string botToken,
+        long chatId,
+        Stream video,
+        string contentType,
+        string? caption,
+        int? durationSeconds = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(botToken))
+        {
+            throw new ArgumentException("A non-empty telegram bot token is required.", nameof(botToken));
+        }
+
+        ArgumentNullException.ThrowIfNull(video);
+
+        var ext = contentType.Contains("mp4", StringComparison.OrdinalIgnoreCase) ? "mp4"
+            : contentType.Contains("quicktime", StringComparison.OrdinalIgnoreCase) ? "mov"
+            : contentType.Contains("webm", StringComparison.OrdinalIgnoreCase) ? "webm"
+            : "mp4";
+
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(chatId.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chat_id");
+        var videoContent = new StreamContent(video);
+        videoContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        form.Add(videoContent, "video", $"video.{ext}");
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            form.Add(new StringContent(caption), "caption");
+        }
+        if (durationSeconds is > 0)
+        {
+            form.Add(
+                new StringContent(durationSeconds.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                "duration");
+        }
+        // supports_streaming=true 让 Telegram 客户端对 MP4 采取流式播放（未知容器会被忽略）。
+        form.Add(new StringContent("true"), "supports_streaming");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(botToken, "sendVideo"))
+        {
+            Content = form,
+        };
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var envelope = await response.Content
+            .ReadFromJsonAsync<TelegramApiResponse<TelegramSendMessageResult>>(JsonOptions, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (envelope is null || !envelope.Ok || envelope.Result is null)
+        {
+            throw new InvalidOperationException(
+                $"Telegram API 'sendVideo' failed: {envelope?.Description ?? "unknown error"}");
+        }
+
+        return envelope.Result;
+    }
+
+    public async Task<TelegramSendMessageResult> EditMessageTextAsync(
+        string botToken,
+        long chatId,
+        long messageId,
+        string text,
+        string? parseMode = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("A non-empty telegram message text is required.", nameof(text));
+        }
+
+        object payload = string.IsNullOrEmpty(parseMode)
+            ? new { chat_id = chatId, message_id = messageId, text }
+            : new { chat_id = chatId, message_id = messageId, text, parse_mode = parseMode };
+
+        return await SendAsync<TelegramSendMessageResult>(
+            botToken,
+            method: "editMessageText",
+            payload: payload,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<T> SendAsync<T>(
         string botToken,
         string method,

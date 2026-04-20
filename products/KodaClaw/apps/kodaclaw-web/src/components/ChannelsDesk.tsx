@@ -166,6 +166,9 @@ export function ChannelsDesk() {
       accountDeliveryMode: "默认投递模式",
       accountDeliveryHint: "将同步应用到所有线程",
       accountDeliveryApplying: "应用中...",
+      progressIndicatorLabel: "进度指示器",
+      progressIndicatorHint: "发送 turn 进度到渠道（仅 Telegram / 飞书）",
+      progressIndicatorApplying: "更新中...",
       weChatRescan: "重新扫码",
       weChatRescanSuccess: "重新登录成功",
       addChannel: "+ 添加渠道",
@@ -341,6 +344,9 @@ export function ChannelsDesk() {
       accountDeliveryMode: "Default delivery mode",
       accountDeliveryHint: "Applied to all threads",
       accountDeliveryApplying: "Applying...",
+      progressIndicatorLabel: "Progress indicator",
+      progressIndicatorHint: "Stream turn progress to the channel (Telegram / Feishu only)",
+      progressIndicatorApplying: "Updating...",
       weChatRescan: "Re-scan QR",
       weChatRescanSuccess: "Re-login successful",
       addChannel: "+ Add Channel",
@@ -421,6 +427,7 @@ export function ChannelsDesk() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [weChatRescanId, setWeChatRescanId] = useState<string | null>(null);
   const [accountDeliveryApplying, setAccountDeliveryApplying] = useState<string | null>(null);
+  const [progressIndicatorApplying, setProgressIndicatorApplying] = useState<string | null>(null);
 
   // Add channel form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -1003,6 +1010,42 @@ export function ChannelsDesk() {
     return null;
   }
 
+  function parseAccountProgressIndicatorEnabled(account: ChannelAccount): boolean {
+    if (!account.configurationJson) return false;
+    try {
+      const config = JSON.parse(account.configurationJson) as Record<string, unknown>;
+      const indicator = config["progressIndicator"];
+      if (indicator && typeof indicator === "object" && "enabled" in indicator) {
+        return (indicator as { enabled?: unknown }).enabled === true;
+      }
+    } catch { /* */ }
+    return false;
+  }
+
+  function supportsProgressIndicator(kind: ChannelConnectorKind): boolean {
+    return kind === "Telegram" || kind === "Feishu";
+  }
+
+  async function handleProgressIndicatorToggle(account: ChannelAccount, next: boolean) {
+    setProgressIndicatorApplying(account.id);
+    setError(null);
+    try {
+      const current: Record<string, unknown> = account.configurationJson
+        ? (JSON.parse(account.configurationJson) as Record<string, unknown>)
+        : {};
+      current["progressIndicator"] = { enabled: next };
+      await updateChannelAccount(account.id, {
+        configurationJson: JSON.stringify(current),
+      });
+      void queryClient.invalidateQueries({ queryKey: ['channelAccounts'] });
+      await loadDesk("refresh");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to update progress indicator.");
+    } finally {
+      setProgressIndicatorApplying(null);
+    }
+  }
+
   function resolveConnectorColor(kind: ChannelConnectorKind): string {
     switch (kind) {
       case "WeChat": return "#07C160";
@@ -1153,6 +1196,26 @@ export function ChannelsDesk() {
                   </Select>
                   <span className="channel-account-card__delivery-hint">{text.accountDeliveryHint}</span>
                 </div>
+                {supportsProgressIndicator(account.connectorKind) ? (
+                  <div className="channel-account-card__delivery-row" data-testid={`channel-account-progress-row-${account.id}`}>
+                    <label className="channel-account-card__delivery-label" htmlFor={`account-pi-${account.id}`}>
+                      {text.progressIndicatorLabel}
+                    </label>
+                    <input
+                      id={`account-pi-${account.id}`}
+                      type="checkbox"
+                      data-testid={`channel-account-progress-toggle-${account.id}`}
+                      checked={parseAccountProgressIndicatorEnabled(account)}
+                      disabled={progressIndicatorApplying === account.id}
+                      onChange={(e) => {
+                        void handleProgressIndicatorToggle(account, e.target.checked);
+                      }}
+                    />
+                    <span className="channel-account-card__delivery-hint">
+                      {progressIndicatorApplying === account.id ? text.progressIndicatorApplying : text.progressIndicatorHint}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="channel-account-card__actions">
                   <Button
                     variant={account.inboundEnabled ? "ghost" : "primary"}

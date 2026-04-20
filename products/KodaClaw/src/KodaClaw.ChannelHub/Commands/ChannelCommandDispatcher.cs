@@ -468,14 +468,13 @@ public sealed class ChannelCommandDispatcher
 
         var bpText = state.BreakpointState switch
         {
-            BreakpointState.PreModel => "准备调用模型",
-            BreakpointState.StreamingModel => "正在生成回复",
-            BreakpointState.ToolPending => $"准备调用工具{toolSuffix}",
+            BreakpointState.Ready or BreakpointState.PreModel => "思考中",
+            BreakpointState.StreamingModel => "回复中",
+            BreakpointState.ToolPending
+                or BreakpointState.PreTool
+                or BreakpointState.ToolExecuting => $"调用工具{toolSuffix}",
             BreakpointState.AwaitingApproval => "等待审批",
-            BreakpointState.PreTool => $"即将执行工具{toolSuffix}",
-            BreakpointState.ToolExecuting => $"正在执行工具{toolSuffix}",
-            BreakpointState.PostTool => "工具执行完成，处理结果中",
-            BreakpointState.Ready => "准备中",
+            BreakpointState.PostTool => "整理结果",
             _ => state.BreakpointState.ToString(),
         };
 

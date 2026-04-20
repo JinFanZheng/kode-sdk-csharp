@@ -47,6 +47,8 @@ public sealed class FeishuConnector : IChannelConnector
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.Feishu;
 
+    public bool SupportsEdit => true;
+
     public async Task StartAsync(
         ChannelAccount account,
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
@@ -115,6 +117,47 @@ public sealed class FeishuConnector : IChannelConnector
     }
 
     public async Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default)
+        => await SendInternalAsync(draft, cancellationToken).ConfigureAwait(false);
+
+    public async Task<ChannelSendReceipt> SendWithReceiptAsync(
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        var messageId = await SendInternalAsync(draft, cancellationToken).ConfigureAwait(false);
+        return new ChannelSendReceipt(
+            string.IsNullOrWhiteSpace(messageId) ? null : messageId,
+            DateTimeOffset.UtcNow);
+    }
+
+    public async Task EditAsync(
+        string externalThreadId,
+        string externalMessageId,
+        string text,
+        OutboundMessageFormat format,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalThreadId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalMessageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+
+        // 飞书 edit 作用于 bot token；从任一 started account 取 tenant token（indicator 原消息必然出自已启动的 bot）
+        var startedAccount = _startedAccounts.Values.FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                "Feishu connector has no started accounts; cannot edit without a tenant token.");
+
+        var tenantToken = await _apiClient.GetTenantAccessTokenAsync(
+            startedAccount.Configuration.AppId,
+            startedAccount.Configuration.AppSecret,
+            cancellationToken).ConfigureAwait(false);
+
+        await _apiClient.PatchTextMessageAsync(
+            tenantToken,
+            externalMessageId,
+            text,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string?> SendInternalAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
         if (draft.ConnectorKind != ChannelConnectorKind.Feishu)
@@ -165,7 +208,7 @@ public sealed class FeishuConnector : IChannelConnector
                         tenantToken, stream, imageAttachment.ContentType, cancellationToken)
                         .ConfigureAwait(false);
 
-                    await _apiClient.SendImageMessageAsync(
+                    return await _apiClient.SendImageMessageAsync(
                         tenantToken,
                         receiveId,
                         receiveIdType,
@@ -173,8 +216,6 @@ public sealed class FeishuConnector : IChannelConnector
                         caption: draft.MessageText,
                         cancellationToken).ConfigureAwait(false);
                 }
-
-                return;
             }
         }
 
@@ -195,7 +236,7 @@ public sealed class FeishuConnector : IChannelConnector
                             tenantToken, stream, audioAttachment.ContentType, cancellationToken)
                             .ConfigureAwait(false);
 
-                        await _apiClient.SendAudioMessageAsync(
+                        return await _apiClient.SendAudioMessageAsync(
                             tenantToken,
                             receiveId,
                             receiveIdType,
@@ -203,17 +244,14 @@ public sealed class FeishuConnector : IChannelConnector
                             caption: draft.MessageText,
                             cancellationToken).ConfigureAwait(false);
                     }
-
-                    return;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Feishu audio upload failed, falling back to text for {ReceiveId}", receiveId);
-                    await _apiClient.SendTextMessageAsync(
+                    return await _apiClient.SendTextMessageAsync(
                         tenantToken, receiveId, receiveIdType,
                         $"[语音消息发送失败，请检查飞书 App 文件上传权限]\n{draft.MessageText}",
                         cancellationToken).ConfigureAwait(false);
-                    return;
                 }
             }
         }
@@ -232,19 +270,19 @@ public sealed class FeishuConnector : IChannelConnector
                     await using (stream.ConfigureAwait(false))
                     {
                         // Get duration from media meta if available
-                    int? durationMs = videoAttachment.DurationMs;
-                    if (durationMs is null)
-                    {
-                        var meta = await _mediaStore.GetMetaAsync(videoAttachment.MediaId, cancellationToken)
-                            .ConfigureAwait(false);
-                        durationMs = meta?.DurationMs;
-                    }
+                        int? durationMs = videoAttachment.DurationMs;
+                        if (durationMs is null)
+                        {
+                            var meta = await _mediaStore.GetMetaAsync(videoAttachment.MediaId, cancellationToken)
+                                .ConfigureAwait(false);
+                            durationMs = meta?.DurationMs;
+                        }
 
-                    var fileKey = await _apiClient.UploadVideoFileAsync(
+                        var fileKey = await _apiClient.UploadVideoFileAsync(
                             tenantToken, stream, videoAttachment.ContentType, durationMs, cancellationToken)
                             .ConfigureAwait(false);
 
-                        await _apiClient.SendVideoMessageAsync(
+                        return await _apiClient.SendVideoMessageAsync(
                             tenantToken,
                             receiveId,
                             receiveIdType,
@@ -252,17 +290,14 @@ public sealed class FeishuConnector : IChannelConnector
                             caption: draft.MessageText,
                             cancellationToken).ConfigureAwait(false);
                     }
-
-                    return;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Feishu video upload failed, falling back to text for {ReceiveId}", receiveId);
-                    await _apiClient.SendTextMessageAsync(
+                    return await _apiClient.SendTextMessageAsync(
                         tenantToken, receiveId, receiveIdType,
                         $"[视频消息发送失败，请检查飞书App文件上传权限]\n{draft.MessageText}",
                         cancellationToken).ConfigureAwait(false);
-                    return;
                 }
             }
         }
@@ -276,10 +311,9 @@ public sealed class FeishuConnector : IChannelConnector
                 var postContent = MarkdownToFeishuPostConverter.Convert(draft.MessageText);
                 if (postContent.Count > 0)
                 {
-                    await _apiClient.SendPostMessageAsync(
+                    return await _apiClient.SendPostMessageAsync(
                         tenantToken, receiveId, receiveIdType, "通知", postContent, cancellationToken)
                         .ConfigureAwait(false);
-                    return;
                 }
             }
             catch (Exception ex)
@@ -288,7 +322,7 @@ public sealed class FeishuConnector : IChannelConnector
             }
         }
 
-        await _apiClient.SendTextMessageAsync(
+        return await _apiClient.SendTextMessageAsync(
             tenantToken, receiveId, receiveIdType, draft.MessageText, cancellationToken)
             .ConfigureAwait(false);
     }

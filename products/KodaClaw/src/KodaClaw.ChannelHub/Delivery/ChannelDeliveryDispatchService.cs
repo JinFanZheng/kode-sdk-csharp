@@ -178,6 +178,88 @@ public sealed class ChannelDeliveryDispatchService
         await connector!.EnsureStartedAndSendAsync(account, draft, cancellationToken);
     }
 
+    /// <summary>
+    /// Sends the initial "🔄 思考中…" progress message and returns a receipt including the
+    /// external message id (when the underlying connector surfaces one). Best-effort — callers
+    /// should interpret a null ExternalMessageId as "degrade, no edits will happen this turn".
+    /// </summary>
+    public async Task<ChannelSendReceipt> SendProgressInitialAsync(
+        ChannelAccount account,
+        ThreadBinding binding,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        ChannelHubValidation.ValidateBinding(binding);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+
+        if (!_resolver.TryGet(account.ConnectorKind, out var connector))
+        {
+            return new ChannelSendReceipt(null, DateTimeOffset.UtcNow);
+        }
+
+        var draft = new ChannelOutboundDraft(
+            DraftId: $"progress-init-{Guid.NewGuid():N}",
+            BindingId: binding.Id,
+            ConnectorKind: binding.ConnectorKind,
+            AccountId: binding.AccountId,
+            ExternalThreadId: binding.ExternalThreadId,
+            MessageText: text,
+            ThreadType: binding.ThreadType,
+            DeliveryMode: DeliveryMode.AutoSend,
+            CreatedAt: DateTimeOffset.UtcNow,
+            SessionId: binding.SessionId,
+            CorrelationId: _correlationContextAccessor?.CorrelationId,
+            Format: OutboundMessageFormat.PlainText);
+
+        try
+        {
+            return await connector!.SendWithReceiptAsync(draft, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            RecordDiagnosticEvent(
+                eventType: "channel.progress_indicator.initial_failed",
+                level: "warn",
+                message: ex.Message,
+                binding: binding,
+                draft: draft,
+                outcome: null,
+                errorMessage: ex.Message);
+            return new ChannelSendReceipt(null, DateTimeOffset.UtcNow);
+        }
+    }
+
+    /// <summary>
+    /// Edits the progress message with new text. Best-effort — exceptions are logged via
+    /// diagnostics and re-thrown so the indicator can track consecutive failures.
+    /// </summary>
+    public Task EditProgressAsync(
+        ChannelAccount account,
+        ThreadBinding binding,
+        string externalMessageId,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        ChannelHubValidation.ValidateBinding(binding);
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalMessageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+
+        if (!_resolver.TryGet(account.ConnectorKind, out var connector))
+        {
+            throw new NotSupportedException(
+                $"Connector '{account.ConnectorKind}' is not registered.");
+        }
+
+        return connector!.EditAsync(
+            binding.ExternalThreadId,
+            externalMessageId,
+            text,
+            OutboundMessageFormat.PlainText,
+            cancellationToken);
+    }
+
     private async Task AppendAuditAsync(
         ThreadBinding binding,
         string eventType,
@@ -214,7 +296,7 @@ public sealed class ChannelDeliveryDispatchService
         string message,
         ThreadBinding binding,
         ChannelOutboundDraft draft,
-        ChannelTurnOutcome outcome,
+        ChannelTurnOutcome? outcome,
         string? errorMessage)
     {
         if (_diagnosticsService is null)
@@ -239,9 +321,9 @@ public sealed class ChannelDeliveryDispatchService
                 ["accountId"] = draft.AccountId,
                 ["externalThreadId"] = draft.ExternalThreadId,
                 ["deliveryMode"] = draft.DeliveryMode.ToString(),
-                ["approvalId"] = outcome.ApprovalId,
-                ["inboxItemId"] = outcome.InboxItemId,
-                ["outcomeKind"] = outcome.Kind.ToString(),
+                ["approvalId"] = outcome?.ApprovalId,
+                ["inboxItemId"] = outcome?.InboxItemId,
+                ["outcomeKind"] = outcome?.Kind.ToString(),
                 ["error"] = errorMessage,
             }));
     }

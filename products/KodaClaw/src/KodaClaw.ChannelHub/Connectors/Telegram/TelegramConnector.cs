@@ -32,6 +32,8 @@ public sealed class TelegramConnector : IChannelConnector
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.Telegram;
 
+    public bool SupportsEdit => true;
+
     public async Task StartAsync(
         ChannelAccount account,
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
@@ -115,6 +117,60 @@ public sealed class TelegramConnector : IChannelConnector
     }
 
     public async Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default)
+        => await SendInternalAsync(draft, cancellationToken).ConfigureAwait(false);
+
+    public async Task<ChannelSendReceipt> SendWithReceiptAsync(
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SendInternalAsync(draft, cancellationToken).ConfigureAwait(false);
+        var externalMessageId = result?.MessageId.ToString(CultureInfo.InvariantCulture);
+        return new ChannelSendReceipt(externalMessageId, DateTimeOffset.UtcNow);
+    }
+
+    public async Task EditAsync(
+        string externalThreadId,
+        string externalMessageId,
+        string text,
+        OutboundMessageFormat format,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalThreadId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalMessageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+
+        if (!long.TryParse(externalThreadId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var chatId))
+        {
+            throw new ArgumentException(
+                "Telegram edit requires a numeric external thread id.",
+                nameof(externalThreadId));
+        }
+        if (!long.TryParse(externalMessageId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var messageId))
+        {
+            throw new ArgumentException(
+                "Telegram edit requires a numeric external message id.",
+                nameof(externalMessageId));
+        }
+
+        // Use the first started account's bot token — Telegram edits are scoped per-token,
+        // and in normal operation the indicator's source message belongs to the started bot.
+        var startedAccount = _startedAccounts.Values.FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                "Telegram connector has no started accounts; cannot edit without a bot token.");
+
+        var parseMode = format == OutboundMessageFormat.Markdown ? "Markdown" : null;
+        await _apiClient.EditMessageTextAsync(
+            startedAccount.Configuration.BotToken,
+            chatId,
+            messageId,
+            text,
+            parseMode,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<TelegramSendMessageResult?> SendInternalAsync(
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
         if (draft.ConnectorKind != ChannelConnectorKind.Telegram)
@@ -158,7 +214,7 @@ public sealed class TelegramConnector : IChannelConnector
             {
                 await using (stream.ConfigureAwait(false))
                 {
-                    await _apiClient.SendPhotoAsync(
+                    return await _apiClient.SendPhotoAsync(
                         startedAccount.Configuration.BotToken,
                         chatId,
                         stream,
@@ -166,8 +222,6 @@ public sealed class TelegramConnector : IChannelConnector
                         caption: draft.MessageText,
                         cancellationToken).ConfigureAwait(false);
                 }
-
-                return;
             }
         }
 
@@ -182,7 +236,7 @@ public sealed class TelegramConnector : IChannelConnector
             {
                 await using (stream.ConfigureAwait(false))
                 {
-                    await _apiClient.SendAudioAsync(
+                    return await _apiClient.SendAudioAsync(
                         startedAccount.Configuration.BotToken,
                         chatId,
                         stream,
@@ -190,13 +244,65 @@ public sealed class TelegramConnector : IChannelConnector
                         caption: draft.MessageText,
                         cancellationToken).ConfigureAwait(false);
                 }
+            }
+        }
 
-                return;
+        var videoAttachment = draft.MediaAttachments?.FirstOrDefault(
+            static a => a.ContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase));
+
+        if (videoAttachment is not null && _mediaStore is not null)
+        {
+            var stream = await _mediaStore.OpenReadAsync(videoAttachment.MediaId, cancellationToken)
+                .ConfigureAwait(false);
+            if (stream is not null)
+            {
+                try
+                {
+                    await using (stream.ConfigureAwait(false))
+                    {
+                        // Telegram sendVideo 接受秒级 duration（可选）。MediaMeta 存毫秒。
+                        int? durationSeconds = videoAttachment.DurationMs is int ms and > 0
+                            ? Math.Max(1, ms / 1000)
+                            : null;
+                        if (durationSeconds is null)
+                        {
+                            var meta = await _mediaStore.GetMetaAsync(videoAttachment.MediaId, cancellationToken)
+                                .ConfigureAwait(false);
+                            if (meta?.DurationMs is int metaMs && metaMs > 0)
+                            {
+                                durationSeconds = Math.Max(1, metaMs / 1000);
+                            }
+                        }
+
+                        return await _apiClient.SendVideoAsync(
+                            startedAccount.Configuration.BotToken,
+                            chatId,
+                            stream,
+                            videoAttachment.ContentType,
+                            caption: draft.MessageText,
+                            durationSeconds: durationSeconds,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 与 Feishu 对齐：上传失败降级为纯文本，避免整条消息丢失。
+                    RecordDiagnosticEvent(
+                        "telegram.video_upload_failed",
+                        "warning",
+                        $"Telegram video upload failed, falling back to text: chatId={chatId} mediaId={videoAttachment.MediaId} error={ex.GetBaseException().Message}");
+                    return await _apiClient.SendMessageAsync(
+                        startedAccount.Configuration.BotToken,
+                        chatId,
+                        $"[视频发送失败，请检查 Telegram 文件上传权限]\n{draft.MessageText}",
+                        parseMode: null,
+                        cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
         var parseMode = draft.Format == OutboundMessageFormat.Markdown ? "Markdown" : null;
-        await _apiClient.SendMessageAsync(
+        return await _apiClient.SendMessageAsync(
             startedAccount.Configuration.BotToken,
             chatId,
             draft.MessageText,

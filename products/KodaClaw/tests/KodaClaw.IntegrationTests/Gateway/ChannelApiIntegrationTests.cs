@@ -667,6 +667,29 @@ public sealed class ChannelApiIntegrationTests
         {
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 3 });
         }
+
+        public Task<TelegramSendMessageResult> SendVideoAsync(
+            string botToken,
+            long chatId,
+            Stream video,
+            string contentType,
+            string? caption,
+            int? durationSeconds = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new TelegramSendMessageResult { MessageId = 4 });
+        }
+
+        public Task<TelegramSendMessageResult> EditMessageTextAsync(
+            string botToken,
+            long chatId,
+            long messageId,
+            string text,
+            string? parseMode = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new TelegramSendMessageResult { MessageId = messageId });
+        }
     }
 
     private static TelegramUpdate CreateDirectMessageUpdate(int updateId, int messageId, string text)

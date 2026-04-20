@@ -56,7 +56,9 @@ public static partial class GatewayApp
                    retainedFileCountLimit: 7,
                    outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}")
                .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
-               .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning);
+               .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
+               .MinimumLevel.Override("System.Net.Http", Serilog.Events.LogEventLevel.Warning)
+               .MinimumLevel.Override("Microsoft.Extensions.Http", Serilog.Events.LogEventLevel.Warning);
 
             // OT-3C: bridge Serilog structured logs to OTel LogsProvider when OTLP is configured.
             if (otlpEnabled)

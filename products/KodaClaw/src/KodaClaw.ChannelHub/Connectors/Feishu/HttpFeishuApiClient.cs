@@ -363,6 +363,59 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         return await ParseSendMessageResponse(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task PatchTextMessageAsync(
+        string tenantAccessToken,
+        string messageId,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(tenantAccessToken))
+        {
+            throw new ArgumentException("A non-empty tenant access token is required.", nameof(tenantAccessToken));
+        }
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            throw new ArgumentException("A non-empty message id is required.", nameof(messageId));
+        }
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("A non-empty text is required.", nameof(text));
+        }
+
+        // 飞书消息编辑 API 要求 PUT（不是 PATCH）。
+        // https://open.feishu.cn/document/server-docs/im-v1/message/update
+        var content = JsonSerializer.Serialize(new { text }, JsonOptions);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Put,
+            $"/open-apis/im/v1/messages/{Uri.EscapeDataString(messageId)}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tenantAccessToken);
+        request.Content = JsonContent.Create(
+            new
+            {
+                msg_type = "text",
+                content,
+            },
+            options: JsonOptions);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var responseBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = System.Text.Encoding.UTF8.GetString(responseBytes);
+            throw new HttpRequestException(
+                $"Feishu edit message failed: status={(int)response.StatusCode}, body={body}");
+        }
+
+        var result = JsonSerializer.Deserialize<FeishuSendMessageResponse>(responseBytes, JsonOptions);
+        if (result is null || result.Code != 0)
+        {
+            var body = System.Text.Encoding.UTF8.GetString(responseBytes);
+            throw new InvalidOperationException(
+                $"Feishu edit message failed: code={result?.Code}, msg={result?.Msg}, body={body}");
+        }
+    }
+
     public async Task<FeishuWsEndpoint> GetWsEndpointAsync(
         string appId,
         string appSecret,

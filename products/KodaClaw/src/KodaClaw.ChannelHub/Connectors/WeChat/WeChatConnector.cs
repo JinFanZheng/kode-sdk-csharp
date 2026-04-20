@@ -16,7 +16,9 @@ public sealed class WeChatConnector : IChannelConnector
     private const int ILinkMessageTypeText = 1;
     private const int ILinkMessageTypeImage = 2;
     private const int ILinkMessageTypeFile = 4;
+    private const int ILinkMessageTypeVideo = 5;
     private const int ILinkMediaTypeImage = 1; // getuploadurl media_type
+    private const int ILinkMediaTypeVideo = 2; // getuploadurl media_type
     private const int ILinkMediaTypeFile = 3;  // getuploadurl media_type
 
     // 正则：去除常见 Markdown 标记，微信不支持 Markdown
@@ -194,9 +196,8 @@ public sealed class WeChatConnector : IChannelConnector
         {
             foreach (var mediaRef in draft.MediaAttachments)
             {
-                // 音频需 AMR 转码，降级为文件发送
-                var isImage = mediaRef.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
-                var ilinkMediaType = isImage ? ILinkMediaTypeImage : ILinkMediaTypeFile;
+                // 音频需 AMR 转码，降级为文件发送；视频走原生 video_item 路径
+                var ilinkMediaType = ResolveILinkMediaType(mediaRef.ContentType);
 
                 try
                 {
@@ -281,9 +282,23 @@ public sealed class WeChatConnector : IChannelConnector
                 EncryptType = 1
             };
 
-            ILinkMessageItem item = isImage
-                ? new ILinkMessageItem { Type = ILinkMessageTypeImage, ImageItem = new ILinkImageItem { Media = media } }
-                : new ILinkMessageItem
+            ILinkMessageItem item = ilinkMediaType switch
+            {
+                ILinkMediaTypeImage => new ILinkMessageItem
+                {
+                    Type = ILinkMessageTypeImage,
+                    ImageItem = new ILinkImageItem { Media = media }
+                },
+                ILinkMediaTypeVideo => new ILinkMessageItem
+                {
+                    Type = ILinkMessageTypeVideo,
+                    VideoItem = new ILinkVideoItem
+                    {
+                        Media = media,
+                        VideoSize = encrypted.Length
+                    }
+                },
+                _ => new ILinkMessageItem
                 {
                     Type = ILinkMessageTypeFile,
                     FileItem = new ILinkFileItem
@@ -292,10 +307,25 @@ public sealed class WeChatConnector : IChannelConnector
                         FileName = mediaRef.FileName ?? "file",
                         Len = encrypted.Length.ToString()
                     }
-                };
+                }
+            };
 
             await _apiClient.SendMediaAsync(toUserId, contextToken, [item], ct).ConfigureAwait(false);
         }
+    }
+
+    private static int ResolveILinkMediaType(string contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType))
+            return ILinkMediaTypeFile;
+
+        if (contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            return ILinkMediaTypeImage;
+
+        if (contentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+            return ILinkMediaTypeVideo;
+
+        return ILinkMediaTypeFile;
     }
 
     private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken ct)

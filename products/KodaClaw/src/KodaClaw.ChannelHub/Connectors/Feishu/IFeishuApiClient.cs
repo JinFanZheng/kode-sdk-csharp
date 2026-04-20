@@ -92,6 +92,17 @@ public interface IFeishuApiClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 编辑已发送的文本消息（用于 progress indicator edit-in-place）。
+    /// PUT /open-apis/im/v1/messages/{message_id} with {"msg_type":"text","content":"{\"text\":...}"}
+    /// 飞书官方要求 PUT（不是 PATCH）：https://open.feishu.cn/document/server-docs/im-v1/message/update
+    /// </summary>
+    Task PatchTextMessageAsync(
+        string tenantAccessToken,
+        string messageId,
+        string text,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Download a media resource (image/file) from a Feishu message.
     /// GET /open-apis/im/v1/messages/{messageId}/resources/{fileKey}?type={type}
     /// Returns a stream that the caller must dispose.

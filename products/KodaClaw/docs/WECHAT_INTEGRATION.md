@@ -504,13 +504,13 @@ private string LoadSyncBuf()
 
 ### 8.2 媒体功能
 
-- [ ] 接收图片
-- [ ] 发送图片
+- [x] 接收图片
+- [x] 发送图片
 - [ ] 接收语音（带转文字）
-- [ ] 接收文件
-- [ ] 发送文件
+- [x] 接收文件
+- [x] 发送文件
 - [ ] 接收视频
-- [ ] 发送视频
+- [x] 发送视频（KC-BUG-7204：type=5 video_item / media_type=2，AES key 与 file 同规则）
 
 ### 8.3 边界情况
 
@@ -664,5 +664,8 @@ getconfig 失败不阻断消息处理，直接降级跳过 typing，保证健壮
 | `sendmessage` | ✅ | 发送文字 |
 | `getconfig` | ✅ | 获取 typing_ticket |
 | `sendtyping` | ✅ | 正在输入状态 |
-| `getuploadurl` | ❌ | 媒体消息上传（未实现） |
-| 图片/语音/文件/视频 item_list | ❌ | 接收与发送均未实现 |
+| `getuploadurl` | ✅ | 媒体加密上传（image/file/video） |
+| `image_item` (type=2) | ✅ | 接收与发送（KC-46xx） |
+| `file_item` (type=4) | ✅ | 接收与发送（KC-46xx） |
+| `video_item` (type=5) | 🟡 | 出站发送已实现（KC-BUG-7204）；入站接收未实现 |
+| `voice_item` (type=3) | ❌ | SILK/AMR 转码超出范围；出站降级为 file |

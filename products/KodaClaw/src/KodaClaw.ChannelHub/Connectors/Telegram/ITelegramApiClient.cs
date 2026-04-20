@@ -34,5 +34,27 @@ public interface ITelegramApiClient
         string contentType,
         string? caption,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 发送视频消息（multipart 上传）。
+    /// POST https://api.telegram.org/bot{token}/sendVideo
+    /// 官方文档：https://core.telegram.org/bots/api#sendvideo
+    /// </summary>
+    Task<TelegramSendMessageResult> SendVideoAsync(
+        string botToken,
+        long chatId,
+        Stream video,
+        string contentType,
+        string? caption,
+        int? durationSeconds = null,
+        CancellationToken cancellationToken = default);
+
+    Task<TelegramSendMessageResult> EditMessageTextAsync(
+        string botToken,
+        long chatId,
+        long messageId,
+        string text,
+        string? parseMode = null,
+        CancellationToken cancellationToken = default);
 }
 
