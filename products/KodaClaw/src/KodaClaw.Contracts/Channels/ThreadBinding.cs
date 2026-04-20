@@ -18,4 +18,6 @@ public sealed record ThreadBinding(
     string? LastMessagePreview = null,
     DeliveryMode? DeliveryModeOverride = null,
     string? PendingModelOverride = null,
-    string? ActiveModelId = null);
+    string? ActiveModelId = null,
+    bool ThinkingEnabled = false,
+    bool? StreamOverride = null);

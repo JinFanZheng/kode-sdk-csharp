@@ -73,8 +73,8 @@ public sealed class ChannelCommandRegistryTests
     [InlineData("/?")]
     [InlineData("/compact")]
     [InlineData("/tools")]
-    [InlineData("/whoami")]
-    [InlineData("/me")]
+    [InlineData("/info")]
+    [InlineData("/i")]
     [InlineData("/btw")]
     [InlineData("/think")]
     [InlineData("/stream")]
@@ -121,6 +121,11 @@ public sealed class ChannelCommandRegistryTests
 
         foreach (ChannelDirectiveKind kind in Enum.GetValues<ChannelDirectiveKind>())
         {
+            // ChannelDirectiveKind.Think is parser-internal fallback:
+            // `/think` 的 alias 归属 ThinkToggle control command，非 on/off 参数被 parser 改写为 Think directive。
+            // 因此 Think 不需要独立 registry 条目。
+            if (kind == ChannelDirectiveKind.Think) continue;
+
             registeredKinds.Should().Contain(kind,
                 because: $"ChannelDirectiveKind.{kind} must be registered in the registry");
         }

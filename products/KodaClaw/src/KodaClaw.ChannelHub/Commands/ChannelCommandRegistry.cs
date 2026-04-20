@@ -70,11 +70,11 @@ public static class ChannelCommandRegistry
             ControlKind: ChannelControlCommandKind.Tools),
 
         new(
-            Key: "whoami",
-            Aliases: ["/whoami", "/me"],
-            Description: "查看当前 Agent 的身份信息",
+            Key: "info",
+            Aliases: ["/info", "/i"],
+            Description: "查看当前会话完整信息（模型、上下文占用、绑定、toggle、活动）",
             Category: "info",
-            ControlKind: ChannelControlCommandKind.WhoAmI),
+            ControlKind: ChannelControlCommandKind.Info),
 
         new(
             Key: "btw",
@@ -83,28 +83,21 @@ public static class ChannelCommandRegistry
             Category: "meta",
             ControlKind: ChannelControlCommandKind.SideQuestion),
 
-        // ── Directive modifiers ──────────────────────────────────────────────────
         new(
-            Key: "think",
+            Key: "think-toggle",
             Aliases: ["/think"],
-            Description: "启用扩展思考模式（Thinking Budget）",
+            Description: "开启/关闭扩展思考（/think on | /think off；/think 不带参数查看当前状态）",
             Category: "modifier",
-            DirectiveKind: ChannelDirectiveKind.Think),
+            ControlKind: ChannelControlCommandKind.ThinkToggle),
 
         new(
-            Key: "stream",
-            Aliases: ["/stream"],
-            Description: "为本次对话启用流式进度输出",
+            Key: "stream-toggle",
+            Aliases: ["/stream", "/quiet"],
+            Description: "开启/关闭流式进度输出（/stream on | /stream off；/quiet 等价 /stream off）",
             Category: "modifier",
-            DirectiveKind: ChannelDirectiveKind.Stream),
+            ControlKind: ChannelControlCommandKind.StreamToggle),
 
-        new(
-            Key: "quiet",
-            Aliases: ["/quiet"],
-            Description: "为本次对话禁用流式进度输出，只回复最终结果",
-            Category: "modifier",
-            DirectiveKind: ChannelDirectiveKind.Quiet),
-
+        // ── Directive modifiers ──────────────────────────────────────────────────
         new(
             Key: "focus",
             Aliases: ["/focus"],

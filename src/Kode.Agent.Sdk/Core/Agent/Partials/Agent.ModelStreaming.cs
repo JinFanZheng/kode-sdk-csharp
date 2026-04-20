@@ -149,7 +149,7 @@ public sealed partial class Agent
                         case StreamChunkType.ThinkingDelta:
                             if (chunk.ThinkingDelta != null)
                             {
-                                if (_config.ExposeThinking == true)
+                                if ((_currentRunOptions?.ExposeThinking ?? _config.ExposeThinking) == true)
                                 {
                                     if (!thinkingStarted)
                                     {
@@ -274,8 +274,8 @@ public sealed partial class Agent
             });
         }
 
-        // Add thinking content if any (only if exposeThinking enabled)
-        if (_config.ExposeThinking == true && thinkingBuilder.Length > 0)
+        // Add thinking content if any (only if exposeThinking enabled; per-run override wins)
+        if ((_currentRunOptions?.ExposeThinking ?? _config.ExposeThinking) == true && thinkingBuilder.Length > 0)
         {
             contentBlocks.Insert(0, new ThinkingContent { Thinking = thinkingBuilder.ToString() });
         }

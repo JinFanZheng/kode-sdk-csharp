@@ -1,19 +1,33 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { FormEvent, KeyboardEvent, ClipboardEvent } from "react";
-import { ArrowUp, Check, ChevronDown, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Brain, Paperclip, Square } from "lucide-react";
 import { useLocaleText } from "../i18n/I18nProvider";
+import { CAP_IMAGE, CAP_TEXT } from "../constants/modelCapabilities";
+import { AttachmentBar, type AttachedMedia } from "./composer/AttachmentBar";
+import { ModelPicker, type ModelOption } from "./composer/ModelPicker";
+import { Tooltip } from "./ui/Tooltip";
 
-const CAP_TEXT  = 1 << 0; // 1
-const CAP_IMAGE = 1 << 1; // 2
+export type { AttachedMedia } from "./composer/AttachmentBar";
+export type { ModelOption } from "./composer/ModelPicker";
 
-export type AttachedMedia = {
-  mediaId: string;
-  previewUrl: string;
-  contentType: string;
-  uploading?: boolean;
+const MAX_TEXTAREA_HEIGHT = 160;
+
+type ModelGroup = {
+  name: string;
+  capabilities: number;
+  selectedId?: string | null;
+  available?: ModelOption[];
+  onChange?: (modelId: string) => void;
+  supportsThinking?: boolean;
+  thinkingEnabled?: boolean;
+  onToggleThinking?: () => void;
 };
 
-export type ModelOption = { id: string; displayName: string };
+type AttachmentGroup = {
+  media: AttachedMedia[];
+  onAttach: (files: File[]) => void;
+  onRemove?: (mediaId: string) => void;
+};
 
 type ChatComposerProps = {
   value: string;
@@ -24,16 +38,8 @@ type ChatComposerProps = {
   onChange: (next: string) => void;
   onSubmit: () => void;
   onStop?: () => void;
-  // KC-4403: model pill
-  modelName?: string | null;
-  modelCapabilities?: number;
-  selectedModelId?: string | null;
-  availableModels?: ModelOption[];
-  onModelChange?: (modelId: string) => void;
-  // KC-4404: vision attachment
-  attachedMedia?: AttachedMedia[];
-  onAttachMedia?: (files: File[]) => void;
-  onRemoveMedia?: (mediaId: string) => void;
+  model?: ModelGroup | null;
+  attachment?: AttachmentGroup | null;
 };
 
 export function ChatComposer({
@@ -45,44 +51,23 @@ export function ChatComposer({
   onChange,
   onSubmit,
   onStop,
-  modelName,
-  modelCapabilities,
-  selectedModelId,
-  availableModels,
-  onModelChange,
-  attachedMedia,
-  onAttachMedia,
-  onRemoveMedia,
+  model,
+  attachment,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pillWrapRef = useRef<HTMLDivElement>(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const supportsVision =
-    onAttachMedia != null &&
-    modelCapabilities != null &&
-    (modelCapabilities & CAP_TEXT) !== 0 &&
-    (modelCapabilities & CAP_IMAGE) !== 0;
+    attachment != null &&
+    model != null &&
+    (model.capabilities & CAP_TEXT) !== 0 &&
+    (model.capabilities & CAP_IMAGE) !== 0;
 
-  // Close model dropdown on outside click
-  useEffect(() => {
-    if (!dropdownOpen) return;
-    function handleOutside(e: MouseEvent) {
-      if (pillWrapRef.current && !pillWrapRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, [dropdownOpen]);
-
-  // Auto-grow textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
   }, [value]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -98,19 +83,19 @@ export function ChatComposer({
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    if (!supportsVision) return;
+    if (!supportsVision || !attachment) return;
     const files = Array.from(event.clipboardData.files).filter((f) =>
       f.type.startsWith("image/"),
     );
     if (files.length > 0) {
       event.preventDefault();
-      onAttachMedia!(files);
+      attachment.onAttach(files);
     }
   }
 
   function handleFileChange() {
     const files = Array.from(fileInputRef.current?.files ?? []);
-    if (files.length > 0) onAttachMedia!(files);
+    if (files.length > 0 && attachment) attachment.onAttach(files);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -122,6 +107,7 @@ export function ChatComposer({
       submit: "发送",
       stop: "停止",
       attach: "附加图片",
+      thinking: (enabled: boolean) => enabled ? "深度思考：已开启（再次点击关闭）" : "开启深度思考（仅推理型模型）",
     },
     en: {
       live: (tool: string | null | undefined) => tool ? `Koda is running ${tool}…` : "Receiving response…",
@@ -130,37 +116,18 @@ export function ChatComposer({
       submit: "Send",
       stop: "Stop",
       attach: "Attach image",
+      thinking: (enabled: boolean) => enabled ? "Extended thinking: on (click to disable)" : "Enable extended thinking (reasoning models only)",
     },
   });
 
-  const hasContent = value.trim().length > 0 || (attachedMedia != null && attachedMedia.length > 0);
-  const isSubmitDisabled = disabled || (!isStreaming && !hasContent);
+  const hasAttachedMedia = attachment != null && attachment.media.length > 0;
+  const hasContent = value.trim().length > 0 || hasAttachedMedia;
+  const canSubmit = !disabled && (isStreaming || hasContent);
 
   return (
     <form className="composer" data-testid="chat-composer" onSubmit={handleSubmit}>
-      {/* KC-4404: attachment preview bar */}
-      {attachedMedia && attachedMedia.length > 0 && (
-        <div className="composer__attachment-bar">
-          {attachedMedia.map((m) => (
-            <div key={m.mediaId} className="composer__attachment-thumb">
-              {m.uploading ? (
-                <div className="composer__attachment-spinner" />
-              ) : (
-                <img src={m.previewUrl} alt="" draggable={false} />
-              )}
-              {onRemoveMedia && !m.uploading && (
-                <button
-                  type="button"
-                  className="composer__attachment-remove"
-                  onClick={() => onRemoveMedia(m.mediaId)}
-                  aria-label="Remove"
-                >
-                  <X size={10} strokeWidth={2.5} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+      {attachment && (
+        <AttachmentBar items={attachment.media} onRemove={attachment.onRemove} />
       )}
 
       <textarea
@@ -179,44 +146,33 @@ export function ChatComposer({
       />
 
       <div className="composer__actions">
-        {/* KC-4403: model pill (switchable) */}
         <div className="composer__actions-left">
-          {modelName && (
-            <div ref={pillWrapRef} className="composer__model-pill-wrap">
+          {model && (
+            <ModelPicker
+              modelName={model.name}
+              selectedModelId={model.selectedId}
+              availableModels={model.available}
+              onModelChange={model.onChange}
+            />
+          )}
+          {model?.supportsThinking && (
+            <Tooltip content={text.thinking(model.thinkingEnabled ?? false)}>
               <button
                 type="button"
-                className="composer__model-pill"
-                title={modelName}
-                onClick={() => availableModels && availableModels.length > 1 && setDropdownOpen(o => !o)}
-                disabled={!availableModels || availableModels.length <= 1}
+                className={
+                  model.thinkingEnabled
+                    ? "composer__thinking-toggle composer__thinking-toggle--active"
+                    : "composer__thinking-toggle"
+                }
+                onClick={() => model.onToggleThinking?.()}
+                disabled={disabled || isStreaming}
+                aria-pressed={model.thinkingEnabled ?? false}
+                aria-label={text.thinking(model.thinkingEnabled ?? false)}
               >
-                <span className="composer__model-pill-name">{modelName}</span>
-                {availableModels && availableModels.length > 1 && (
-                  <ChevronDown
-                    size={10}
-                    strokeWidth={2.5}
-                    className={dropdownOpen ? "composer__model-pill-chevron composer__model-pill-chevron--open" : "composer__model-pill-chevron"}
-                  />
-                )}
+                <Brain size={15} strokeWidth={2} />
               </button>
-              {dropdownOpen && availableModels && (
-                <div className="composer__model-dropdown">
-                  {availableModels.map(m => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      className="composer__model-dropdown-item"
-                      onClick={() => { onModelChange?.(m.id); setDropdownOpen(false); }}
-                    >
-                      <span className="composer__model-dropdown-item-name">{m.displayName}</span>
-                      {m.id === selectedModelId && <Check size={12} strokeWidth={2.5} />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            </Tooltip>
           )}
-          {/* KC-4404: attach button */}
           {supportsVision && (
             <>
               <input
@@ -261,7 +217,7 @@ export function ChatComposer({
             data-testid="chat-submit"
             className="composer__submit"
             type="submit"
-            disabled={isSubmitDisabled}
+            disabled={!canSubmit}
             aria-label={text.submit}
           >
             <ArrowUp size={16} strokeWidth={2.5} />

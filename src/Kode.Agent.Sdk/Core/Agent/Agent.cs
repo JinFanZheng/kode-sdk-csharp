@@ -134,6 +134,20 @@ public sealed partial class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAge
         return await RunMultimodalAsync(parts, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<AgentRunResult> RunAsync(IReadOnlyList<ContentBlock> parts, AgentRunOptions? options, CancellationToken cancellationToken = default)
+    {
+        _currentRunOptions = options;
+        try
+        {
+            return await RunMultimodalAsync(parts, cancellationToken);
+        }
+        finally
+        {
+            _currentRunOptions = null;
+        }
+    }
+
     private async Task<AgentRunResult> RunMultimodalAsync(IReadOnlyList<ContentBlock> parts, CancellationToken cancellationToken = default)
     {
         // OT-1B: propagate parent trace context so sub-agent spans are children of the spawning tool span.

@@ -1326,6 +1326,11 @@ function toChatStreamEvent(frame: ParsedSseFrame, request: ChatStreamRequest): C
     toolName: payload.toolName ?? null,
     inputPreview: payload.inputPreview ?? null,
     decision: payload.decision ?? null,
+    durationMs: payload.durationMs ?? null,
+    subAgentId: payload.subAgentId ?? null,
+    label: payload.label ?? null,
+    subAgentToolName: payload.subAgentToolName ?? null,
+    thinkingDelta: payload.thinkingDelta ?? null,
   };
 }
 

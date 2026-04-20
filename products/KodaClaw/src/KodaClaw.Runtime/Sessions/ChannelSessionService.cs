@@ -30,6 +30,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly IMemorySessionSummaryService? _sessionSummaryService;
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ISettingsRepository? _settingsRepository;
+    private readonly IChannelSessionStatsTracker? _statsTracker;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _sessionModels = new(StringComparer.Ordinal);
@@ -45,7 +46,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         IThreadBindingRepository? threadBindingRepository = null,
         IMemorySessionSummaryService? sessionSummaryService = null,
         IDiagnosticsService? diagnosticsService = null,
-        ISettingsRepository? settingsRepository = null)
+        ISettingsRepository? settingsRepository = null,
+        IChannelSessionStatsTracker? statsTracker = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
@@ -57,6 +59,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         _sessionSummaryService = sessionSummaryService;
         _diagnosticsService = diagnosticsService;
         _settingsRepository = settingsRepository;
+        _statsTracker = statsTracker;
     }
 
     public async Task<ChannelSessionHandle> EnsureChannelSessionAsync(
@@ -533,6 +536,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             await TryGenerateChannelSessionSummaryAsync(binding, cancellationToken);
             _agents.Remove(binding.SessionId);
             _sessionModels.TryRemove(binding.SessionId, out _);
+            _statsTracker?.Reset(binding.SessionId);
             if (_sessionLocks.TryRemove(binding.SessionId, out var removedLock))
             {
                 removedLock.Dispose();
@@ -549,12 +553,15 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
         if (_threadBindingRepository is not null)
         {
+            // 新会话重置 ThinkingEnabled（贵且按需，会话粒度）；
+            // StreamOverride 是用户偏好，保留跨会话（只有 /stream off 能清）。
             await _threadBindingRepository.UpsertAsync(
                 binding with
                 {
                     SessionId = newSessionId,
                     PendingModelOverride = modelOverride,  // null 表示无 override，覆盖旧值
                     ActiveModelId = null,                  // 旧 session 已蒸发，新 session 尚未创建
+                    ThinkingEnabled = false,
                     UpdatedAt = DateTimeOffset.UtcNow
                 },
                 cancellationToken);

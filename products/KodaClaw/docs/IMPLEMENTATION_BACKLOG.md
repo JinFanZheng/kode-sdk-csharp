@@ -161,6 +161,45 @@
 
 ---
 
+## Iter 73 — Main Chat Extended Thinking 开关（KC-7301~7303）
+
+> 类型：新功能（小范围，未走 FREEZE 流程；用户口头拍板 + 一起做了 ChatComposer 优化，作为 KC-W2 类横跨重构的附带项登记）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-7301 | `Kode.Agent.Sdk` | 新增 `Agent.RunAsync(IReadOnlyList<ContentBlock>, AgentRunOptions?, CancellationToken)` 重载，镜像 `RunAsync(string, AgentRunOptions?, ...)` 的 `_currentRunOptions` try/finally 模板 | `dotnet build` 0 错 0 警告 | Completed |
+| KC-7302 | `KodaClaw.Contracts` / `KodaClaw.Runtime` | `ChatStreamRequest` 扩 `EnableThinking?/ThinkingBudget?` 字段；`ChatSessionService.StreamMainSessionAsync` 从 `Subscribe + Send` 迁移到 `Subscribe + Task.Run(agent.RunAsync(..., runOptions, ct))`，per-turn overrides 通过 `AgentRunOptions` 注入；保留 fire-and-forget + `ContinueWith` 观察异常避免 unobserved exception | `dotnet build KodaClaw.Runtime` 0 错 0 警告 | Completed |
+| KC-7303 | `apps/kodaclaw-web` | ChatComposer 重构（A 阶段）+ Brain toggle 按钮（仅 `model.supportsThinking=true` 显示）：`constants/modelCapabilities.ts` 共享 CAP 常量；`components/composer/{ModelPicker,AttachmentBar}.tsx` 抽子组件；`ChatComposer` props 分三组（core/model/attachment），删除 `onAttachMedia!` 非空断言；App.tsx `thinkingEnabled` state 默认 off，切模型重置；`sendMessage(..., { enableThinking })` 透传；`index.css` `.composer__thinking-toggle(--active)` 样式 | `npm run typecheck` 0 新错误（预存在 2 个 `EndpointDetailPanel.tsx` 与本条目无关） | Completed |
+
+---
+
+## Iter 74 — Channel Sticky Toggles: /think & /stream（KC-7401~7404）
+
+> 类型：新功能（小范围，未走 FREEZE 流程；用户口头拍板 — 统一 toggle 语义，为 Main 层 thinking 对齐 Channel 侧）
+> 受影响模块：`KodaClaw.Contracts`、`KodaClaw.ChannelHub`、`KodaClaw.Runtime`、`tests/KodaClaw.UnitTests`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-7401 | `KodaClaw.Contracts` | `ThreadBinding` 追加两个可选字段 `ThinkingEnabled: bool = false`、`StreamOverride: bool? = null`；`ChannelControlCommandKind` 追加 `ThinkToggle`/`StreamToggle`；`ChannelDirectiveKind` 移除 `Stream`/`Quiet`（保留 `Think`/`Focus`）；`JsonThreadBindingRepository` roundtrip 自动覆盖（record 默认值） | `dotnet build` 0 错；L1：`JsonThreadBindingRepositoryTests.Roundtrip_preserves_ThinkingEnabled_and_StreamOverride` + `..._defaults_ThinkingEnabled_false_and_StreamOverride_null` 通过 | Completed |
+| KC-7402 | `KodaClaw.ChannelHub/Commands` | `ChannelCommandRegistry`：`/think` 迁为 `think-toggle` control；`/stream` + `/quiet` 合并为 `stream-toggle` control（`/quiet` 作为 alias）；`ChannelCommandParser` 新增 dual-mode：`/think` 带非 on/off 参数时回落为 per-turn `ChannelDirectiveKind.Think` directive（支持 `/think /focus 主题 正文` 链式）；新增 `IsToggleArg(string)` helper | L1：`ChannelCommandParserTests` 15 例（含 `/think on/off/ON/OFF`、bare `/think`、`/stream on/off/bare`、`/quiet` alias、`/think <message>` 回落、`/think /focus` chain）全绿；`ChannelCommandRegistryTests.All_directive_kinds_are_covered` 豁免 Think（parser-internal fallback） | Completed |
+| KC-7403 | `KodaClaw.ChannelHub/Commands` + `KodaClaw.Runtime` | `ChannelCommandDispatcher` 构造可选注入 `IThreadBindingRepository?`；新增 `HandleThinkToggleAsync`（bare → 展示状态；on/off → read-modify-write with-expression + 幂等短路；非 on/off → 用法提示）与 `HandleStreamToggleAsync`（同模式，StreamOverride 三态 null/true/false）；`ChannelTurnContext.FromDirectivesAndBinding(parsed, binding)` 叠加 sticky + per-turn（per-turn directive 与 sticky toggle 同方向时幂等，不同方向时 per-turn 赢）；`ChannelTurnOrchestrator` 切换到新工厂；`ChannelSessionService.RotateSessionAsync` 新 binding 重置 `ThinkingEnabled=false` 保留 `StreamOverride`；`/status` 追加 toggle 状态行 | L1：`ChannelCommandDispatcherTests` 新增 7 例（`/think on/off/bare/idempotent`、`/stream on/off/bare`、`/quiet` alias）；`ChannelTurnContextTests` 6 例（空、Think budget、Focus、sticky overlay 3 套、per-turn win）全绿 | Completed |
+| KC-7404 | 测试层 | `dotnet test KodaClaw.sln -m:1` 全绿（UnitTests 662 + IntegrationTests 304 + ContractTests 181 = 1147）；`dotnet build KodaClaw.sln` 0 错 0 警告 | `dotnet build products/KodaClaw/KodaClaw.sln`；`dotnet test products/KodaClaw/KodaClaw.sln -m:1` | Completed |
+
+---
+
+## Iter 75 — Channel `/info` 命令 + `/whoami` 清退（KC-7501~7503）
+
+> 类型：新功能（小范围，未走 FREEZE 流程；用户口头拍板 — 整合"当前 session 快照"观察能力，同时清退价值过低的 `/whoami`）
+> 受影响模块：`KodaClaw.ChannelHub`、`KodaClaw.Runtime`、`tests/KodaClaw.UnitTests`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-7501 | `KodaClaw.Runtime` | 新增 `IChannelSessionStatsTracker` + `ChannelSessionStatsTracker` + `ChannelSessionStats` record（in-memory `ConcurrentDictionary`，累积 input/output tokens + TurnCount，重启清零不持久化）；DI 注册为 singleton；`ChannelTurnOrchestrator` RunAsync 之后调 `Record(binding.SessionId, runResult.TokenUsage)`；`ChannelSessionService.RotateSessionAsync` 轮转时调 `Reset(oldSessionId)` | L1：`ChannelSessionStatsTrackerTests`（7 例：null usage / 空 sessionId / 首次写 / 累积 / reset / 未知 session reset / 会话隔离）全绿 | Completed |
+| KC-7502 | `KodaClaw.ChannelHub/Commands` | 删除 `ChannelControlCommandKind.WhoAmI` + `ChannelCommandRegistry` 的 `/whoami` `/me` 条目 + `ChannelCommandDispatcher.HandleWhoAmIAsync`；新增 `ChannelControlCommandKind.Info` + `/info` `/i` 别名；`HandleInfoAsync` 输出六段（身份/模型/上下文/Toggle/绑定/活动）；Dispatcher 可选注入 `IChannelSessionStatsTracker?`，读 tracker + AccountModel.ContextWindowSize 算百分比 | L1：`ChannelCommandParserTests` + `ChannelCommandRegistryTests` `/whoami` `/me` 下线、`/info` `/i` 纳入校验；`ChannelCommandRegistryTests.All_control_kinds_are_covered` 覆盖 `Info` | Completed |
+| KC-7503 | 测试层 | `dotnet build products/KodaClaw/KodaClaw.sln` 0 错 0 警告；全量回归 UnitTests 669 + IntegrationTests 304 + ContractTests 181 = 1154 全绿 | `dotnet build products/KodaClaw/KodaClaw.sln`；`dotnet test products/KodaClaw/KodaClaw.sln -m:1` | Completed |
+
+---
+
 ## Iter 71 — Sub-Agent 实时进度可见性（KC-7101~7103）
 
 > FREEZE doc: `docs/ITERATION_71_FREEZE.md`（2026-04-09）

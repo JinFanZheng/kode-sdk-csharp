@@ -11,9 +11,11 @@ public enum ChannelControlCommandKind
     Help,
     Compact,
     Tools,
-    WhoAmI,
+    Info,
     SideQuestion,
     Model,
+    ThinkToggle,
+    StreamToggle,
 }
 
 /// <summary>
@@ -22,8 +24,6 @@ public enum ChannelControlCommandKind
 public enum ChannelDirectiveKind
 {
     Think,
-    Stream,
-    Quiet,
     Focus,
 }
 

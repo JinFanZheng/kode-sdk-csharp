@@ -20,4 +20,6 @@ public sealed record ChatStreamEvent(
     // Sub-agent progress events (subagent_start / subagent_working / subagent_tool_done)
     string? SubAgentId = null,
     string? Label = null,
-    string? SubAgentToolName = null);
+    string? SubAgentToolName = null,
+    // Thinking stream (think_chunk_start / think_chunk / think_chunk_end)
+    string? ThinkingDelta = null);

@@ -42,6 +42,7 @@ public sealed class ChannelTurnOrchestrator
     private readonly IChannelSendCapture? _sendCapture;
     private readonly IModelProvider? _modelProvider;
     private readonly ChannelCommandDispatcher? _commandDispatcher;
+    private readonly IChannelSessionStatsTracker? _statsTracker;
     private readonly ChannelSessionOptions _sessionOptions;
     private readonly ILogger<ChannelTurnOrchestrator> _logger;
     private readonly string? _dedupeFilePath;
@@ -62,6 +63,7 @@ public sealed class ChannelTurnOrchestrator
         IChannelSendCapture? sendCapture = null,
         IModelProvider? modelProvider = null,
         ChannelCommandDispatcher? commandDispatcher = null,
+        IChannelSessionStatsTracker? statsTracker = null,
         ChannelSessionOptions? sessionOptions = null,
         KodaClawWorkspaceOptions? workspaceOptions = null,
         ChannelConnectorKindResolver? connectorResolver = null,
@@ -82,6 +84,7 @@ public sealed class ChannelTurnOrchestrator
         _sendCapture = sendCapture;
         _modelProvider = modelProvider;
         _commandDispatcher = commandDispatcher;
+        _statsTracker = statsTracker;
         _sessionOptions = sessionOptions ?? new ChannelSessionOptions();
         _connectorResolver = connectorResolver;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelTurnOrchestrator>.Instance;
@@ -252,10 +255,9 @@ public sealed class ChannelTurnOrchestrator
 
         var hasExplicitMention = DetectExplicitMention(envelope, account);
 
-        // KC-CMD: Build turn context from any directive modifiers (e.g. /think, /stream, /quiet, /focus).
-        var turnContext = parsedCommand.Directives.Count > 0
-            ? ChannelTurnContext.FromDirectives(parsedCommand)
-            : ChannelTurnContext.Empty;
+        // Build turn context by layering per-turn directives (/think <msg>, /focus) on top of
+        // the sticky toggles persisted on the binding (/think on, /stream on).
+        var turnContext = ChannelTurnContext.FromDirectivesAndBinding(parsedCommand, processing.Binding);
 
         // Guard: directive present but no actual prompt body — inform the user.
         if (parsedCommand.Directives.Count > 0 && string.IsNullOrWhiteSpace(parsedCommand.CleanedText))
@@ -428,6 +430,9 @@ public sealed class ChannelTurnOrchestrator
                     }
                 }
             }
+
+            _statsTracker?.Record(processing.Binding.SessionId, runResult.TokenUsage);
+
             var execution = new ChannelTurnExecutionResult(
                 Session: handle,
                 RunResult: runResult,

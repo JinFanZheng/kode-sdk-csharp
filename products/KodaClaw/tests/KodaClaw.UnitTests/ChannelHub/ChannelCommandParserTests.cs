@@ -57,8 +57,8 @@ public sealed class ChannelCommandParserTests
     [InlineData("/?", ChannelControlCommandKind.Help)]
     [InlineData("/compact", ChannelControlCommandKind.Compact)]
     [InlineData("/tools", ChannelControlCommandKind.Tools)]
-    [InlineData("/whoami", ChannelControlCommandKind.WhoAmI)]
-    [InlineData("/me", ChannelControlCommandKind.WhoAmI)]
+    [InlineData("/info", ChannelControlCommandKind.Info)]
+    [InlineData("/i", ChannelControlCommandKind.Info)]
     [InlineData("/btw", ChannelControlCommandKind.SideQuestion)]
     public void Parse_control_commands_returns_correct_kind(string input, ChannelControlCommandKind expected)
     {
@@ -119,30 +119,53 @@ public sealed class ChannelCommandParserTests
     }
 
     [Fact]
-    public void Parse_think_directive_with_no_text_has_empty_cleaned_text()
+    public void Parse_bare_think_is_ThinkToggle_control_command()
     {
         var result = ChannelCommandParser.Parse("/think");
-        result.ControlKind.Should().BeNull();
-        result.Directives.Should().ContainSingle().Which.Should().Be(ChannelDirectiveKind.Think);
-        result.CleanedText.Should().Be("");
+        result.ControlKind.Should().Be(ChannelControlCommandKind.ThinkToggle);
+        result.ControlArg.Should().BeNull();
+        result.Directives.Should().BeEmpty();
     }
 
     [Fact]
-    public void Parse_stream_directive_sets_directive()
+    public void Parse_think_on_is_ThinkToggle_control_command()
     {
-        var result = ChannelCommandParser.Parse("/stream 跑一段代码");
-        result.ControlKind.Should().BeNull();
-        result.Directives.Should().ContainSingle().Which.Should().Be(ChannelDirectiveKind.Stream);
-        result.CleanedText.Should().Be("跑一段代码");
+        var result = ChannelCommandParser.Parse("/think on");
+        result.ControlKind.Should().Be(ChannelControlCommandKind.ThinkToggle);
+        result.ControlArg.Should().Be("on");
+        result.Directives.Should().BeEmpty();
     }
 
     [Fact]
-    public void Parse_quiet_directive_sets_directive()
+    public void Parse_think_off_is_ThinkToggle_control_command_case_insensitive()
     {
-        var result = ChannelCommandParser.Parse("/quiet 帮我写一首诗");
-        result.ControlKind.Should().BeNull();
-        result.Directives.Should().ContainSingle().Which.Should().Be(ChannelDirectiveKind.Quiet);
-        result.CleanedText.Should().Be("帮我写一首诗");
+        var result = ChannelCommandParser.Parse("/think OFF");
+        result.ControlKind.Should().Be(ChannelControlCommandKind.ThinkToggle);
+        result.ControlArg.Should().Be("OFF");
+    }
+
+    [Fact]
+    public void Parse_stream_on_is_StreamToggle_control_command()
+    {
+        var result = ChannelCommandParser.Parse("/stream on");
+        result.ControlKind.Should().Be(ChannelControlCommandKind.StreamToggle);
+        result.ControlArg.Should().Be("on");
+    }
+
+    [Fact]
+    public void Parse_bare_stream_is_StreamToggle_without_arg()
+    {
+        var result = ChannelCommandParser.Parse("/stream");
+        result.ControlKind.Should().Be(ChannelControlCommandKind.StreamToggle);
+        result.ControlArg.Should().BeNull();
+    }
+
+    [Fact]
+    public void Parse_quiet_is_aliased_to_StreamToggle()
+    {
+        // /quiet is a deprecated alias equivalent to /stream off but accepted for backward habit.
+        var result = ChannelCommandParser.Parse("/quiet");
+        result.ControlKind.Should().Be(ChannelControlCommandKind.StreamToggle);
     }
 
     [Fact]
@@ -165,14 +188,26 @@ public sealed class ChannelCommandParserTests
     }
 
     [Fact]
-    public void Parse_chained_directives_merges_both()
+    public void Parse_think_with_message_falls_back_to_per_turn_directive()
     {
-        var result = ChannelCommandParser.Parse("/think /stream 写点东西");
+        // "/think 分析代码" → ControlArg="分析代码" which is not on/off → parser rewrites
+        // as per-turn ChannelDirectiveKind.Think.
+        var result = ChannelCommandParser.Parse("/think 分析代码");
         result.ControlKind.Should().BeNull();
-        result.Directives.Should().HaveCount(2);
+        result.Directives.Should().ContainSingle().Which.Should().Be(ChannelDirectiveKind.Think);
+        result.CleanedText.Should().Be("分析代码");
+    }
+
+    [Fact]
+    public void Parse_think_chained_with_focus_still_works()
+    {
+        // /think /focus topic body → per-turn Think + Focus directives.
+        var result = ChannelCommandParser.Parse("/think /focus 安全 审查代码");
+        result.ControlKind.Should().BeNull();
         result.Directives.Should().Contain(ChannelDirectiveKind.Think);
-        result.Directives.Should().Contain(ChannelDirectiveKind.Stream);
-        result.CleanedText.Should().Be("写点东西");
+        result.Directives.Should().Contain(ChannelDirectiveKind.Focus);
+        result.DirectiveArg.Should().Be("安全");
+        result.CleanedText.Should().Be("审查代码");
     }
 
     // ── Leading/trailing whitespace ──────────────────────────────────────────────

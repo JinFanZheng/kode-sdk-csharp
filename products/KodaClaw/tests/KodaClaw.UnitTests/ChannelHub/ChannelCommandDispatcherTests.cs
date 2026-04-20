@@ -164,4 +164,153 @@ public sealed class ChannelCommandDispatcherTests
         msg.Should().NotBeNullOrWhiteSpace();
         msg.Should().Contain("不可用");
     }
+
+    // ── ThinkToggle ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task DispatchAsync_think_on_persists_ThinkingEnabled_true()
+    {
+        var binding = BuildBinding();
+        var repo = new Mock<IThreadBindingRepository>();
+        repo.Setup(r => r.GetByIdAsync(binding.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(binding);
+
+        var sessionService = new Mock<IChannelSessionService>();
+        var dispatcher = new ChannelCommandDispatcher(
+            sessionService.Object, BuildDispatchService(), bindingRepository: repo.Object);
+        var parsed = ChannelCommandParser.Parse("/think on");
+
+        var result = await dispatcher.DispatchAsync(
+            parsed, "session-abc", BuildAccount(), binding, CancellationToken.None);
+
+        result.Should().BeTrue();
+        repo.Verify(r => r.UpsertAsync(
+            It.Is<ThreadBinding>(b => b.ThinkingEnabled == true),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_think_off_persists_ThinkingEnabled_false()
+    {
+        var binding = BuildBinding() with { ThinkingEnabled = true };
+        var repo = new Mock<IThreadBindingRepository>();
+        repo.Setup(r => r.GetByIdAsync(binding.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(binding);
+
+        var sessionService = new Mock<IChannelSessionService>();
+        var dispatcher = new ChannelCommandDispatcher(
+            sessionService.Object, BuildDispatchService(), bindingRepository: repo.Object);
+        var parsed = ChannelCommandParser.Parse("/think off");
+
+        var result = await dispatcher.DispatchAsync(
+            parsed, "session-abc", BuildAccount(), binding, CancellationToken.None);
+
+        result.Should().BeTrue();
+        repo.Verify(r => r.UpsertAsync(
+            It.Is<ThreadBinding>(b => b.ThinkingEnabled == false),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_bare_think_does_not_mutate_binding()
+    {
+        var binding = BuildBinding();
+        var repo = new Mock<IThreadBindingRepository>();
+        repo.Setup(r => r.GetByIdAsync(binding.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(binding);
+
+        var sessionService = new Mock<IChannelSessionService>();
+        var dispatcher = new ChannelCommandDispatcher(
+            sessionService.Object, BuildDispatchService(), bindingRepository: repo.Object);
+        var parsed = ChannelCommandParser.Parse("/think");
+
+        var result = await dispatcher.DispatchAsync(
+            parsed, "session-abc", BuildAccount(), binding, CancellationToken.None);
+
+        result.Should().BeTrue();
+        repo.Verify(r => r.UpsertAsync(It.IsAny<ThreadBinding>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_think_already_on_is_idempotent()
+    {
+        var binding = BuildBinding() with { ThinkingEnabled = true };
+        var repo = new Mock<IThreadBindingRepository>();
+        repo.Setup(r => r.GetByIdAsync(binding.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(binding);
+
+        var sessionService = new Mock<IChannelSessionService>();
+        var dispatcher = new ChannelCommandDispatcher(
+            sessionService.Object, BuildDispatchService(), bindingRepository: repo.Object);
+        var parsed = ChannelCommandParser.Parse("/think on");
+
+        await dispatcher.DispatchAsync(parsed, "session-abc", BuildAccount(), binding, CancellationToken.None);
+
+        repo.Verify(r => r.UpsertAsync(It.IsAny<ThreadBinding>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // ── StreamToggle ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task DispatchAsync_stream_on_persists_StreamOverride_true()
+    {
+        var binding = BuildBinding();
+        var repo = new Mock<IThreadBindingRepository>();
+        repo.Setup(r => r.GetByIdAsync(binding.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(binding);
+
+        var sessionService = new Mock<IChannelSessionService>();
+        var dispatcher = new ChannelCommandDispatcher(
+            sessionService.Object, BuildDispatchService(), bindingRepository: repo.Object);
+        var parsed = ChannelCommandParser.Parse("/stream on");
+
+        await dispatcher.DispatchAsync(parsed, "session-abc", BuildAccount(), binding, CancellationToken.None);
+
+        repo.Verify(r => r.UpsertAsync(
+            It.Is<ThreadBinding>(b => b.StreamOverride == true),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_stream_off_persists_StreamOverride_false()
+    {
+        var binding = BuildBinding();
+        var repo = new Mock<IThreadBindingRepository>();
+        repo.Setup(r => r.GetByIdAsync(binding.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(binding);
+
+        var sessionService = new Mock<IChannelSessionService>();
+        var dispatcher = new ChannelCommandDispatcher(
+            sessionService.Object, BuildDispatchService(), bindingRepository: repo.Object);
+        var parsed = ChannelCommandParser.Parse("/stream off");
+
+        await dispatcher.DispatchAsync(parsed, "session-abc", BuildAccount(), binding, CancellationToken.None);
+
+        repo.Verify(r => r.UpsertAsync(
+            It.Is<ThreadBinding>(b => b.StreamOverride == false),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_quiet_aliased_to_stream_toggle()
+    {
+        var binding = BuildBinding();
+        var repo = new Mock<IThreadBindingRepository>();
+        repo.Setup(r => r.GetByIdAsync(binding.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(binding);
+
+        var sessionService = new Mock<IChannelSessionService>();
+        var dispatcher = new ChannelCommandDispatcher(
+            sessionService.Object, BuildDispatchService(), bindingRepository: repo.Object);
+        var parsed = ChannelCommandParser.Parse("/quiet");
+
+        var result = await dispatcher.DispatchAsync(
+            parsed, "session-abc", BuildAccount(), binding, CancellationToken.None);
+
+        // bare /quiet → ControlArg null → show state, no upsert
+        result.Should().BeTrue();
+        parsed.ControlKind.Should().Be(ChannelControlCommandKind.StreamToggle);
+    }
 }

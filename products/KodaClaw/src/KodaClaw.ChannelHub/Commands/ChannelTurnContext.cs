@@ -1,8 +1,14 @@
 namespace KodaClaw.ChannelHub.Commands;
 
+using KodaClaw.Contracts;
+
 /// <summary>
-/// Carries per-turn modifier state derived from <see cref="ChannelDirectiveKind"/> directives.
-/// Passed from the Orchestrator to the turn execution path to configure how the agent run behaves.
+/// Carries per-turn modifier state. Built from the combination of:
+/// <list type="bullet">
+///   <item>Sticky toggles persisted on <see cref="ThreadBinding"/> (/think on, /stream on).</item>
+///   <item>Per-turn directives parsed from the inbound message (/think &lt;msg&gt;, /focus).</item>
+/// </list>
+/// Per-turn directives win over sticky state (the user's current-message intent beats prior settings).
 /// </summary>
 public sealed record ChannelTurnContext(
     string? PromptPrefix,
@@ -15,15 +21,25 @@ public sealed record ChannelTurnContext(
     public static readonly ChannelTurnContext Empty = new(null, null, null, null, null);
 
     /// <summary>
-    /// Builds a <see cref="ChannelTurnContext"/> from the directives in <paramref name="parsed"/>.
+    /// Builds a <see cref="ChannelTurnContext"/> from parsed directives only (no binding sticky state).
+    /// Retained for unit tests and non-binding-aware call sites.
     /// </summary>
     public static ChannelTurnContext FromDirectives(ParsedChannelCommand parsed)
+        => FromDirectivesAndBinding(parsed, binding: null);
+
+    /// <summary>
+    /// Builds a <see cref="ChannelTurnContext"/> by layering per-turn directives on top of
+    /// the sticky toggles on <paramref name="binding"/>. Per-turn directives take precedence.
+    /// </summary>
+    public static ChannelTurnContext FromDirectivesAndBinding(ParsedChannelCommand parsed, ThreadBinding? binding)
     {
-        bool? enableThinking = null;
-        int? thinkingBudget = null;
-        bool? streamOverride = null;
+        // Sticky layer (from binding)
+        bool? enableThinking = binding is { ThinkingEnabled: true } ? true : null;
+        int? thinkingBudget = binding is { ThinkingEnabled: true } ? 8000 : null;
+        bool? streamOverride = binding?.StreamOverride;
         string? focusConstraint = null;
 
+        // Per-turn layer (directives override sticky)
         foreach (var directive in parsed.Directives)
         {
             switch (directive)
@@ -31,12 +47,6 @@ public sealed record ChannelTurnContext(
                 case ChannelDirectiveKind.Think:
                     enableThinking = true;
                     thinkingBudget = 8000;
-                    break;
-                case ChannelDirectiveKind.Stream:
-                    streamOverride = true;
-                    break;
-                case ChannelDirectiveKind.Quiet:
-                    streamOverride = false;
                     break;
                 case ChannelDirectiveKind.Focus:
                     focusConstraint = parsed.DirectiveArg;

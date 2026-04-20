@@ -19,6 +19,8 @@ public sealed class ChannelCommandDispatcher
     private readonly IModelProvider? _modelProvider;
     private readonly ISandboxFactory? _sandboxFactory;
     private readonly IProviderAccountRepository? _providerAccountRepository;
+    private readonly IThreadBindingRepository? _bindingRepository;
+    private readonly IChannelSessionStatsTracker? _statsTracker;
 
     public ChannelCommandDispatcher(
         IChannelSessionService channelSessionService,
@@ -26,7 +28,9 @@ public sealed class ChannelCommandDispatcher
         IWorkspaceService? workspaceService = null,
         IModelProvider? modelProvider = null,
         ISandboxFactory? sandboxFactory = null,
-        IProviderAccountRepository? providerAccountRepository = null)
+        IProviderAccountRepository? providerAccountRepository = null,
+        IThreadBindingRepository? bindingRepository = null,
+        IChannelSessionStatsTracker? statsTracker = null)
     {
         _channelSessionService = channelSessionService
             ?? throw new ArgumentNullException(nameof(channelSessionService));
@@ -36,6 +40,8 @@ public sealed class ChannelCommandDispatcher
         _modelProvider = modelProvider;
         _sandboxFactory = sandboxFactory;
         _providerAccountRepository = providerAccountRepository;
+        _bindingRepository = bindingRepository;
+        _statsTracker = statsTracker;
     }
 
     /// <summary>
@@ -56,14 +62,16 @@ public sealed class ChannelCommandDispatcher
         string? replyText = parsed.ControlKind switch
         {
             ChannelControlCommandKind.NewSession => await HandleNewSessionAsync(binding, parsed.ControlArg, cancellationToken),
-            ChannelControlCommandKind.Status => await HandleStatusAsync(sessionId, cancellationToken),
+            ChannelControlCommandKind.Status => await HandleStatusAsync(sessionId, binding, cancellationToken),
             ChannelControlCommandKind.Stop => await HandleStopAsync(sessionId, cancellationToken),
             ChannelControlCommandKind.Help => BuildHelpMessage(),
             ChannelControlCommandKind.Compact => await HandleCompactAsync(sessionId, cancellationToken),
             ChannelControlCommandKind.Tools => await HandleToolsAsync(sessionId, cancellationToken),
-            ChannelControlCommandKind.WhoAmI => await HandleWhoAmIAsync(cancellationToken),
+            ChannelControlCommandKind.Info => await HandleInfoAsync(sessionId, account, binding, cancellationToken),
             ChannelControlCommandKind.SideQuestion => await HandleSideQuestionAsync(parsed.ControlArg, sessionId, cancellationToken),
             ChannelControlCommandKind.Model => await HandleModelAsync(sessionId, parsed.ControlArg, cancellationToken),
+            ChannelControlCommandKind.ThinkToggle => await HandleThinkToggleAsync(binding, parsed.ControlArg, cancellationToken),
+            ChannelControlCommandKind.StreamToggle => await HandleStreamToggleAsync(binding, parsed.ControlArg, cancellationToken),
             _ => null,
         };
 
@@ -195,10 +203,98 @@ public sealed class ChannelCommandDispatcher
         return "未知子命令。支持：/model（当前模型）、/model list（所有模型）。";
     }
 
-    private async Task<string> HandleStatusAsync(string sessionId, CancellationToken ct)
+    private async Task<string> HandleStatusAsync(string sessionId, ThreadBinding binding, CancellationToken ct)
     {
         var state = await _channelSessionService.GetSessionStateAsync(sessionId, ct);
-        return FormatSessionStatusMessage(state);
+        var baseMessage = FormatSessionStatusMessage(state);
+
+        // Append sticky toggle state so users can see without running /think or /stream
+        var current = _bindingRepository is not null
+            ? await _bindingRepository.GetByIdAsync(binding.Id, ct) ?? binding
+            : binding;
+
+        var thinkLabel = current.ThinkingEnabled ? "开" : "关";
+        var streamLabel = current.StreamOverride switch
+        {
+            true => "开",
+            false => "关",
+            null => "默认",
+        };
+        return $"{baseMessage}\n思考：{thinkLabel} · 流式：{streamLabel}";
+    }
+
+    // /think on | /think off | /think  (bare → show current state)
+    private async Task<string> HandleThinkToggleAsync(ThreadBinding binding, string? arg, CancellationToken ct)
+    {
+        if (_bindingRepository is null)
+            return "扩展思考开关不可用（IThreadBindingRepository 未注入）。";
+
+        var current = await _bindingRepository.GetByIdAsync(binding.Id, ct) ?? binding;
+
+        if (string.IsNullOrWhiteSpace(arg))
+        {
+            return current.ThinkingEnabled
+                ? "🧠 扩展思考：已开启。发送 /think off 关闭。"
+                : "🧠 扩展思考：已关闭。发送 /think on 开启（或 /think <问题> 本轮临时启用）。";
+        }
+
+        var normalized = arg.Trim();
+        bool targetState;
+        if (string.Equals(normalized, "on", StringComparison.OrdinalIgnoreCase))
+            targetState = true;
+        else if (string.Equals(normalized, "off", StringComparison.OrdinalIgnoreCase))
+            targetState = false;
+        else
+            return "用法：/think on | /think off | /think <问题>（本轮临时启用）。";
+
+        if (current.ThinkingEnabled == targetState)
+            return targetState ? "🧠 扩展思考已经是开启状态。" : "🧠 扩展思考已经是关闭状态。";
+
+        var updated = current with { ThinkingEnabled = targetState, UpdatedAt = DateTimeOffset.UtcNow };
+        await _bindingRepository.UpsertAsync(updated, ct);
+
+        return targetState
+            ? "🧠 扩展思考已开启，之后每条消息都会启用 Thinking Budget。"
+            : "🧠 扩展思考已关闭。";
+    }
+
+    // /stream on | /stream off | /stream  (bare → show current state)  (/quiet aliased to same)
+    private async Task<string> HandleStreamToggleAsync(ThreadBinding binding, string? arg, CancellationToken ct)
+    {
+        if (_bindingRepository is null)
+            return "流式输出开关不可用（IThreadBindingRepository 未注入）。";
+
+        var current = await _bindingRepository.GetByIdAsync(binding.Id, ct) ?? binding;
+
+        if (string.IsNullOrWhiteSpace(arg))
+        {
+            var label = current.StreamOverride switch
+            {
+                true => "已开启（显式）",
+                false => "已关闭（显式）",
+                null => "跟随 channel 默认",
+            };
+            return $"💬 流式输出：{label}。\n用法：/stream on | /stream off";
+        }
+
+        var normalized = arg.Trim();
+        bool? targetState;
+        if (string.Equals(normalized, "on", StringComparison.OrdinalIgnoreCase))
+            targetState = true;
+        else if (string.Equals(normalized, "off", StringComparison.OrdinalIgnoreCase))
+            targetState = false;
+        else
+            return "用法：/stream on | /stream off。";
+
+        if (current.StreamOverride == targetState)
+            return targetState == true ? "💬 流式输出已经是开启状态。" : "💬 流式输出已经是关闭状态。";
+
+        var updated = current with { StreamOverride = targetState, UpdatedAt = DateTimeOffset.UtcNow };
+        await _bindingRepository.UpsertAsync(updated, ct);
+
+        return targetState == true
+            ? "💬 流式输出已开启。"
+            : "💬 流式输出已关闭（只发送最终结果）。";
     }
 
     private async Task<string> HandleStopAsync(string sessionId, CancellationToken ct)
@@ -225,33 +321,109 @@ public sealed class ChannelCommandDispatcher
         return sb.ToString().TrimEnd();
     }
 
-    private async Task<string> HandleWhoAmIAsync(CancellationToken ct)
+    private async Task<string> HandleInfoAsync(
+        string sessionId,
+        ChannelAccount account,
+        ThreadBinding binding,
+        CancellationToken ct)
     {
-        if (_workspaceService is null)
-            return "无法读取身份信息（WorkspaceService 未配置）。";
+        // Identity: fixed name + workspace root
+        var workspaceLabel = _workspaceService?.RootPath ?? "(未知)";
 
-        try
+        // Model & context window
+        var modelId = await _channelSessionService.GetSessionModelAsync(sessionId, ct);
+        string modelLine;
+        int contextWindowSize = 128_000;
+        if (modelId is not null && _providerAccountRepository is not null)
         {
-            var snapshot = await _workspaceService.GetSnapshotAsync(ct);
-            var identityPath = Path.Combine(
-                snapshot.RootPath,
-                KodaClawWorkspaceLayout.WorkspaceDirectory,
-                KodaClawWorkspaceLayout.IdentityFile);
-
-            if (!File.Exists(identityPath))
-                return "IDENTITY.md 未找到，身份尚未配置。";
-
-            var content = await File.ReadAllTextAsync(identityPath, ct);
-            // Return a preview of the first 600 chars to avoid flooding the channel
-            if (content.Length > 600)
-                content = content[..600] + "\n\n…（省略剩余内容）";
-
-            return content;
+            var allModels = await _providerAccountRepository.ListAllModelsAsync(ct);
+            var m = allModels.FirstOrDefault(x => x.ModelId == modelId);
+            if (m is not null)
+            {
+                contextWindowSize = m.ContextWindowSize;
+                var acct = await _providerAccountRepository.GetAccountByIdAsync(m.AccountId, ct);
+                var providerLabel = acct?.ProviderKind switch
+                {
+                    ModelProviderKind.Anthropic           => "Anthropic",
+                    ModelProviderKind.AnthropicCompatible => "Anthropic兼容",
+                    ModelProviderKind.OpenAI              => "OpenAI",
+                    ModelProviderKind.OpenAICompatible    => "OpenAI兼容",
+                    _                                     => acct?.ProviderKind.ToString() ?? "Unknown",
+                };
+                modelLine = $"{m.DisplayName} · {providerLabel}";
+            }
+            else
+            {
+                modelLine = modelId;
+            }
         }
-        catch (Exception)
+        else
         {
-            return "读取身份信息时出错，请检查 workspace/IDENTITY.md。";
+            modelLine = modelId ?? "(默认)";
         }
+
+        // Context usage
+        var stats = _statsTracker?.Get(sessionId);
+        string contextLine;
+        if (stats is null)
+        {
+            contextLine = "尚未请求";
+        }
+        else
+        {
+            var lastRun = stats.LastRunInputTokens;
+            var pct = contextWindowSize > 0 ? (double)lastRun / contextWindowSize * 100 : 0;
+            contextLine = $"本轮 {FormatTokens(lastRun)} / {FormatTokens(contextWindowSize)} ({pct:0.#}%)"
+                + $"\n              累积 {FormatTokens(stats.CumulativeInputTokens)} in / {FormatTokens(stats.CumulativeOutputTokens)} out · {stats.TurnCount} 轮";
+        }
+
+        // Toggles
+        var current = _bindingRepository is not null
+            ? await _bindingRepository.GetByIdAsync(binding.Id, ct) ?? binding
+            : binding;
+        var thinkLabel = current.ThinkingEnabled ? "on" : "off";
+        var streamLabel = current.StreamOverride switch
+        {
+            true => "on",
+            false => "off",
+            null => "跟随默认",
+        };
+
+        // Binding
+        var connectorLabel = current.ConnectorKind.ToString();
+        var threadTypeLabel = current.ThreadType == ChannelThreadType.DirectMessage ? "DM" : "Group";
+        var displayName = current.ChannelIdentity.DisplayName
+            ?? current.ChannelIdentity.Username
+            ?? current.ExternalThreadId;
+        var bindingLine = $"{connectorLabel} · @{account.DisplayName} · {threadTypeLabel} · {displayName}";
+
+        // Activity
+        static string FormatAgo(DateTimeOffset? at)
+        {
+            if (!at.HasValue) return "—";
+            var delta = DateTimeOffset.UtcNow - at.Value;
+            if (delta.TotalSeconds < 60) return $"{(int)delta.TotalSeconds}s ago";
+            if (delta.TotalMinutes < 60) return $"{(int)delta.TotalMinutes}m ago";
+            if (delta.TotalHours < 24) return $"{(int)delta.TotalHours}h ago";
+            return $"{(int)delta.TotalDays}d ago";
+        }
+        var activityLine = $"入站 {FormatAgo(current.LastInboundAt)} · 出站 {FormatAgo(current.LastOutboundAt)}";
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"🤖 身份       KodaClaw · Workspace: {workspaceLabel}");
+        sb.AppendLine($"🧩 模型       {modelLine}");
+        sb.AppendLine($"📊 上下文     {contextLine}");
+        sb.AppendLine($"🧠 Toggle     Thinking: {thinkLabel} · Stream: {streamLabel}");
+        sb.AppendLine($"🔗 绑定       {bindingLine}");
+        sb.Append($"📥 活动       {activityLine}");
+        return sb.ToString();
+    }
+
+    private static string FormatTokens(long tokens)
+    {
+        if (tokens < 1_000) return tokens.ToString();
+        if (tokens < 1_000_000) return $"{tokens / 1_000.0:0.#}K";
+        return $"{tokens / 1_000_000.0:0.##}M";
     }
 
     private async Task<string?> HandleSideQuestionAsync(string? question, string sessionId, CancellationToken ct)

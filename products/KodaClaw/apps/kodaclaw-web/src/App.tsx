@@ -16,6 +16,7 @@ import {
 } from './lib/config';
 import { fetchOnboardingState, rotateSession, fetchProviderAccounts, setDefaultAccountModel, uploadMedia } from './lib/api';
 import { queryKeys } from './lib/queryKeys';
+import { CAP_TEXT } from './constants/modelCapabilities';
 import type { ModelOption } from './components/ChatComposer';
 import { OnboardingShell } from './onboarding/OnboardingShell';
 import { AppShell } from './shell/AppShell';
@@ -187,7 +188,6 @@ export default function App() {
     queryFn: () => fetchProviderAccounts(),
     enabled: !isLoading && !!snapshot,
   });
-  const CAP_TEXT = 1;
   type ModelPair = { accountId: string; model: import('./types/contracts').AccountModelResponse };
   const textPairs = useMemo<ModelPair[]>(() => {
     if (!accountsData) return [];
@@ -215,6 +215,8 @@ export default function App() {
   // KC-BUG-303: pending model switch confirm
   const [pendingModelChange, setPendingModelChange] = useState<{ id: string; displayName: string } | null>(null);
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia[]>([]);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const supportsThinking = defaultEndpoint?.model.isReasoning ?? false;
 
   // KC-BUG-303: show confirm before rotating session on model change
   const handleModelChange = useCallback((modelId: string) => {
@@ -234,6 +236,7 @@ export default function App() {
       await queryClient.invalidateQueries({ queryKey: queryKeys.providerAccounts });
     } catch { /* ignore, pill stays on old model */ return; }
     try { await rotateSession(); } catch { /* ignore */ }
+    setThinkingEnabled(false);
     clearMessages(text.chat.modelSwitchedNote(displayName));
     refresh();
   }, [pendingModelChange, queryClient, clearMessages, text.chat, refresh, textPairs]);
@@ -274,9 +277,13 @@ export default function App() {
     const ready = attachedMedia.filter(m => !m.uploading);
     const mediaIds = ready.map(m => m.mediaId);
     const mediaUrls = ready.map(m => m.previewUrl);
-    sendMessage(mediaIds.length > 0 ? mediaIds : undefined, mediaUrls.length > 0 ? mediaUrls : undefined);
+    sendMessage(
+      mediaIds.length > 0 ? mediaIds : undefined,
+      mediaUrls.length > 0 ? mediaUrls : undefined,
+      { enableThinking: thinkingEnabled && supportsThinking ? true : undefined },
+    );
     setAttachedMedia([]);
-  }, [attachedMedia, sendMessage]);
+  }, [attachedMedia, sendMessage, thinkingEnabled, supportsThinking]);
 
   const chatHeaderActions = useMemo(() => (
     <SessionHistoryPanel
@@ -332,16 +339,23 @@ export default function App() {
       onChange={setDraft}
       onSubmit={handleChatSubmit}
       onStop={stopStreaming}
-      modelName={modelName}
-      modelCapabilities={modelCapabilities}
-      selectedModelId={selectedModelId}
-      availableModels={availableModels}
-      onModelChange={handleModelChange}
-      attachedMedia={attachedMedia}
-      onAttachMedia={handleAttachMedia}
-      onRemoveMedia={handleRemoveMedia}
+      model={modelName ? {
+        name: modelName,
+        capabilities: modelCapabilities,
+        selectedId: selectedModelId,
+        available: availableModels,
+        onChange: handleModelChange,
+        supportsThinking,
+        thinkingEnabled,
+        onToggleThinking: () => setThinkingEnabled(v => !v),
+      } : null}
+      attachment={{
+        media: attachedMedia,
+        onAttach: handleAttachMedia,
+        onRemove: handleRemoveMedia,
+      }}
     />
-  ), [draft, placeholder, isLoading, isStreaming, activeToolName, setDraft, handleChatSubmit, stopStreaming, modelName, modelCapabilities, selectedModelId, availableModels, handleModelChange, attachedMedia, handleAttachMedia, handleRemoveMedia]);
+  ), [draft, placeholder, isLoading, isStreaming, activeToolName, setDraft, handleChatSubmit, stopStreaming, modelName, modelCapabilities, selectedModelId, availableModels, handleModelChange, attachedMedia, handleAttachMedia, handleRemoveMedia, supportsThinking, thinkingEnabled]);
 
   // Onboarding gate
   if (onboardingState && !onboardingState.isCompleted) {

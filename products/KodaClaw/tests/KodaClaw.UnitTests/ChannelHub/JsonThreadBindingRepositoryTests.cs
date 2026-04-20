@@ -118,6 +118,43 @@ public sealed class JsonThreadBindingRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task Roundtrip_preserves_ThinkingEnabled_and_StreamOverride()
+    {
+        var repository = CreateRepository();
+        var baseBinding = BuildBinding(
+            id: "binding-toggles",
+            connectorKind: ChannelConnectorKind.Telegram,
+            threadType: ChannelThreadType.DirectMessage,
+            timestamp: new DateTimeOffset(2026, 4, 20, 9, 0, 0, TimeSpan.Zero));
+        var binding = baseBinding with { ThinkingEnabled = true, StreamOverride = false };
+
+        await repository.UpsertAsync(binding);
+
+        var stored = await repository.GetByIdAsync(binding.Id);
+        stored.Should().NotBeNull();
+        stored!.ThinkingEnabled.Should().BeTrue();
+        stored.StreamOverride.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Roundtrip_defaults_ThinkingEnabled_false_and_StreamOverride_null()
+    {
+        var repository = CreateRepository();
+        var binding = BuildBinding(
+            id: "binding-defaults",
+            connectorKind: ChannelConnectorKind.Telegram,
+            threadType: ChannelThreadType.DirectMessage,
+            timestamp: new DateTimeOffset(2026, 4, 20, 9, 30, 0, TimeSpan.Zero));
+
+        await repository.UpsertAsync(binding);
+
+        var stored = await repository.GetByIdAsync(binding.Id);
+        stored.Should().NotBeNull();
+        stored!.ThinkingEnabled.Should().BeFalse();
+        stored.StreamOverride.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetBySessionIdAsync_returns_null_when_session_not_found()
     {
         var repository = CreateRepository();

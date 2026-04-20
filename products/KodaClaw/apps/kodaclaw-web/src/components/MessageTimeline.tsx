@@ -7,6 +7,7 @@ import type { ChatMessage, ChatRole, LiveSubAgentRow } from "../types/chat";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { EmptyState } from "./ui/EmptyState";
 import { ApprovalCard } from "./chat/ApprovalCard";
+import { ThinkingBlock } from "./chat/ThinkingBlock";
 
 // ── Tool name localization ────────────────────────────────────────────────────
 
@@ -595,6 +596,32 @@ export function MessageTimeline({ messages, isStreaming, liveSubAgentRows, onSub
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [scrollToBottomVersion, isLoadingHistory]);
 
+  // ── Sticky-bottom during streaming ─────────────────────────────────────────
+  // If the user is parked near the bottom (< 48px gap), keep auto-scrolling as
+  // streaming deltas land. If they scroll up to read earlier content, respect
+  // that and stop pulling them down. They regain auto-follow as soon as they
+  // scroll back to the bottom.
+  const stickToBottomRef = useRef(true);
+
+  useEffect(() => {
+    const el = getScrollContainer();
+    if (!el) return;
+    const onScroll = () => {
+      const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickToBottomRef.current = gap < 48;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!isStreaming) return;
+    if (isLoadingHistory) return;
+    if (!stickToBottomRef.current) return;
+    // Use "auto" — streaming deltas fire rapidly, smooth would queue and lag.
+    bottomRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [messages, isStreaming, isLoadingHistory]);
+
   return (
     <>
       <section className="timeline" data-testid="chat-stream">
@@ -648,6 +675,14 @@ export function MessageTimeline({ messages, isStreaming, liveSubAgentRows, onSub
                       </div>
                       <span className="message__time">{formatTime(message.timestamp)}</span>
                     </header>
+                    {(message.thinking || message.thinkingStreaming) && (
+                      <ThinkingBlock
+                        content={message.thinking ?? ""}
+                        streaming={message.thinkingStreaming ?? false}
+                        startedAt={message.thinkingStartedAt}
+                        durationMs={message.thinkingDurationMs}
+                      />
+                    )}
                     <div className="message__prose">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {message.text || ""}

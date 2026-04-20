@@ -72,7 +72,7 @@ export function EndpointDetailPanel({
   const providerLabel = text.providerLabels[account.providerKind];
 
   function handleTestConnection() {
-    if (!endpointDraft) return;
+    if (!endpointDraft || !account) return;
     setTestingConnection(true);
     setTestResult(null);
     testModelConnection({

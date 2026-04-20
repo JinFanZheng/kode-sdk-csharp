@@ -39,4 +39,11 @@ export interface ChatMessage {
   isToolWarning?: boolean;
   // local preview URLs for sent images (user messages only)
   mediaUrls?: string[];
+  // Extended thinking content (assistant messages only)
+  thinking?: string;
+  // True while think_chunk is streaming; flips false on think_chunk_end
+  thinkingStreaming?: boolean;
+  // Wall-clock ms spent on thinking (set on first start, finalized on end)
+  thinkingStartedAt?: number;
+  thinkingDurationMs?: number;
 }

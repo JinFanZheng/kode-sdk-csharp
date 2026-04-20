@@ -335,6 +335,8 @@ export interface ChatStreamRequest {
   message: string;
   sessionId?: string | null;
   mediaIds?: string[] | null;
+  enableThinking?: boolean | null;
+  thinkingBudget?: number | null;
 }
 
 export interface MediaMeta {
@@ -346,7 +348,7 @@ export interface MediaMeta {
 }
 
 export interface ChatStreamEvent {
-  type: "text_chunk" | "done" | "error" | "tool_warning" | "model_retrying" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working" | "session_rotated" | "subagent_start" | "subagent_working" | "subagent_tool_done";
+  type: "text_chunk" | "think_chunk_start" | "think_chunk" | "think_chunk_end" | "done" | "error" | "tool_warning" | "model_retrying" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working" | "session_rotated" | "subagent_start" | "subagent_working" | "subagent_tool_done";
   sessionId: string;
   step?: number | null;
   sequence?: number | null;
@@ -366,6 +368,8 @@ export interface ChatStreamEvent {
   subAgentId?: string | null;
   label?: string | null;
   subAgentToolName?: string | null;
+  // Thinking stream (think_chunk_start / think_chunk / think_chunk_end)
+  thinkingDelta?: string | null;
 }
 
 export interface InboxItem {

@@ -78,7 +78,8 @@ public sealed class ChatSessionService : IChatSessionService
             opts: new AgentRuntime.SubscribeOptions
             {
                 Since = agent.EventBus.GetLastBookmark(),
-                Kinds = ["text_chunk", "done", "error", "tool:start", "tool:end", "permission_required", "permission_decided",
+                Kinds = ["text_chunk", "think_chunk_start", "think_chunk", "think_chunk_end",
+                         "done", "error", "tool:start", "tool:end", "permission_required", "permission_decided",
                          "subagent.created", "subagent.tool_start", "subagent.tool_end", "model:retrying"],
             },
             cancellationToken: cancellationToken);
@@ -86,10 +87,29 @@ public sealed class ChatSessionService : IChatSessionService
         await using var enumerator = stream.GetAsyncEnumerator(cancellationToken);
         var moveNextTask = enumerator.MoveNextAsync().AsTask();
 
-        if (contentBlocks is { Count: > 1 })
-            agent.Send(contentBlocks);
-        else
-            agent.Send(request.Message);
+        var runOptions = (request.EnableThinking.HasValue || request.ThinkingBudget.HasValue)
+            ? new AgentRunOptions
+            {
+                EnableThinking = request.EnableThinking,
+                ThinkingBudget = request.ThinkingBudget,
+                // 开启 thinking 就暴露给前端渲染（用户意图一致）
+                ExposeThinking = request.EnableThinking,
+            }
+            : null;
+
+        Task<AgentRunResult> runTask = (contentBlocks is { Count: > 1 })
+            ? (runOptions is not null
+                ? Task.Run(() => agent.RunAsync(contentBlocks, runOptions, cancellationToken), cancellationToken)
+                : Task.Run(() => agent.RunAsync(contentBlocks, cancellationToken), cancellationToken))
+            : (runOptions is not null
+                ? Task.Run(() => agent.RunAsync(request.Message, runOptions, cancellationToken), cancellationToken)
+                : Task.Run(() => agent.RunAsync(request.Message, cancellationToken), cancellationToken));
+
+        _ = runTask.ContinueWith(
+            t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
         while (true)
         {
@@ -131,6 +151,34 @@ public sealed class ChatSessionService : IChatSessionService
                         Sequence: envelope.Bookmark.Seq,
                         Timestamp: envelope.Bookmark.Timestamp,
                         Delta: textChunk.Delta);
+                    break;
+
+                case ThinkChunkStartEvent thinkStart:
+                    yield return new ChatStreamEvent(
+                        Type: "think_chunk_start",
+                        SessionId: sessionId,
+                        Step: thinkStart.Step,
+                        Sequence: envelope.Bookmark.Seq,
+                        Timestamp: envelope.Bookmark.Timestamp);
+                    break;
+
+                case ThinkChunkEvent thinkChunk:
+                    yield return new ChatStreamEvent(
+                        Type: "think_chunk",
+                        SessionId: sessionId,
+                        Step: thinkChunk.Step,
+                        Sequence: envelope.Bookmark.Seq,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        ThinkingDelta: thinkChunk.Delta);
+                    break;
+
+                case ThinkChunkEndEvent thinkEnd:
+                    yield return new ChatStreamEvent(
+                        Type: "think_chunk_end",
+                        SessionId: sessionId,
+                        Step: thinkEnd.Step,
+                        Sequence: envelope.Bookmark.Seq,
+                        Timestamp: envelope.Bookmark.Timestamp);
                     break;
 
                 case ToolStartEvent toolStart:

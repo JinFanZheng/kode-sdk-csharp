@@ -106,7 +106,11 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sendMessage = useCallback(async (mediaIds?: string[], mediaUrls?: string[]) => {
+  const sendMessage = useCallback(async (
+    mediaIds?: string[],
+    mediaUrls?: string[],
+    opts?: { enableThinking?: boolean },
+  ) => {
     const content = draft.trim();
     const hasMedia = mediaIds != null && mediaIds.length > 0;
     if (!content && !hasMedia) {
@@ -146,7 +150,11 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
 
     try {
       let rotatedSessionId: string | null = null;
-      for await (const event of streamChatEvents({ message: content, mediaIds: hasMedia ? mediaIds : null }, ctrl.signal)) {
+      for await (const event of streamChatEvents({
+        message: content,
+        mediaIds: hasMedia ? mediaIds : null,
+        enableThinking: opts?.enableThinking || undefined,
+      }, ctrl.signal)) {
         if (event.type === "session_rotated") {
           rotatedSessionId = event.sessionId ?? null;
           // Insert a visual separator just before the in-progress assistant message so the user can
@@ -170,6 +178,56 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
                     status: "streaming",
                     timestamp: event.timestamp ?? Date.now(),
                     sessionId: event.sessionId,
+                  }
+                : message,
+            ),
+          );
+          continue;
+        }
+
+        if (event.type === "think_chunk_start") {
+          const startedAt = event.timestamp ?? Date.now();
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === currentAssistantMsgId
+                ? {
+                    ...message,
+                    thinking: message.thinking ?? "",
+                    thinkingStreaming: true,
+                    thinkingStartedAt: message.thinkingStartedAt ?? startedAt,
+                  }
+                : message,
+            ),
+          );
+          continue;
+        }
+
+        if (event.type === "think_chunk") {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === currentAssistantMsgId
+                ? {
+                    ...message,
+                    thinking: `${message.thinking ?? ""}${event.thinkingDelta ?? ""}`,
+                    thinkingStreaming: true,
+                  }
+                : message,
+            ),
+          );
+          continue;
+        }
+
+        if (event.type === "think_chunk_end") {
+          const endedAt = event.timestamp ?? Date.now();
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === currentAssistantMsgId
+                ? {
+                    ...message,
+                    thinkingStreaming: false,
+                    thinkingDurationMs: message.thinkingStartedAt
+                      ? Math.max(0, endedAt - message.thinkingStartedAt)
+                      : message.thinkingDurationMs,
                   }
                 : message,
             ),

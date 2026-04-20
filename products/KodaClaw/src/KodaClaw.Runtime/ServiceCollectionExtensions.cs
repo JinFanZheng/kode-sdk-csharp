@@ -198,6 +198,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IMainSessionService, MainSessionService>();
         services.TryAddSingleton<IBootstrapDraftService, BootstrapDraftService>();
         services.TryAddSingleton<IAutomationSessionService, AutomationSessionService>();
+        services.TryAddSingleton<IChannelSessionStatsTracker, ChannelSessionStatsTracker>();
         services.TryAddSingleton<IChannelSessionService, ChannelSessionService>();
         services.TryAddSingleton<IChatSessionService, ChatSessionService>();
         return services;

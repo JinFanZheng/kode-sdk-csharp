@@ -40,9 +40,23 @@ public static class ChannelCommandParser
         // ── Control command: intercepts the turn ─────────────────────────────────
         if (def.ControlKind.HasValue)
         {
+            var controlArg = string.IsNullOrEmpty(remainder) ? null : remainder;
+
+            // Special case: /think is a dual-mode command.
+            //   /think on | /think off | /think (bare)   → ThinkToggle control command
+            //   /think <anything else>                    → per-turn directive (legacy power-user path)
+            if (def.ControlKind.Value == ChannelControlCommandKind.ThinkToggle
+                && controlArg is not null
+                && !IsToggleArg(controlArg))
+            {
+                // Per-turn directive fallback — re-parse via ParseDirective so the
+                // remainder can still chain into /focus etc.
+                return ParseDirective(ChannelDirectiveKind.Think, controlArg, text);
+            }
+
             return new ParsedChannelCommand(
                 ControlKind: def.ControlKind.Value,
-                ControlArg: string.IsNullOrEmpty(remainder) ? null : remainder,
+                ControlArg: controlArg,
                 Directives: [],
                 DirectiveArg: null,
                 CleanedText: text);
@@ -59,6 +73,19 @@ public static class ChannelCommandParser
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns true when the argument is the literal "on" or "off" (case-insensitive).
+    /// Used by ThinkToggle to distinguish toggle usage from the per-turn directive fallback.
+    /// </summary>
+    internal static bool IsToggleArg(string arg)
+    {
+        // Only match when the argument is *exactly* on/off — not "on 其他" which should
+        // still be treated as per-turn content (user typed a message starting with "on").
+        var trimmed = arg.Trim();
+        return string.Equals(trimmed, "on", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "off", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static ParsedChannelCommand ParseDirective(
         ChannelDirectiveKind kind,

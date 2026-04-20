@@ -52,6 +52,9 @@ public record AgentRunOptions
 
     /// <summary>Thinking token budget (overrides AgentConfig.ThinkingBudget).</summary>
     public int? ThinkingBudget { get; init; }
+
+    /// <summary>Whether to expose thinking events/content (overrides AgentConfig.ExposeThinking).</summary>
+    public bool? ExposeThinking { get; init; }
 }
 
 /// <summary>
@@ -108,6 +111,15 @@ public interface IAgent : IAsyncDisposable
     /// <param name=\cancellationToken\>Cancellation token.</param>
     /// <returns>The final assistant response.</returns>
     Task<AgentRunResult> RunAsync(IReadOnlyList<Kode.Agent.Sdk.Core.Types.ContentBlock> parts, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Runs the agent loop with multi-modal content and per-run options.
+    /// </summary>
+    /// <param name="parts">The content blocks (text, images, etc.) to send as user input.</param>
+    /// <param name="options">Per-run options (think, budget, etc.); null to use defaults.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The final assistant response.</returns>
+    Task<AgentRunResult> RunAsync(IReadOnlyList<Kode.Agent.Sdk.Core.Types.ContentBlock> parts, AgentRunOptions? options, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Executes a single step of the agent loop.

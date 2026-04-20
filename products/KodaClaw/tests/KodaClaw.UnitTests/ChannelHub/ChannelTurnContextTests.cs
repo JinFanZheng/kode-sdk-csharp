@@ -1,11 +1,13 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub.Commands;
+using KodaClaw.Contracts;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;
 
 /// <summary>
-/// KC-CMD-W2: Tests for ChannelTurnContext.FromDirectives factory.
+/// Tests for ChannelTurnContext.FromDirectives (per-turn only) and
+/// FromDirectivesAndBinding (sticky state + per-turn overlay).
 /// </summary>
 public sealed class ChannelTurnContextTests
 {
@@ -34,26 +36,6 @@ public sealed class ChannelTurnContextTests
     }
 
     [Fact]
-    public void Stream_directive_enables_streaming()
-    {
-        var parsed = new ParsedChannelCommand(null, null, [ChannelDirectiveKind.Stream], null, "跑代码");
-        var ctx = ChannelTurnContext.FromDirectives(parsed);
-
-        ctx.EnableProgressStreamingOverride.Should().BeTrue();
-        ctx.EnableThinking.Should().BeNull();
-    }
-
-    [Fact]
-    public void Quiet_directive_disables_streaming()
-    {
-        var parsed = new ParsedChannelCommand(null, null, [ChannelDirectiveKind.Quiet], null, "帮我写首诗");
-        var ctx = ChannelTurnContext.FromDirectives(parsed);
-
-        ctx.EnableProgressStreamingOverride.Should().BeFalse();
-        ctx.EnableThinking.Should().BeNull();
-    }
-
-    [Fact]
     public void Focus_directive_sets_focus_constraint_from_DirectiveArg()
     {
         var parsed = new ParsedChannelCommand(null, null, [ChannelDirectiveKind.Focus], "代码质量", "审查这段代码");
@@ -62,20 +44,6 @@ public sealed class ChannelTurnContextTests
         ctx.FocusConstraint.Should().Be("代码质量");
         ctx.EnableThinking.Should().BeNull();
         ctx.EnableProgressStreamingOverride.Should().BeNull();
-    }
-
-    [Fact]
-    public void Think_and_stream_directives_both_applied()
-    {
-        var parsed = new ParsedChannelCommand(
-            null, null,
-            [ChannelDirectiveKind.Think, ChannelDirectiveKind.Stream],
-            null, "复杂分析");
-        var ctx = ChannelTurnContext.FromDirectives(parsed);
-
-        ctx.EnableThinking.Should().BeTrue();
-        ctx.ThinkingBudget.Should().Be(8000);
-        ctx.EnableProgressStreamingOverride.Should().BeTrue();
     }
 
     [Fact]
@@ -88,4 +56,85 @@ public sealed class ChannelTurnContextTests
         ctx.FocusConstraint.Should().BeNull();
         ctx.PromptPrefix.Should().BeNull();
     }
+
+    // ── Sticky toggle overlay ────────────────────────────────────────────────
+
+    [Fact]
+    public void Sticky_thinking_enabled_on_binding_lifts_to_context()
+    {
+        var parsed = new ParsedChannelCommand(null, null, [], null, "hello");
+        var binding = CreateBinding(thinkingEnabled: true, streamOverride: null);
+
+        var ctx = ChannelTurnContext.FromDirectivesAndBinding(parsed, binding);
+
+        ctx.EnableThinking.Should().BeTrue();
+        ctx.ThinkingBudget.Should().Be(8000);
+        ctx.EnableProgressStreamingOverride.Should().BeNull();
+    }
+
+    [Fact]
+    public void Sticky_stream_override_on_binding_lifts_to_context()
+    {
+        var parsed = new ParsedChannelCommand(null, null, [], null, "hello");
+        var bindingOn = CreateBinding(thinkingEnabled: false, streamOverride: true);
+        var bindingOff = CreateBinding(thinkingEnabled: false, streamOverride: false);
+
+        ChannelTurnContext.FromDirectivesAndBinding(parsed, bindingOn).EnableProgressStreamingOverride
+            .Should().BeTrue();
+        ChannelTurnContext.FromDirectivesAndBinding(parsed, bindingOff).EnableProgressStreamingOverride
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void PerTurn_think_directive_wins_when_sticky_off()
+    {
+        // Sticky thinking off, but this turn user explicitly invoked /think <message>
+        var parsed = new ParsedChannelCommand(null, null, [ChannelDirectiveKind.Think], null, "复杂分析");
+        var binding = CreateBinding(thinkingEnabled: false, streamOverride: null);
+
+        var ctx = ChannelTurnContext.FromDirectivesAndBinding(parsed, binding);
+
+        ctx.EnableThinking.Should().BeTrue();
+        ctx.ThinkingBudget.Should().Be(8000);
+    }
+
+    [Fact]
+    public void PerTurn_think_is_idempotent_when_sticky_on()
+    {
+        var parsed = new ParsedChannelCommand(null, null, [ChannelDirectiveKind.Think], null, "复杂分析");
+        var binding = CreateBinding(thinkingEnabled: true, streamOverride: null);
+
+        var ctx = ChannelTurnContext.FromDirectivesAndBinding(parsed, binding);
+
+        ctx.EnableThinking.Should().BeTrue();
+        ctx.ThinkingBudget.Should().Be(8000);
+    }
+
+    [Fact]
+    public void Null_binding_falls_back_to_per_turn_only()
+    {
+        var parsed = new ParsedChannelCommand(null, null, [ChannelDirectiveKind.Think], null, "x");
+        var ctx = ChannelTurnContext.FromDirectivesAndBinding(parsed, binding: null);
+
+        ctx.EnableThinking.Should().BeTrue();
+        ctx.EnableProgressStreamingOverride.Should().BeNull();
+    }
+
+    // Construct a minimal ThreadBinding for tests — only fields the factory reads matter.
+    private static ThreadBinding CreateBinding(bool thinkingEnabled, bool? streamOverride)
+        => new(
+            Id: "b-1",
+            ConnectorKind: ChannelConnectorKind.Telegram,
+            AccountId: "a-1",
+            ExternalThreadId: "t-1",
+            ThreadType: ChannelThreadType.DirectMessage,
+            SessionId: "s-1",
+            SessionKind: SessionKind.ChannelDirectMessage,
+            ChannelIdentity: new ChannelIdentity("u-1", null, null),
+            PolicyId: "default",
+            DeliveryRuleId: "default",
+            CreatedAt: DateTimeOffset.UtcNow,
+            UpdatedAt: DateTimeOffset.UtcNow,
+            ThinkingEnabled: thinkingEnabled,
+            StreamOverride: streamOverride);
 }
