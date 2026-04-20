@@ -10,9 +10,10 @@ internal sealed record TelegramConnectorConfiguration(
 {
     private const int DefaultPollingTimeoutSeconds = 25;
 
-    public static TelegramConnectorConfiguration FromAccount(
+    public static async Task<TelegramConnectorConfiguration> FromAccountAsync(
         ChannelAccount account,
-        ChannelSecretResolver? secretResolver = null)
+        ChannelSecretResolver? secretResolver = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
         if (account.ConnectorKind != ChannelConnectorKind.Telegram)
@@ -53,10 +54,11 @@ internal sealed record TelegramConnectorConfiguration(
             }
         }
 
-        var botToken = (secretResolver ?? new ChannelSecretResolver()).Resolve(
+        var botToken = await (secretResolver ?? new ChannelSecretResolver()).ResolveAsync(
             tokenFromConfig,
             credentialReferenceFromConfig,
-            account.CredentialReference);
+            account.CredentialReference,
+            cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(botToken))
         {
             throw new ArgumentException(
@@ -106,21 +108,11 @@ internal sealed record TelegramConnectorConfiguration(
 
             if (property.Value.ValueKind == JsonValueKind.String)
             {
-                return NormalizeNullable(property.Value.GetString());
+                return ChannelHubValidation.NormalizeNullableText(property.Value.GetString());
             }
         }
 
         return null;
     }
 
-    private static string? NormalizeNullable(string? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        var normalized = value.Trim();
-        return normalized.Length == 0 ? null : normalized;
-    }
 }

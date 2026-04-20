@@ -18,7 +18,7 @@ public sealed class GenericWebhookConnector : IChannelConnector
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.GenericWebhook;
 
-    public Task StartAsync(
+    public async Task StartAsync(
         ChannelAccount account,
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
         CancellationToken cancellationToken = default)
@@ -28,9 +28,10 @@ public sealed class GenericWebhookConnector : IChannelConnector
         cancellationToken.ThrowIfCancellationRequested();
 
         ValidateAccount(account);
-        var configuration = GenericWebhookConnectorConfiguration.FromAccount(account, _secretResolver);
+        var configuration = await GenericWebhookConnectorConfiguration
+            .FromAccountAsync(account, _secretResolver, cancellationToken)
+            .ConfigureAwait(false);
         _accounts[account.Id] = new RegisteredWebhookAccount(account, configuration, onEvent);
-        return Task.CompletedTask;
     }
 
     public Task StopAsync(string accountId, CancellationToken cancellationToken = default)
@@ -90,7 +91,9 @@ public sealed class GenericWebhookConnector : IChannelConnector
         cancellationToken.ThrowIfCancellationRequested();
 
         ValidateAccount(account);
-        var configuration = GenericWebhookConnectorConfiguration.FromAccount(account, _secretResolver);
+        var configuration = await GenericWebhookConnectorConfiguration
+            .FromAccountAsync(account, _secretResolver, cancellationToken)
+            .ConfigureAwait(false);
 
         if (!SecretsMatch(configuration.SharedSecret, presentedSharedSecret))
         {

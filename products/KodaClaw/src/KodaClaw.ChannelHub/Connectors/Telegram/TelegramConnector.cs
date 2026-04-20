@@ -49,7 +49,9 @@ public sealed class TelegramConnector : IChannelConnector
         }
 
         var accountId = ValidateAndNormalizeAccountId(account.Id);
-        var configuration = TelegramConnectorConfiguration.FromAccount(account, _secretResolver);
+        var configuration = await TelegramConnectorConfiguration
+            .FromAccountAsync(account, _secretResolver, cancellationToken)
+            .ConfigureAwait(false);
         await _apiClient.GetMeAsync(configuration.BotToken, cancellationToken).ConfigureAwait(false);
 
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

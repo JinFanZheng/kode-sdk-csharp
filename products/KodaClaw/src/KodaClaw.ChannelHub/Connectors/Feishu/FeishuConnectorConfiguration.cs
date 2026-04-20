@@ -8,9 +8,10 @@ internal sealed record FeishuConnectorConfiguration(
     string AppSecret,
     DeliveryMode? DefaultDeliveryMode = null)
 {
-    public static FeishuConnectorConfiguration FromAccount(
+    public static async Task<FeishuConnectorConfiguration> FromAccountAsync(
         ChannelAccount account,
-        ChannelSecretResolver? secretResolver = null)
+        ChannelSecretResolver? secretResolver = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
         if (account.ConnectorKind != ChannelConnectorKind.Feishu)
@@ -46,7 +47,7 @@ internal sealed record FeishuConnectorConfiguration(
             }
         }
 
-        var appId = NormalizeNullable(appIdFromConfig ?? account.ExternalAccountId);
+        var appId = ChannelHubValidation.NormalizeNullableText(appIdFromConfig ?? account.ExternalAccountId);
         if (string.IsNullOrWhiteSpace(appId))
         {
             throw new ArgumentException(
@@ -55,7 +56,11 @@ internal sealed record FeishuConnectorConfiguration(
         }
 
         var resolver = secretResolver ?? new ChannelSecretResolver();
-        var appSecret = resolver.Resolve(appSecretFromConfig, credentialReferenceFromConfig, account.CredentialReference);
+        var appSecret = await resolver.ResolveAsync(
+            appSecretFromConfig,
+            credentialReferenceFromConfig,
+            account.CredentialReference,
+            cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(appSecret))
         {
             throw new ArgumentException(
@@ -80,21 +85,11 @@ internal sealed record FeishuConnectorConfiguration(
 
             if (property.Value.ValueKind == JsonValueKind.String)
             {
-                return NormalizeNullable(property.Value.GetString());
+                return ChannelHubValidation.NormalizeNullableText(property.Value.GetString());
             }
         }
 
         return null;
     }
 
-    private static string? NormalizeNullable(string? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        var normalized = value.Trim();
-        return normalized.Length == 0 ? null : normalized;
-    }
 }

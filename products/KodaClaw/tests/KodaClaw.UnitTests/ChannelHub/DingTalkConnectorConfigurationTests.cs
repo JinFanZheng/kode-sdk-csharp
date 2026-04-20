@@ -7,14 +7,14 @@ namespace KodaClaw.UnitTests.ChannelHub;
 
 public sealed class DingTalkConnectorConfigurationTests
 {
-    // ── FromAccount: happy paths ───────────────────────────────────────────
+    // ── FromAccountAsync: happy paths ───────────────────────────────────────
 
     [Fact]
-    public void FromAccount_should_parse_appKey_appSecret_and_robotCode_from_configuration_json()
+    public async Task FromAccountAsync_should_parse_appKey_appSecret_and_robotCode_from_configuration_json()
     {
         var account = BuildAccount(configJson: """{"appKey":"ak_abc","appSecret":"s3cr3t","robotCode":"robot_x"}""");
 
-        var config = DingTalkConnectorConfiguration.FromAccount(account);
+        var config = await DingTalkConnectorConfiguration.FromAccountAsync(account);
 
         config.AppKey.Should().Be("ak_abc");
         config.AppSecret.Should().Be("s3cr3t");
@@ -23,56 +23,56 @@ public sealed class DingTalkConnectorConfigurationTests
     }
 
     [Fact]
-    public void FromAccount_should_fall_back_to_ExternalAccountId_for_appKey()
+    public async Task FromAccountAsync_should_fall_back_to_ExternalAccountId_for_appKey()
     {
         var account = BuildAccount(
             configJson: """{"appSecret":"s3cr3t","robotCode":"robot_x"}""",
             externalAccountId: "ak_fallback");
 
-        var config = DingTalkConnectorConfiguration.FromAccount(account);
+        var config = await DingTalkConnectorConfiguration.FromAccountAsync(account);
 
         config.AppKey.Should().Be("ak_fallback");
     }
 
     [Fact]
-    public void FromAccount_should_parse_defaultDeliveryMode_case_insensitive()
+    public async Task FromAccountAsync_should_parse_defaultDeliveryMode_case_insensitive()
     {
         var account = BuildAccount(
             configJson: """{"appKey":"ak_x","appSecret":"sec","robotCode":"rc","defaultDeliveryMode":"AutoSend"}""");
 
-        var config = DingTalkConnectorConfiguration.FromAccount(account);
+        var config = await DingTalkConnectorConfiguration.FromAccountAsync(account);
 
         config.DefaultDeliveryMode.Should().Be(DeliveryMode.AutoSend);
     }
 
     [Fact]
-    public void FromAccount_should_ignore_unknown_defaultDeliveryMode_values()
+    public async Task FromAccountAsync_should_ignore_unknown_defaultDeliveryMode_values()
     {
         var account = BuildAccount(
             configJson: """{"appKey":"ak_x","appSecret":"sec","robotCode":"rc","defaultDeliveryMode":"unknown_mode"}""");
 
-        var config = DingTalkConnectorConfiguration.FromAccount(account);
+        var config = await DingTalkConnectorConfiguration.FromAccountAsync(account);
 
         config.DefaultDeliveryMode.Should().BeNull();
     }
 
-    // ── FromAccount: credential reference via inline: prefix ─────────────
+    // ── FromAccountAsync: credential reference via inline: prefix ─────────
 
     [Fact]
-    public void FromAccount_should_resolve_appSecret_from_inline_credentialReference_in_config()
+    public async Task FromAccountAsync_should_resolve_appSecret_from_inline_credentialReference_in_config()
     {
         var account = BuildAccount(
             configJson: """{"appKey":"ak_x","robotCode":"rc","credentialReference":"inline:resolved-inline"}""");
 
-        var config = DingTalkConnectorConfiguration.FromAccount(account);
+        var config = await DingTalkConnectorConfiguration.FromAccountAsync(account);
 
         config.AppSecret.Should().Be("resolved-inline");
     }
 
-    // ── FromAccount: validation errors ───────────────────────────────────
+    // ── FromAccountAsync: validation errors ───────────────────────────────
 
     [Fact]
-    public void FromAccount_should_throw_for_wrong_connector_kind()
+    public async Task FromAccountAsync_should_throw_for_wrong_connector_kind()
     {
         var account = new ChannelAccount(
             Id: "acc",
@@ -82,53 +82,53 @@ public sealed class DingTalkConnectorConfigurationTests
             CreatedAt: DateTimeOffset.UtcNow,
             UpdatedAt: DateTimeOffset.UtcNow);
 
-        Action act = () => DingTalkConnectorConfiguration.FromAccount(account);
+        Func<Task> act = () => DingTalkConnectorConfiguration.FromAccountAsync(account);
 
-        act.Should().Throw<ArgumentException>()
+        await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*DingTalk connector cannot start account with connector kind*");
     }
 
     [Fact]
-    public void FromAccount_should_throw_when_appKey_is_missing()
+    public async Task FromAccountAsync_should_throw_when_appKey_is_missing()
     {
         var account = BuildAccount(configJson: """{"appSecret":"s3cr3t","robotCode":"rc"}""");
 
-        Action act = () => DingTalkConnectorConfiguration.FromAccount(account);
+        Func<Task> act = () => DingTalkConnectorConfiguration.FromAccountAsync(account);
 
-        act.Should().Throw<ArgumentException>()
+        await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*appKey is required*");
     }
 
     [Fact]
-    public void FromAccount_should_throw_when_appSecret_cannot_be_resolved()
+    public async Task FromAccountAsync_should_throw_when_appSecret_cannot_be_resolved()
     {
         var account = BuildAccount(configJson: """{"appKey":"ak_x","robotCode":"rc"}""");
 
-        Action act = () => DingTalkConnectorConfiguration.FromAccount(account);
+        Func<Task> act = () => DingTalkConnectorConfiguration.FromAccountAsync(account);
 
-        act.Should().Throw<ArgumentException>()
+        await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*appSecret is required*");
     }
 
     [Fact]
-    public void FromAccount_should_throw_when_robotCode_is_missing()
+    public async Task FromAccountAsync_should_throw_when_robotCode_is_missing()
     {
         var account = BuildAccount(configJson: """{"appKey":"ak_x","appSecret":"sec"}""");
 
-        Action act = () => DingTalkConnectorConfiguration.FromAccount(account);
+        Func<Task> act = () => DingTalkConnectorConfiguration.FromAccountAsync(account);
 
-        act.Should().Throw<ArgumentException>()
+        await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*robotCode is required*");
     }
 
     [Fact]
-    public void FromAccount_should_throw_for_non_object_configuration_json()
+    public async Task FromAccountAsync_should_throw_for_non_object_configuration_json()
     {
         var account = BuildAccount(configJson: """["not","an","object"]""");
 
-        Action act = () => DingTalkConnectorConfiguration.FromAccount(account);
+        Func<Task> act = () => DingTalkConnectorConfiguration.FromAccountAsync(account);
 
-        act.Should().Throw<ArgumentException>()
+        await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*DingTalk account configuration must be a JSON object*");
     }
 

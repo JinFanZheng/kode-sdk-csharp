@@ -1,4 +1,5 @@
 using System.Text.Json;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub;
@@ -338,11 +339,11 @@ public sealed class ChannelDeliveryApprovalService
 
     private static void ValidatePayload(StoredChannelDeliveryPayload payload)
     {
-        ChannelHubValidation.ValidateId(payload.DraftId, nameof(payload.DraftId));
-        ChannelHubValidation.ValidateId(payload.BindingId, nameof(payload.BindingId));
-        ChannelHubValidation.ValidateId(payload.AccountId, nameof(payload.AccountId));
-        ChannelHubValidation.ValidateId(payload.ExternalThreadId, nameof(payload.ExternalThreadId));
-        ChannelHubValidation.ValidateId(payload.MessageText, nameof(payload.MessageText));
+        ChannelHubValidation.RequireNonEmpty(payload.DraftId, nameof(payload.DraftId));
+        ChannelHubValidation.RequireNonEmpty(payload.BindingId, nameof(payload.BindingId));
+        ChannelHubValidation.RequireNonEmpty(payload.AccountId, nameof(payload.AccountId));
+        ChannelHubValidation.RequireNonEmpty(payload.ExternalThreadId, nameof(payload.ExternalThreadId));
+        ChannelHubValidation.RequireNonEmpty(payload.MessageText, nameof(payload.MessageText));
     }
 
     private static void ValidatePayloadAgainstBindingAndAccount(
@@ -422,15 +423,8 @@ public sealed class ChannelDeliveryApprovalService
         }, JsonOptions);
     }
 
-    private static string BuildPreview(string text)
-    {
-        const int maxLength = 96;
-
-        var normalized = text.Trim().ReplaceLineEndings(" ");
-        return normalized.Length <= maxLength
-            ? normalized
-            : $"{normalized[..maxLength]}...";
-    }
+    private static string BuildPreview(string text) =>
+        ChannelTextExtensions.Preview(text, collapseNewlines: true);
 
     private sealed record StoredChannelDeliveryPayload(
         string DraftId,

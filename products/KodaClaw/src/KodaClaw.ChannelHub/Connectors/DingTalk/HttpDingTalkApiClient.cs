@@ -1,20 +1,17 @@
-using System.IO;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using KodaClaw.ChannelHub.Common;
 
 namespace KodaClaw.ChannelHub.Connectors.DingTalk;
 
 public sealed class HttpDingTalkApiClient : IDingTalkApiClient
 {
     private const string BaseUrl = "https://api.dingtalk.com";
-    private static readonly TimeSpan TokenRefreshEarlyMargin = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
-
-    // 缓存的 token：appKey → (token, expiresAt)
-    private readonly Dictionary<string, (string Token, DateTimeOffset ExpiresAt)> _tokenCache = new(StringComparer.Ordinal);
-    private readonly SemaphoreSlim _tokenLock = new(1, 1);
+    private readonly TokenCache _tokenCache = new();
 
     public HttpDingTalkApiClient()
     {
@@ -32,7 +29,7 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
         string appSecret,
         CancellationToken cancellationToken = default)
     {
-        return await GetOrRefreshTokenAsync(appKey, async ct =>
+        return await _tokenCache.GetOrRefreshAsync(appKey, async ct =>
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/v1.0/oauth2/accessToken");
             request.Content = JsonContent.Create(
@@ -280,14 +277,14 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
         // 手动构建 multipart 请求体，避免 .NET 生成 RFC 5987 格式（钉钉老版 API 不兼容）
         var boundary = Guid.NewGuid().ToString("N");
         using var bodyStream = new MemoryStream();
-        using (var writer = new System.IO.StreamWriter(bodyStream, System.Text.Encoding.UTF8, leaveOpen: true))
+        using (var writer = new StreamWriter(bodyStream, Encoding.UTF8, leaveOpen: true))
         {
             // media part
             await writer.WriteAsync($"--{boundary}\r\n");
             await writer.WriteAsync($"Content-Disposition: form-data; name=\"media\"; filename=\"{fileName}\"\r\n");
             await writer.WriteAsync("Content-Type: application/octet-stream\r\n");
             await writer.WriteAsync("\r\n");
-            await writer.FlushAsync();
+            await writer.FlushAsync(cancellationToken);
 
             await data.CopyToAsync(bodyStream, cancellationToken).ConfigureAwait(false);
 
@@ -302,16 +299,15 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
 
             // closing boundary
             await writer.WriteAsync($"--{boundary}--\r\n");
-            await writer.FlushAsync();
+            await writer.FlushAsync(cancellationToken);
         }
 
         bodyStream.Position = 0;
 
-        // 使用独立 HttpClient，避免 BaseAddress 干扰，走钉钉老版 API
-        using var httpClient = new HttpClient();
+        // 钉钉 media upload 走老版 oapi.dingtalk.com；绝对 URI 优先于 BaseAddress，复用 _httpClient 避免重复 socket 分配
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            $"https://oapi.dingtalk.com/media/upload?access_token={accessToken}");
+            new Uri($"https://oapi.dingtalk.com/media/upload?access_token={accessToken}", UriKind.Absolute));
 
         request.Content = new StreamContent(bodyStream);
         request.Content.Headers.ContentType =
@@ -320,7 +316,7 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
                 Parameters = { new System.Net.Http.Headers.NameValueHeaderValue("boundary", boundary) }
             };
 
-        using var response = await httpClient.SendAsync(request, cancellationToken)
+        using var response = await _httpClient.SendAsync(request, cancellationToken)
             .ConfigureAwait(false);
 
         var rawBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -331,7 +327,7 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
                 $"DingTalk UploadMedia failed: {(int)response.StatusCode}. Body: {rawBody}");
         }
 
-        var result = System.Text.Json.JsonSerializer.Deserialize<DingTalkUploadMediaResponse>(rawBody);
+        var result = JsonSerializer.Deserialize<DingTalkUploadMediaResponse>(rawBody);
 
         if (result is null || string.IsNullOrWhiteSpace(result.MediaId))
         {
@@ -393,35 +389,4 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
         }
     }
 
-    private async Task<string> GetOrRefreshTokenAsync(
-        string cacheKey,
-        Func<CancellationToken, Task<(string Token, int ExpireSeconds)>> fetchAsync,
-        CancellationToken cancellationToken)
-    {
-        // 快速路径：无锁检查缓存
-        if (_tokenCache.TryGetValue(cacheKey, out var cached)
-            && cached.ExpiresAt > DateTimeOffset.UtcNow + TokenRefreshEarlyMargin)
-        {
-            return cached.Token;
-        }
-
-        await _tokenLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            // 双重检查
-            if (_tokenCache.TryGetValue(cacheKey, out cached)
-                && cached.ExpiresAt > DateTimeOffset.UtcNow + TokenRefreshEarlyMargin)
-            {
-                return cached.Token;
-            }
-
-            var (token, expireSeconds) = await fetchAsync(cancellationToken).ConfigureAwait(false);
-            _tokenCache[cacheKey] = (token, DateTimeOffset.UtcNow.AddSeconds(expireSeconds));
-            return token;
-        }
-        finally
-        {
-            _tokenLock.Release();
-        }
-    }
 }

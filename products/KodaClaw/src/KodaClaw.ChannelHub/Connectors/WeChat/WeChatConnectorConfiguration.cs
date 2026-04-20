@@ -8,10 +8,11 @@ internal sealed record WeChatConnectorConfiguration(
     string StateDir,
     DeliveryMode? DefaultDeliveryMode = null)
 {
-    public static WeChatConnectorConfiguration FromAccount(
+    public static async Task<WeChatConnectorConfiguration> FromAccountAsync(
         ChannelAccount account,
         string workspaceRootPath,
-        ChannelSecretResolver? secretResolver = null)
+        ChannelSecretResolver? secretResolver = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
         if (account.ConnectorKind != ChannelConnectorKind.WeChat)
@@ -46,7 +47,11 @@ internal sealed record WeChatConnectorConfiguration(
         }
 
         var resolver = secretResolver ?? new ChannelSecretResolver();
-        var botToken = resolver.Resolve(botTokenFromConfig, credentialReferenceFromConfig, account.CredentialReference);
+        var botToken = await resolver.ResolveAsync(
+            botTokenFromConfig,
+            credentialReferenceFromConfig,
+            account.CredentialReference,
+            cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(botToken))
         {
             throw new ArgumentException(
@@ -70,16 +75,10 @@ internal sealed record WeChatConnectorConfiguration(
                 continue;
 
             if (property.Value.ValueKind == JsonValueKind.String)
-                return NormalizeNullable(property.Value.GetString());
+                return ChannelHubValidation.NormalizeNullableText(property.Value.GetString());
         }
 
         return null;
     }
 
-    private static string? NormalizeNullable(string? value)
-    {
-        if (value is null) return null;
-        var normalized = value.Trim();
-        return normalized.Length == 0 ? null : normalized;
-    }
 }

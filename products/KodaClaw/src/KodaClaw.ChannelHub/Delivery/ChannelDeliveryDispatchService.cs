@@ -1,5 +1,5 @@
 using System.Text.Json;
-using KodaClaw.ChannelHub.Connectors.Telegram;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub;
@@ -87,7 +87,7 @@ public sealed class ChannelDeliveryDispatchService
                 Succeeded: true,
                 Outcome: deliveredOutcome);
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException or HttpRequestException)
         {
             var failedAt = DateTimeOffset.UtcNow;
             var failedOutcome = intendedOutcome with
@@ -175,13 +175,7 @@ public sealed class ChannelDeliveryDispatchService
                 $"Connector '{account.ConnectorKind}' does not support channel delivery dispatch.");
         }
 
-        if (connector is TelegramConnector tc)
-        {
-            await tc.EnsureStartedAndSendAsync(account, draft, cancellationToken);
-            return;
-        }
-
-        await connector!.SendAsync(draft, cancellationToken);
+        await connector!.EnsureStartedAndSendAsync(account, draft, cancellationToken);
     }
 
     private async Task AppendAuditAsync(
@@ -252,16 +246,5 @@ public sealed class ChannelDeliveryDispatchService
             }));
     }
 
-    private static string BuildPreview(string text)
-    {
-        const int maxLength = 96;
-
-        var normalized = text.Trim();
-        if (normalized.Length <= maxLength)
-        {
-            return normalized;
-        }
-
-        return $"{normalized[..maxLength]}...";
-    }
+    private static string BuildPreview(string text) => ChannelTextExtensions.Preview(text);
 }

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub.Connectors.Feishu;
@@ -42,7 +43,6 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
     private const int MethodControl = 0; // ping / pong
     private const int MethodData    = 1; // event
 
-    private const int EventDedupeWindowSize = 500;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IFeishuApiClient _apiClient;
@@ -51,8 +51,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
     private readonly Func<FeishuWsEventEnvelope, string, CancellationToken, Task> _onEvent;
     private readonly FeishuConnectorOptions _options;
     private readonly IDiagnosticsService? _diagnosticsService;
-    private readonly ConcurrentQueue<string> _dedupeQueue = new();
-    private readonly ConcurrentDictionary<string, byte> _dedupeSet = new(StringComparer.Ordinal);
+    private readonly EventDedupeTracker _dedupeTracker = new();
     private readonly ConcurrentDictionary<string, ChunkBuffer> _chunkBuffers = new(StringComparer.Ordinal);
     private CancellationTokenSource? _cts;
     private Task _loopTask = Task.CompletedTask;
@@ -96,46 +95,21 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
 
     // ── 连接主循环（断线自动重连）────────────────────────────────────────
 
-    private async Task RunConnectionLoopAsync(CancellationToken cancellationToken)
-    {
-        var retryDelay = _options.ReconnectBaseDelay;
-        var attempt = 0;
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            attempt++;
-            try
+    private Task RunConnectionLoopAsync(CancellationToken cancellationToken) =>
+        WebSocketReconnectLoop.RunAsync(
+            new WebSocketReconnectLoopOptions
             {
-                await RunSingleConnectionAsync(cancellationToken).ConfigureAwait(false);
-                RecordDiagnosticEvent("feishu.ws.reconnecting", "info",
-                    $"app={_appId} connection closed, reconnecting (attempt #{attempt + 1})...");
-                retryDelay = _options.ReconnectBaseDelay;
-                attempt = 0;
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                RecordDiagnosticEvent("feishu.ws.connection_failed", "error",
-                    $"app={_appId} connection failed (attempt #{attempt}): {ex.Message}");
-            }
-
-            try
-            {
-                await Task.Delay(retryDelay, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            retryDelay = retryDelay * 2 < _options.ReconnectMaxDelay
-                ? retryDelay * 2
-                : _options.ReconnectMaxDelay;
-        }
-    }
+                BaseDelay = _options.ReconnectBaseDelay,
+                MaxDelay = _options.ReconnectMaxDelay,
+                RunSingleConnectionAsync = RunSingleConnectionAsync,
+                OnReconnecting = nextAttempt => RecordDiagnosticEvent(
+                    "feishu.ws.reconnecting", "info",
+                    $"app={_appId} connection closed, reconnecting (attempt #{nextAttempt})..."),
+                OnConnectionFailed = (attempt, ex) => RecordDiagnosticEvent(
+                    "feishu.ws.connection_failed", "error",
+                    $"app={_appId} connection failed (attempt #{attempt}): {ex.Message}"),
+            },
+            cancellationToken);
 
     private async Task RunSingleConnectionAsync(CancellationToken cancellationToken)
     {
@@ -355,11 +329,11 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         }
 
         var eventId = envelope.Header?.EventId ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(eventId) && !TryTrackEvent(eventId)) return;
+        if (!string.IsNullOrWhiteSpace(eventId) && !_dedupeTracker.TryTrack(eventId)) return;
 
         // 飞书重投时 eventId 不同但底层 message_id 不变，追加 message_id 去重兜底
         var messageId = envelope.Event?.Message?.MessageId;
-        if (!string.IsNullOrWhiteSpace(messageId) && !TryTrackEvent(messageId)) return;
+        if (!string.IsNullOrWhiteSpace(messageId) && !_dedupeTracker.TryTrack(messageId)) return;
 
         // fire-and-forget：业务处理不阻塞 WS 接收循环
         _ = Task.Run(async () =>
@@ -648,23 +622,6 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         return long.TryParse(createTime, out var ms)
             ? DateTimeOffset.FromUnixTimeMilliseconds(ms)
             : DateTimeOffset.UtcNow;
-    }
-
-    // ── 事件去重 LRU ──────────────────────────────────────────────────────
-
-    private bool TryTrackEvent(string eventId)
-    {
-        if (!_dedupeSet.TryAdd(eventId, 0)) return false;
-
-        _dedupeQueue.Enqueue(eventId);
-
-        while (_dedupeQueue.Count > EventDedupeWindowSize)
-        {
-            if (_dedupeQueue.TryDequeue(out var oldest))
-                _dedupeSet.TryRemove(oldest, out _);
-        }
-
-        return true;
     }
 
     // ── 诊断 ──────────────────────────────────────────────────────────────

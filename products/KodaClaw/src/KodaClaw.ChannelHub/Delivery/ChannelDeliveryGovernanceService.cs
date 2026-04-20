@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub;
@@ -167,7 +168,7 @@ public sealed class ChannelDeliveryGovernanceService
 
     private static void ValidateDeliveryRule(DeliveryRule deliveryRule)
     {
-        ChannelHubValidation.ValidateId(deliveryRule.Id, nameof(deliveryRule.Id));
+        ChannelHubValidation.RequireNonEmpty(deliveryRule.Id, nameof(deliveryRule.Id));
 
         if (deliveryRule.UpdatedAt == default)
         {
@@ -177,11 +178,11 @@ public sealed class ChannelDeliveryGovernanceService
 
     private static void ValidateDraft(ThreadBinding binding, ChannelOutboundDraft draft)
     {
-        ChannelHubValidation.ValidateId(draft.DraftId, nameof(draft.DraftId));
-        ChannelHubValidation.ValidateId(draft.BindingId, nameof(draft.BindingId));
-        ChannelHubValidation.ValidateId(draft.AccountId, nameof(draft.AccountId));
-        ChannelHubValidation.ValidateId(draft.ExternalThreadId, nameof(draft.ExternalThreadId));
-        ChannelHubValidation.ValidateId(draft.MessageText, nameof(draft.MessageText));
+        ChannelHubValidation.RequireNonEmpty(draft.DraftId, nameof(draft.DraftId));
+        ChannelHubValidation.RequireNonEmpty(draft.BindingId, nameof(draft.BindingId));
+        ChannelHubValidation.RequireNonEmpty(draft.AccountId, nameof(draft.AccountId));
+        ChannelHubValidation.RequireNonEmpty(draft.ExternalThreadId, nameof(draft.ExternalThreadId));
+        ChannelHubValidation.RequireNonEmpty(draft.MessageText, nameof(draft.MessageText));
 
         if (draft.CreatedAt == default)
         {
@@ -225,16 +226,5 @@ public sealed class ChannelDeliveryGovernanceService
         return $"channel-delivery-inbox-{draftId}";
     }
 
-    private static string BuildPreview(string text)
-    {
-        const int maxLength = 96;
-
-        var normalized = text.Trim();
-        if (normalized.Length <= maxLength)
-        {
-            return normalized;
-        }
-
-        return $"{normalized[..maxLength]}...";
-    }
+    private static string BuildPreview(string text) => ChannelTextExtensions.Preview(text);
 }

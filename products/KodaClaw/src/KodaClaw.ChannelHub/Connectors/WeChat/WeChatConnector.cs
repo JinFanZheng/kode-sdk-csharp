@@ -72,7 +72,7 @@ public sealed class WeChatConnector : IChannelConnector
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.WeChat;
 
-    public Task StartAsync(
+    public async Task StartAsync(
         ChannelAccount account,
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
         CancellationToken cancellationToken = default)
@@ -89,7 +89,9 @@ public sealed class WeChatConnector : IChannelConnector
         }
 
         var accountId = ValidateAndNormalizeAccountId(account.Id);
-        var configuration = WeChatConnectorConfiguration.FromAccount(account, _workspaceRootPath, _secretResolver);
+        var configuration = await WeChatConnectorConfiguration
+            .FromAccountAsync(account, _workspaceRootPath, _secretResolver, cancellationToken)
+            .ConfigureAwait(false);
 
         // 设置 API Client 的 BotToken
         _apiClient.SetBotToken(configuration.BotToken);
@@ -119,8 +121,6 @@ public sealed class WeChatConnector : IChannelConnector
 
         RecordDiagnosticEvent("wechat.account_started", "info",
             $"WeChat account started: accountId={accountId}");
-
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(string accountId, CancellationToken cancellationToken = default)

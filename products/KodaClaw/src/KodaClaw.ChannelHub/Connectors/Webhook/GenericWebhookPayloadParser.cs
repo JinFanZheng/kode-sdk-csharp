@@ -157,7 +157,7 @@ internal static class GenericWebhookPayloadParser
 
                 return property.Value.ValueKind switch
                 {
-                    JsonValueKind.String => NormalizeNullable(property.Value.GetString()),
+                    JsonValueKind.String => ChannelHubValidation.NormalizeNullableText(property.Value.GetString()),
                     JsonValueKind.Number => property.Value.ToString(),
                     JsonValueKind.True => bool.TrueString,
                     JsonValueKind.False => bool.FalseString,
@@ -249,14 +249,4 @@ internal static class GenericWebhookPayloadParser
             .Replace(" ", string.Empty, StringComparison.Ordinal);
     }
 
-    private static string? NormalizeNullable(string? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        var normalized = value.Trim();
-        return normalized.Length == 0 ? null : normalized;
-    }
 }

@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub.Connectors.Relay;
@@ -19,7 +19,6 @@ namespace KodaClaw.ChannelHub.Connectors.Relay;
 /// </summary>
 internal sealed class RelayWebSocketClient : IAsyncDisposable
 {
-    private const int EventDedupeWindowSize = 500;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string _accountId;
@@ -28,8 +27,7 @@ internal sealed class RelayWebSocketClient : IAsyncDisposable
     private readonly Func<JsonElement, CancellationToken, Task> _onEvent;
     private readonly RelayConnectorOptions _options;
     private readonly IDiagnosticsService? _diagnosticsService;
-    private readonly ConcurrentQueue<string> _dedupeQueue = new();
-    private readonly ConcurrentDictionary<string, byte> _dedupeSet = new(StringComparer.Ordinal);
+    private readonly EventDedupeTracker _dedupeTracker = new();
     private CancellationTokenSource? _cts;
     private Task _loopTask = Task.CompletedTask;
 
@@ -74,52 +72,25 @@ internal sealed class RelayWebSocketClient : IAsyncDisposable
 
     // ── 连接主循环（断线自动重连）──
 
-    private async Task RunConnectionLoopAsync(CancellationToken cancellationToken)
-    {
-        var retryDelay = _options.ReconnectBaseDelay;
-        var attempt = 0;
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            attempt++;
-            try
+    private Task RunConnectionLoopAsync(CancellationToken cancellationToken) =>
+        WebSocketReconnectLoop.RunAsync(
+            new WebSocketReconnectLoopOptions
             {
-                await RunSingleConnectionAsync(cancellationToken).ConfigureAwait(false);
-                RecordDiagnosticEvent("relay.ws.reconnecting", "info",
-                    $"account={_accountId} connection closed, reconnecting (attempt #{attempt + 1})...");
-                retryDelay = _options.ReconnectBaseDelay;
-                attempt = 0;
-            }
-            catch (AuthFailedException)
-            {
-                RecordDiagnosticEvent("relay.ws.auth_failed", "error",
-                    $"account={_accountId} authentication failed, will NOT retry.");
-                return; // 认证失败不重连
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                RecordDiagnosticEvent("relay.ws.connection_failed", "error",
-                    $"account={_accountId} connection failed (attempt #{attempt}): {ex.Message}");
-            }
-
-            try
-            {
-                await Task.Delay(retryDelay, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            retryDelay = retryDelay * 2 < _options.ReconnectMaxDelay
-                ? retryDelay * 2
-                : _options.ReconnectMaxDelay;
-        }
-    }
+                BaseDelay = _options.ReconnectBaseDelay,
+                MaxDelay = _options.ReconnectMaxDelay,
+                RunSingleConnectionAsync = RunSingleConnectionAsync,
+                OnReconnecting = nextAttempt => RecordDiagnosticEvent(
+                    "relay.ws.reconnecting", "info",
+                    $"account={_accountId} connection closed, reconnecting (attempt #{nextAttempt})..."),
+                OnConnectionFailed = (attempt, ex) => RecordDiagnosticEvent(
+                    "relay.ws.connection_failed", "error",
+                    $"account={_accountId} connection failed (attempt #{attempt}): {ex.Message}"),
+                IsTerminalException = ex => ex is AuthFailedException,
+                OnTerminalException = _ => RecordDiagnosticEvent(
+                    "relay.ws.auth_failed", "error",
+                    $"account={_accountId} authentication failed, will NOT retry."),
+            },
+            cancellationToken);
 
     private async Task RunSingleConnectionAsync(CancellationToken cancellationToken)
     {
@@ -307,7 +278,7 @@ internal sealed class RelayWebSocketClient : IAsyncDisposable
         }
 
         // 去重
-        if (!TryTrackEvent(eventId)) return;
+        if (!_dedupeTracker.TryTrack(eventId)) return;
 
         // ACK
         var ack = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "ack", eventId }, JsonOptions));
@@ -350,20 +321,6 @@ internal sealed class RelayWebSocketClient : IAsyncDisposable
                     $"account={_accountId} event handler error for {eventId}: {ex.Message}");
             }
         }, CancellationToken.None);
-    }
-
-    // ── 事件去重 ──
-
-    private bool TryTrackEvent(string eventId)
-    {
-        if (!_dedupeSet.TryAdd(eventId, 0)) return false;
-        _dedupeQueue.Enqueue(eventId);
-        while (_dedupeQueue.Count > EventDedupeWindowSize)
-        {
-            if (_dedupeQueue.TryDequeue(out var oldest))
-                _dedupeSet.TryRemove(oldest, out _);
-        }
-        return true;
     }
 
     // ── 辅助 ──

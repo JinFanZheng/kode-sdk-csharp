@@ -11,19 +11,20 @@ internal sealed class ChannelSecretResolver
         _secretStore = secretStore ?? NullSecretStore.Instance;
     }
 
-    public string? Resolve(
+    public async Task<string?> ResolveAsync(
         string? explicitSecret,
         string? credentialReferenceFromConfig,
-        string? credentialReferenceFromAccount)
+        string? credentialReferenceFromAccount,
+        CancellationToken cancellationToken = default)
     {
-        var normalizedExplicitSecret = NormalizeNullable(explicitSecret);
+        var normalizedExplicitSecret = ChannelHubValidation.NormalizeNullableText(explicitSecret);
         if (!string.IsNullOrWhiteSpace(normalizedExplicitSecret))
         {
             return normalizedExplicitSecret;
         }
 
-        var reference = NormalizeNullable(credentialReferenceFromConfig)
-            ?? NormalizeNullable(credentialReferenceFromAccount);
+        var reference = ChannelHubValidation.NormalizeNullableText(credentialReferenceFromConfig)
+            ?? ChannelHubValidation.NormalizeNullableText(credentialReferenceFromAccount);
         if (string.IsNullOrWhiteSpace(reference))
         {
             return null;
@@ -31,8 +32,8 @@ internal sealed class ChannelSecretResolver
 
         if (SecretRef.TryParse(reference, out var secretRef))
         {
-            var resolved = _secretStore.GetAsync(secretRef).GetAwaiter().GetResult();
-            return NormalizeNullable(resolved);
+            var resolved = await _secretStore.GetAsync(secretRef, cancellationToken).ConfigureAwait(false);
+            return ChannelHubValidation.NormalizeNullableText(resolved);
         }
 
         if (reference.StartsWith("env:", StringComparison.OrdinalIgnoreCase))
@@ -43,31 +44,20 @@ internal sealed class ChannelSecretResolver
                 return null;
             }
 
-            return NormalizeNullable(Environment.GetEnvironmentVariable(environmentKey));
+            return ChannelHubValidation.NormalizeNullableText(Environment.GetEnvironmentVariable(environmentKey));
         }
 
         if (reference.StartsWith("inline:", StringComparison.OrdinalIgnoreCase))
         {
-            return NormalizeNullable(reference["inline:".Length..]);
+            return ChannelHubValidation.NormalizeNullableText(reference["inline:".Length..]);
         }
 
         if (reference.StartsWith("value:", StringComparison.OrdinalIgnoreCase))
         {
-            return NormalizeNullable(reference["value:".Length..]);
+            return ChannelHubValidation.NormalizeNullableText(reference["value:".Length..]);
         }
 
-        return NormalizeNullable(reference);
-    }
-
-    private static string? NormalizeNullable(string? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        var normalized = value.Trim();
-        return normalized.Length == 0 ? null : normalized;
+        return ChannelHubValidation.NormalizeNullableText(reference);
     }
 
     private sealed class NullSecretStore : ISecretStore

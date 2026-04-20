@@ -7,57 +7,57 @@ namespace KodaClaw.UnitTests.ChannelHub;
 
 public sealed class WeChatConnectorConfigurationTests
 {
-    // ── FromAccount: happy paths ───────────────────────────────────────────
+    // ── FromAccountAsync: happy paths ───────────────────────────────────────
 
     [Fact]
-    public void FromAccount_should_parse_botToken_from_configuration_json()
+    public async Task FromAccountAsync_should_parse_botToken_from_configuration_json()
     {
         var account = BuildAccount(configJson: """{"botToken":"TOKEN_ABC"}""");
 
-        var config = WeChatConnectorConfiguration.FromAccount(account, workspaceRootPath: "/tmp/ws");
+        var config = await WeChatConnectorConfiguration.FromAccountAsync(account, workspaceRootPath: "/tmp/ws");
 
         config.BotToken.Should().Be("TOKEN_ABC");
         config.StateDir.Should().Be("/tmp/ws/state/wechat/wechat-main");
     }
 
     [Fact]
-    public void FromAccount_should_resolve_botToken_from_inline_credentialReference_in_config()
+    public async Task FromAccountAsync_should_resolve_botToken_from_inline_credentialReference_in_config()
     {
         var account = BuildAccount(configJson: """{"credentialReference":"inline:resolved-inline"}""");
 
-        var config = WeChatConnectorConfiguration.FromAccount(account, workspaceRootPath: "/tmp/ws");
+        var config = await WeChatConnectorConfiguration.FromAccountAsync(account, workspaceRootPath: "/tmp/ws");
 
         config.BotToken.Should().Be("resolved-inline");
     }
 
     [Fact]
-    public void FromAccount_should_resolve_botToken_from_inline_credentialReference_on_account()
+    public async Task FromAccountAsync_should_resolve_botToken_from_inline_credentialReference_on_account()
     {
         var account = BuildAccount(
             configJson: "{}",
             credentialReference: "inline:resolved-from-account");
 
-        var config = WeChatConnectorConfiguration.FromAccount(account, workspaceRootPath: "/tmp/ws");
+        var config = await WeChatConnectorConfiguration.FromAccountAsync(account, workspaceRootPath: "/tmp/ws");
 
         config.BotToken.Should().Be("resolved-from-account");
     }
 
     [Fact]
-    public void FromAccount_should_prefer_config_json_botToken_over_credentialReference()
+    public async Task FromAccountAsync_should_prefer_config_json_botToken_over_credentialReference()
     {
         var account = BuildAccount(
             configJson: """{"botToken":"config-token"}""",
             credentialReference: "inline:account-token");
 
-        var config = WeChatConnectorConfiguration.FromAccount(account, workspaceRootPath: "/tmp/ws");
+        var config = await WeChatConnectorConfiguration.FromAccountAsync(account, workspaceRootPath: "/tmp/ws");
 
         config.BotToken.Should().Be("config-token");
     }
 
-    // ── FromAccount: validation errors ───────────────────────────────────
+    // ── FromAccountAsync: validation errors ───────────────────────────────
 
     [Fact]
-    public void FromAccount_should_throw_for_wrong_connector_kind()
+    public async Task FromAccountAsync_should_throw_for_wrong_connector_kind()
     {
         var account = new ChannelAccount(
             Id: "acc",
@@ -67,42 +67,42 @@ public sealed class WeChatConnectorConfigurationTests
             CreatedAt: DateTimeOffset.UtcNow,
             UpdatedAt: DateTimeOffset.UtcNow);
 
-        Action act = () => WeChatConnectorConfiguration.FromAccount(account, "/tmp/ws");
+        Func<Task> act = () => WeChatConnectorConfiguration.FromAccountAsync(account, "/tmp/ws");
 
-        act.Should().Throw<ArgumentException>()
+        await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*WeChat connector cannot start account with connector kind*");
     }
 
     [Fact]
-    public void FromAccount_should_throw_when_botToken_cannot_be_resolved()
+    public async Task FromAccountAsync_should_throw_when_botToken_cannot_be_resolved()
     {
         var account = BuildAccount(configJson: "{}");
 
-        Action act = () => WeChatConnectorConfiguration.FromAccount(account, "/tmp/ws");
+        Func<Task> act = () => WeChatConnectorConfiguration.FromAccountAsync(account, "/tmp/ws");
 
-        act.Should().Throw<ArgumentException>()
+        await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*bot_token is required*");
     }
 
     [Fact]
-    public void FromAccount_should_throw_for_non_object_configuration_json()
+    public async Task FromAccountAsync_should_throw_for_non_object_configuration_json()
     {
         var account = BuildAccount(configJson: """["not","an","object"]""");
 
-        Action act = () => WeChatConnectorConfiguration.FromAccount(account, "/tmp/ws");
+        Func<Task> act = () => WeChatConnectorConfiguration.FromAccountAsync(account, "/tmp/ws");
 
-        act.Should().Throw<ArgumentException>()
+        await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*WeChat account configuration must be a JSON object*");
     }
 
     [Fact]
-    public void FromAccount_should_throw_when_configuration_json_is_null()
+    public async Task FromAccountAsync_should_throw_when_configuration_json_is_null()
     {
         var account = BuildAccount(configJson: null);
 
-        Action act = () => WeChatConnectorConfiguration.FromAccount(account, "/tmp/ws");
+        Func<Task> act = () => WeChatConnectorConfiguration.FromAccountAsync(account, "/tmp/ws");
 
-        act.Should().Throw<ArgumentException>();
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub.Connectors.DingTalk;
@@ -18,7 +18,6 @@ namespace KodaClaw.ChannelHub.Connectors.DingTalk;
 /// </summary>
 internal sealed class DingTalkStreamClient : IAsyncDisposable
 {
-    private const int EventDedupeWindowSize = 500;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private const string BotMessageTopic = "/v1.0/im/bot/messages/get";
 
@@ -28,8 +27,7 @@ internal sealed class DingTalkStreamClient : IAsyncDisposable
     private readonly Func<DingTalkStreamEventData, string, CancellationToken, Task> _onEvent;
     private readonly DingTalkConnectorOptions _options;
     private readonly IDiagnosticsService? _diagnosticsService;
-    private readonly ConcurrentQueue<string> _dedupeQueue = new();
-    private readonly ConcurrentDictionary<string, byte> _dedupeSet = new(StringComparer.Ordinal);
+    private readonly EventDedupeTracker _dedupeTracker = new();
     private CancellationTokenSource? _cts;
     private Task _loopTask = Task.CompletedTask;
 
@@ -72,46 +70,21 @@ internal sealed class DingTalkStreamClient : IAsyncDisposable
 
     // ── 连接主循环（断线自动重连）────────────────────────────────────────
 
-    private async Task RunConnectionLoopAsync(CancellationToken cancellationToken)
-    {
-        var retryDelay = _options.ReconnectBaseDelay;
-        var attempt = 0;
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            attempt++;
-            try
+    private Task RunConnectionLoopAsync(CancellationToken cancellationToken) =>
+        WebSocketReconnectLoop.RunAsync(
+            new WebSocketReconnectLoopOptions
             {
-                await RunSingleConnectionAsync(cancellationToken).ConfigureAwait(false);
-                RecordDiagnosticEvent("dingtalk.ws.reconnecting", "info",
-                    $"appKey={_appKey} connection closed, reconnecting (attempt #{attempt + 1})...");
-                retryDelay = _options.ReconnectBaseDelay;
-                attempt = 0;
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                RecordDiagnosticEvent("dingtalk.ws.connection_failed", "error",
-                    $"appKey={_appKey} connection failed (attempt #{attempt}): {ex.Message}");
-            }
-
-            try
-            {
-                await Task.Delay(retryDelay, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            retryDelay = retryDelay * 2 < _options.ReconnectMaxDelay
-                ? retryDelay * 2
-                : _options.ReconnectMaxDelay;
-        }
-    }
+                BaseDelay = _options.ReconnectBaseDelay,
+                MaxDelay = _options.ReconnectMaxDelay,
+                RunSingleConnectionAsync = RunSingleConnectionAsync,
+                OnReconnecting = nextAttempt => RecordDiagnosticEvent(
+                    "dingtalk.ws.reconnecting", "info",
+                    $"appKey={_appKey} connection closed, reconnecting (attempt #{nextAttempt})..."),
+                OnConnectionFailed = (attempt, ex) => RecordDiagnosticEvent(
+                    "dingtalk.ws.connection_failed", "error",
+                    $"appKey={_appKey} connection failed (attempt #{attempt}): {ex.Message}"),
+            },
+            cancellationToken);
 
     private async Task RunSingleConnectionAsync(CancellationToken cancellationToken)
     {
@@ -239,7 +212,7 @@ internal sealed class DingTalkStreamClient : IAsyncDisposable
         }
 
         // 事件去重
-        if (!string.IsNullOrWhiteSpace(messageId) && !TryTrackEvent(messageId)) return;
+        if (!string.IsNullOrWhiteSpace(messageId) && !_dedupeTracker.TryTrack(messageId)) return;
 
         DingTalkStreamEventData? eventData;
         try
@@ -256,7 +229,7 @@ internal sealed class DingTalkStreamClient : IAsyncDisposable
         if (eventData is null) return;
 
         // msgId 去重兜底
-        if (!string.IsNullOrWhiteSpace(eventData.MsgId) && !TryTrackEvent(eventData.MsgId)) return;
+        if (!string.IsNullOrWhiteSpace(eventData.MsgId) && !_dedupeTracker.TryTrack(eventData.MsgId)) return;
 
         // fire-and-forget：业务处理不阻塞 WS 接收循环
         _ = Task.Run(async () =>
@@ -299,23 +272,6 @@ internal sealed class DingTalkStreamClient : IAsyncDisposable
         {
             // ACK 失败不影响接收循环，钉钉会重投
         }
-    }
-
-    // ── 事件去重 LRU ──────────────────────────────────────────────────────
-
-    private bool TryTrackEvent(string eventId)
-    {
-        if (!_dedupeSet.TryAdd(eventId, 0)) return false;
-
-        _dedupeQueue.Enqueue(eventId);
-
-        while (_dedupeQueue.Count > EventDedupeWindowSize)
-        {
-            if (_dedupeQueue.TryDequeue(out var oldest))
-                _dedupeSet.TryRemove(oldest, out _);
-        }
-
-        return true;
     }
 
     // ── 诊断 ──────────────────────────────────────────────────────────────

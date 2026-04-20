@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub;
@@ -190,9 +191,9 @@ public sealed class ChannelEventIngestionService
     {
         ArgumentNullException.ThrowIfNull(envelope);
 
-        ChannelHubValidation.ValidateId(envelope.EventId, nameof(envelope.EventId));
-        ChannelHubValidation.ValidateId(envelope.AccountId, nameof(envelope.AccountId));
-        ChannelHubValidation.ValidateId(envelope.ExternalThreadId, nameof(envelope.ExternalThreadId));
+        ChannelHubValidation.RequireNonEmpty(envelope.EventId, nameof(envelope.EventId));
+        ChannelHubValidation.RequireNonEmpty(envelope.AccountId, nameof(envelope.AccountId));
+        ChannelHubValidation.RequireNonEmpty(envelope.ExternalThreadId, nameof(envelope.ExternalThreadId));
 
         if (envelope.EventType is ChannelEventType.AccountConnected or ChannelEventType.AccountDisconnected)
         {
@@ -229,18 +230,10 @@ public sealed class ChannelEventIngestionService
 
     private static string BuildPreview(ChannelEventEnvelope envelope)
     {
-        const int maxLength = 96;
-
         var text = envelope.Text;
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return MapAuditEventType(envelope.EventType);
-        }
-
-        var normalized = text.Trim().ReplaceLineEndings(" ");
-        return normalized.Length <= maxLength
-            ? normalized
-            : $"{normalized[..maxLength]}...";
+        return string.IsNullOrWhiteSpace(text)
+            ? MapAuditEventType(envelope.EventType)
+            : ChannelTextExtensions.Preview(text, collapseNewlines: true);
     }
 
     private static string BuildDefaultPolicyId(ChannelThreadType threadType)

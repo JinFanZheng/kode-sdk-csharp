@@ -12,4 +12,10 @@ public interface IChannelConnector
     Task StopAsync(string accountId, CancellationToken cancellationToken = default);
 
     Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default);
+
+    Task EnsureStartedAndSendAsync(
+        ChannelAccount account,
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken = default)
+        => SendAsync(draft, cancellationToken);
 }

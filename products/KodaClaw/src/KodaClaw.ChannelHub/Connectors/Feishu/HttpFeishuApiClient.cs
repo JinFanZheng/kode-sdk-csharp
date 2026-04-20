@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.ChannelHub.Connectors.Feishu.Models;
 
 namespace KodaClaw.ChannelHub.Connectors.Feishu;
@@ -8,14 +9,10 @@ namespace KodaClaw.ChannelHub.Connectors.Feishu;
 public sealed class HttpFeishuApiClient : IFeishuApiClient
 {
     private const string BaseUrl = "https://open.feishu.cn";
-    private static readonly TimeSpan TokenRefreshEarlyMargin = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
-
-    // 缓存的 token：(appId, tokenType) → (token, expiresAt)
-    private readonly Dictionary<string, (string Token, DateTimeOffset ExpiresAt)> _tokenCache = new(StringComparer.Ordinal);
-    private readonly SemaphoreSlim _tokenLock = new(1, 1);
+    private readonly TokenCache _tokenCache = new();
 
     public HttpFeishuApiClient()
     {
@@ -28,7 +25,7 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         CancellationToken cancellationToken = default)
     {
         var cacheKey = $"tenant:{appId}";
-        return await GetOrRefreshTokenAsync(cacheKey, async ct =>
+        return await _tokenCache.GetOrRefreshAsync(cacheKey, async ct =>
         {
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
@@ -60,7 +57,7 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         CancellationToken cancellationToken = default)
     {
         var cacheKey = $"app:{appId}";
-        return await GetOrRefreshTokenAsync(cacheKey, async ct =>
+        return await _tokenCache.GetOrRefreshAsync(cacheKey, async ct =>
         {
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
@@ -162,8 +159,8 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(
-                $"Feishu send video message failed: status={(int)response.StatusCode}, body={responseText}");
+            throw new HttpRequestException(
+                $"Feishu send image message failed: status={(int)response.StatusCode}, body={responseText}");
         }
 
         var messageId = ParseSendMessageResponseFromBytes(responseBytes, cancellationToken);
@@ -232,8 +229,8 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(
-                $"Feishu send video message failed: status={(int)response.StatusCode}, body={responseText}");
+            throw new HttpRequestException(
+                $"Feishu send audio message failed: status={(int)response.StatusCode}, body={responseText}");
         }
 
         var messageId = ParseSendMessageResponseFromBytes(responseBytes, cancellationToken);
@@ -281,7 +278,7 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(
+            throw new HttpRequestException(
                 $"Feishu upload video failed: status={(int)response.StatusCode}, body={responseText}");
         }
 
@@ -313,7 +310,7 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(
+            throw new HttpRequestException(
                 $"Feishu send video message failed: status={(int)response.StatusCode}, body={responseText}");
         }
 
@@ -485,7 +482,7 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         {
             // Check if the error response is JSON (API error) or something else
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException(
+            throw new HttpRequestException(
                 $"Feishu download resource failed: status={(int)response.StatusCode}, body={body}");
         }
 
@@ -497,35 +494,4 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         return ms;
     }
 
-    private async Task<string> GetOrRefreshTokenAsync(
-        string cacheKey,
-        Func<CancellationToken, Task<(string Token, int ExpireSeconds)>> fetchAsync,
-        CancellationToken cancellationToken)
-    {
-        // 快速路径：无锁检查缓存
-        if (_tokenCache.TryGetValue(cacheKey, out var cached)
-            && cached.ExpiresAt > DateTimeOffset.UtcNow + TokenRefreshEarlyMargin)
-        {
-            return cached.Token;
-        }
-
-        await _tokenLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            // 双重检查
-            if (_tokenCache.TryGetValue(cacheKey, out cached)
-                && cached.ExpiresAt > DateTimeOffset.UtcNow + TokenRefreshEarlyMargin)
-            {
-                return cached.Token;
-            }
-
-            var (token, expireSeconds) = await fetchAsync(cancellationToken).ConfigureAwait(false);
-            _tokenCache[cacheKey] = (token, DateTimeOffset.UtcNow.AddSeconds(expireSeconds));
-            return token;
-        }
-        finally
-        {
-            _tokenLock.Release();
-        }
-    }
 }

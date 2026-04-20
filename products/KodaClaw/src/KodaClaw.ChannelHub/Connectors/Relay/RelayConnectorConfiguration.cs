@@ -12,9 +12,10 @@ internal sealed record RelayConnectorConfiguration(
     DeliveryMode? DefaultDeliveryMode = null,
     string? NotifyChannelId = null)
 {
-    public static RelayConnectorConfiguration FromAccount(
+    public static async Task<RelayConnectorConfiguration> FromAccountAsync(
         ChannelAccount account,
-        ChannelSecretResolver? secretResolver = null)
+        ChannelSecretResolver? secretResolver = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
 
@@ -63,10 +64,11 @@ internal sealed record RelayConnectorConfiguration(
             defaultDeliveryMode = parsed;
         }
 
-        var resolvedSecret = (secretResolver ?? new ChannelSecretResolver()).Resolve(
+        var resolvedSecret = await (secretResolver ?? new ChannelSecretResolver()).ResolveAsync(
             sharedSecretFromConfig,
             credentialReferenceFromConfig,
-            account.CredentialReference);
+            account.CredentialReference,
+            cancellationToken).ConfigureAwait(false);
 
         var notifyChannelId = GetOptionalString(root, "notifyChannelId");
 

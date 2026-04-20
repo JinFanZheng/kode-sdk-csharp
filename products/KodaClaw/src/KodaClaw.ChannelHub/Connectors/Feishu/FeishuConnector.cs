@@ -47,7 +47,7 @@ public sealed class FeishuConnector : IChannelConnector
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.Feishu;
 
-    public Task StartAsync(
+    public async Task StartAsync(
         ChannelAccount account,
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
         CancellationToken cancellationToken = default)
@@ -64,7 +64,9 @@ public sealed class FeishuConnector : IChannelConnector
         }
 
         var accountId = ValidateAndNormalizeAccountId(account.Id);
-        var configuration = FeishuConnectorConfiguration.FromAccount(account, _secretResolver);
+        var configuration = await FeishuConnectorConfiguration
+            .FromAccountAsync(account, _secretResolver, cancellationToken)
+            .ConfigureAwait(false);
 
         var wsClient = new FeishuWebSocketClient(
             _apiClient,
@@ -94,8 +96,6 @@ public sealed class FeishuConnector : IChannelConnector
         _logger.LogInformation("Feishu WebSocket connector starting for account {AccountId}", accountId);
         RecordDiagnosticEvent("feishu.account_started", "info",
             $"Feishu account started: accountId={accountId}");
-
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(string accountId, CancellationToken cancellationToken = default)
@@ -401,7 +401,7 @@ public sealed class FeishuConnector : IChannelConnector
                 : null);
     }
 
-    private async Task<ChannelEventEnvelope?> TryMapImageEnvelopeAsync(
+    private Task<ChannelEventEnvelope?> TryMapImageEnvelopeAsync(
         string accountId,
         FeishuConnectorConfiguration configuration,
         FeishuWsEventEnvelope envelope,
@@ -409,73 +409,26 @@ public sealed class FeishuConnector : IChannelConnector
         CancellationToken cancellationToken)
     {
         var message = envelope.Event?.Message;
-        var sender = envelope.Event?.Sender;
         if (message is null)
         {
-            return null;
+            return Task.FromResult<ChannelEventEnvelope?>(null);
         }
 
-        // Parse image_key from content JSON
         var imageKey = ParseImageContent(message.Content);
         if (string.IsNullOrWhiteSpace(imageKey))
         {
-            return null;
+            return Task.FromResult<ChannelEventEnvelope?>(null);
         }
 
-        try
-        {
-            // Download image from Feishu
-            var tenantToken = await _apiClient.GetTenantAccessTokenAsync(
-                configuration.AppId, configuration.AppSecret, cancellationToken)
-                .ConfigureAwait(false);
-
-            using var imageStream = await _apiClient.DownloadResourceAsync(
-                tenantToken, message.MessageId, imageKey, "image", cancellationToken)
-                .ConfigureAwait(false);
-
-            // Store locally
-            var storedMeta = await _mediaStore!.StoreAsync(
-                imageStream,
-                contentType: "image/jpeg",
-                fileName: $"feishu-image-{eventId}.jpg",
-                source: "feishu-inbound",
-                externalMessageId: message.MessageId,
-                cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-
-            // Build envelope with media attachment
-            var threadType = ResolveThreadType(message.ChatType);
-            var externalThreadId = $"chat_id:{message.ChatId}";
-            var occurredAt = TryParseTimestamp(message.CreateTime);
-
-            return new ChannelEventEnvelope(
-                EventId: $"feishu-{eventId}",
-                EventType: ChannelEventType.MessageReceived,
-                ConnectorKind: ChannelConnectorKind.Feishu,
-                AccountId: accountId,
-                ExternalThreadId: externalThreadId,
-                ThreadType: threadType,
-                OccurredAt: occurredAt,
-                Sender: MapSender(sender),
-                Recipient: null,
-                ExternalMessageId: message.MessageId,
-                Text: "[图片]",
-                DefaultDeliveryMode: configuration.DefaultDeliveryMode,
-                MediaAttachments: [
-                    new MediaReference(
-                        MediaId: storedMeta.Id,
-                        ContentType: storedMeta.ContentType,
-                        FileName: storedMeta.FileName,
-                        SizeBytes: storedMeta.SizeBytes)
-                ]);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to process inbound image for event {EventId}: {Message}",
-                eventId, ex.Message);
-            return null;
-        }
+        return BuildMediaEnvelopeAsync(
+            accountId, configuration, envelope, eventId,
+            resourceKey: imageKey,
+            resourceType: "image",
+            contentType: "image/jpeg",
+            fileName: $"feishu-image-{eventId}.jpg",
+            placeholderText: "[图片]",
+            logSubject: "image",
+            cancellationToken);
     }
 
     private static string? ParseImageContent(string? contentJson)
@@ -540,7 +493,7 @@ public sealed class FeishuConnector : IChannelConnector
         }
     }
 
-    private async Task<ChannelEventEnvelope?> TryMapAudioEnvelopeAsync(
+    private Task<ChannelEventEnvelope?> TryMapAudioEnvelopeAsync(
         string accountId,
         FeishuConnectorConfiguration configuration,
         FeishuWsEventEnvelope envelope,
@@ -548,66 +501,29 @@ public sealed class FeishuConnector : IChannelConnector
         CancellationToken cancellationToken)
     {
         var message = envelope.Event?.Message;
-        var sender = envelope.Event?.Sender;
-        if (message is null) return null;
+        if (message is null)
+        {
+            return Task.FromResult<ChannelEventEnvelope?>(null);
+        }
 
         var fileKey = ParseFileKeyContent(message.Content);
-        if (string.IsNullOrWhiteSpace(fileKey)) return null;
-
-        try
+        if (string.IsNullOrWhiteSpace(fileKey))
         {
-            var tenantToken = await _apiClient.GetTenantAccessTokenAsync(
-                configuration.AppId, configuration.AppSecret, cancellationToken)
-                .ConfigureAwait(false);
-
-            using var stream = await _apiClient.DownloadResourceAsync(
-                tenantToken, message.MessageId, fileKey, "file", cancellationToken)
-                .ConfigureAwait(false);
-
-            var storedMeta = await _mediaStore!.StoreAsync(
-                stream,
-                contentType: "audio/opus",
-                fileName: $"feishu-audio-{eventId}.opus",
-                source: "feishu-inbound",
-                externalMessageId: message.MessageId,
-                cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-
-            var threadType = ResolveThreadType(message.ChatType);
-            var externalThreadId = $"chat_id:{message.ChatId}";
-            var occurredAt = TryParseTimestamp(message.CreateTime);
-
-            return new ChannelEventEnvelope(
-                EventId: $"feishu-{eventId}",
-                EventType: ChannelEventType.MessageReceived,
-                ConnectorKind: ChannelConnectorKind.Feishu,
-                AccountId: accountId,
-                ExternalThreadId: externalThreadId,
-                ThreadType: threadType,
-                OccurredAt: occurredAt,
-                Sender: MapSender(sender),
-                Recipient: null,
-                ExternalMessageId: message.MessageId,
-                Text: "[语音]",
-                DefaultDeliveryMode: configuration.DefaultDeliveryMode,
-                MediaAttachments: [
-                    new MediaReference(
-                        MediaId: storedMeta.Id,
-                        ContentType: storedMeta.ContentType,
-                        FileName: storedMeta.FileName,
-                        SizeBytes: storedMeta.SizeBytes)
-                ]);
+            return Task.FromResult<ChannelEventEnvelope?>(null);
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to process inbound audio for event {EventId}: {Message}",
-                eventId, ex.Message);
-            return null;
-        }
+
+        return BuildMediaEnvelopeAsync(
+            accountId, configuration, envelope, eventId,
+            resourceKey: fileKey,
+            resourceType: "file",
+            contentType: "audio/opus",
+            fileName: $"feishu-audio-{eventId}.opus",
+            placeholderText: "[语音]",
+            logSubject: "audio",
+            cancellationToken);
     }
 
-    private async Task<ChannelEventEnvelope?> TryMapFileEnvelopeAsync(
+    private Task<ChannelEventEnvelope?> TryMapFileEnvelopeAsync(
         string accountId,
         FeishuConnectorConfiguration configuration,
         FeishuWsEventEnvelope envelope,
@@ -615,14 +531,82 @@ public sealed class FeishuConnector : IChannelConnector
         CancellationToken cancellationToken)
     {
         var message = envelope.Event?.Message;
-        var sender = envelope.Event?.Sender;
-        if (message is null) return null;
+        if (message is null)
+        {
+            return Task.FromResult<ChannelEventEnvelope?>(null);
+        }
 
         var fileKey = ParseFileKeyContent(message.Content);
-        if (string.IsNullOrWhiteSpace(fileKey)) return null;
+        if (string.IsNullOrWhiteSpace(fileKey))
+        {
+            return Task.FromResult<ChannelEventEnvelope?>(null);
+        }
 
         var fileName = ParseFileName(message.Content) ?? $"feishu-file-{eventId}";
 
+        return BuildMediaEnvelopeAsync(
+            accountId, configuration, envelope, eventId,
+            resourceKey: fileKey,
+            resourceType: "file",
+            contentType: InferContentType(fileName),
+            fileName: fileName,
+            placeholderText: $"[文件: {fileName}]",
+            logSubject: "file",
+            cancellationToken);
+    }
+
+    private Task<ChannelEventEnvelope?> TryMapVideoEnvelopeAsync(
+        string accountId,
+        FeishuConnectorConfiguration configuration,
+        FeishuWsEventEnvelope envelope,
+        string eventId,
+        CancellationToken cancellationToken)
+    {
+        var message = envelope.Event?.Message;
+        if (message is null)
+        {
+            return Task.FromResult<ChannelEventEnvelope?>(null);
+        }
+
+        var fileKey = ParseFileKeyContent(message.Content);
+        if (string.IsNullOrWhiteSpace(fileKey))
+        {
+            return Task.FromResult<ChannelEventEnvelope?>(null);
+        }
+
+        return BuildMediaEnvelopeAsync(
+            accountId, configuration, envelope, eventId,
+            resourceKey: fileKey,
+            resourceType: "file",
+            contentType: "video/mp4",
+            fileName: $"feishu-video-{eventId}.mp4",
+            placeholderText: "[视频]",
+            logSubject: "video",
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Shared inbound media pipeline: fetch tenant token → download resource → store locally →
+    /// build <see cref="ChannelEventEnvelope"/>. Consolidates the previously duplicated
+    /// Image/Audio/File/Video branches that only differed in
+    /// contentType / fileName / placeholderText / resourceType.
+    /// </summary>
+    private async Task<ChannelEventEnvelope?> BuildMediaEnvelopeAsync(
+        string accountId,
+        FeishuConnectorConfiguration configuration,
+        FeishuWsEventEnvelope envelope,
+        string eventId,
+        string resourceKey,
+        string resourceType,
+        string contentType,
+        string fileName,
+        string placeholderText,
+        string logSubject,
+        CancellationToken cancellationToken)
+    {
+        var message = envelope.Event!.Message!;
+        var sender = envelope.Event?.Sender;
+
         try
         {
             var tenantToken = await _apiClient.GetTenantAccessTokenAsync(
@@ -630,10 +614,9 @@ public sealed class FeishuConnector : IChannelConnector
                 .ConfigureAwait(false);
 
             using var stream = await _apiClient.DownloadResourceAsync(
-                tenantToken, message.MessageId, fileKey, "file", cancellationToken)
+                tenantToken, message.MessageId, resourceKey, resourceType, cancellationToken)
                 .ConfigureAwait(false);
 
-            var contentType = InferContentType(fileName);
             var storedMeta = await _mediaStore!.StoreAsync(
                 stream,
                 contentType: contentType,
@@ -658,7 +641,7 @@ public sealed class FeishuConnector : IChannelConnector
                 Sender: MapSender(sender),
                 Recipient: null,
                 ExternalMessageId: message.MessageId,
-                Text: $"[文件: {fileName}]",
+                Text: placeholderText,
                 DefaultDeliveryMode: configuration.DefaultDeliveryMode,
                 MediaAttachments: [
                     new MediaReference(
@@ -671,75 +654,8 @@ public sealed class FeishuConnector : IChannelConnector
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Failed to process inbound file for event {EventId}: {Message}",
-                eventId, ex.Message);
-            return null;
-        }
-    }
-
-    private async Task<ChannelEventEnvelope?> TryMapVideoEnvelopeAsync(
-        string accountId,
-        FeishuConnectorConfiguration configuration,
-        FeishuWsEventEnvelope envelope,
-        string eventId,
-        CancellationToken cancellationToken)
-    {
-        var message = envelope.Event?.Message;
-        var sender = envelope.Event?.Sender;
-        if (message is null) return null;
-
-        var fileKey = ParseFileKeyContent(message.Content);
-        if (string.IsNullOrWhiteSpace(fileKey)) return null;
-
-        try
-        {
-            var tenantToken = await _apiClient.GetTenantAccessTokenAsync(
-                configuration.AppId, configuration.AppSecret, cancellationToken)
-                .ConfigureAwait(false);
-
-            using var stream = await _apiClient.DownloadResourceAsync(
-                tenantToken, message.MessageId, fileKey, "file", cancellationToken)
-                .ConfigureAwait(false);
-
-            var storedMeta = await _mediaStore!.StoreAsync(
-                stream,
-                contentType: "video/mp4",
-                fileName: $"feishu-video-{eventId}.mp4",
-                source: "feishu-inbound",
-                externalMessageId: message.MessageId,
-                cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-
-            var threadType = ResolveThreadType(message.ChatType);
-            var externalThreadId = $"chat_id:{message.ChatId}";
-            var occurredAt = TryParseTimestamp(message.CreateTime);
-
-            return new ChannelEventEnvelope(
-                EventId: $"feishu-{eventId}",
-                EventType: ChannelEventType.MessageReceived,
-                ConnectorKind: ChannelConnectorKind.Feishu,
-                AccountId: accountId,
-                ExternalThreadId: externalThreadId,
-                ThreadType: threadType,
-                OccurredAt: occurredAt,
-                Sender: MapSender(sender),
-                Recipient: null,
-                ExternalMessageId: message.MessageId,
-                Text: "[视频]",
-                DefaultDeliveryMode: configuration.DefaultDeliveryMode,
-                MediaAttachments: [
-                    new MediaReference(
-                        MediaId: storedMeta.Id,
-                        ContentType: storedMeta.ContentType,
-                        FileName: storedMeta.FileName,
-                        SizeBytes: storedMeta.SizeBytes)
-                ]);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to process inbound video for event {EventId}: {Message}",
-                eventId, ex.Message);
+                "Failed to process inbound {Subject} for event {EventId}: {Message}",
+                logSubject, eventId, ex.Message);
             return null;
         }
     }

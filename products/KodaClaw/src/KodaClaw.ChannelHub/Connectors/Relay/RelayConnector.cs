@@ -34,7 +34,7 @@ public sealed class RelayConnector : IChannelConnector
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.Relay;
 
-    public Task StartAsync(
+    public async Task StartAsync(
         ChannelAccount account,
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
         CancellationToken cancellationToken = default)
@@ -50,7 +50,9 @@ public sealed class RelayConnector : IChannelConnector
                 nameof(account));
         }
 
-        var configuration = RelayConnectorConfiguration.FromAccount(account, _secretResolver);
+        var configuration = await RelayConnectorConfiguration
+            .FromAccountAsync(account, _secretResolver, cancellationToken)
+            .ConfigureAwait(false);
         var externalAccountId = ValidateAndNormalizeAccountId(configuration.AccountId);
 
         var wsClient = new RelayWebSocketClient(
@@ -77,8 +79,6 @@ public sealed class RelayConnector : IChannelConnector
         RecordDiagnosticEvent(
             "relay.account_started", "info",
             $"Relay account started: accountId={externalAccountId} url={configuration.RelayUrl}");
-
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(string accountId, CancellationToken cancellationToken = default)

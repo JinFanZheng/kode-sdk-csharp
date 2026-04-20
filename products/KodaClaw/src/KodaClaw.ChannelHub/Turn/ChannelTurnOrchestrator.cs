@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
-using System.Text;
 using System.Text.Json;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 using KodaClaw.ChannelHub.Commands;
+using KodaClaw.ChannelHub.Common;
 using KodaClaw.ChannelHub.Turn;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
@@ -439,7 +439,7 @@ public sealed class ChannelTurnOrchestrator
             await TryWriteThreadSummaryAsync(processing.Binding, outcome, cancellationToken);
             return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: true, execution);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or JsonException or ArgumentException)
+        catch (Exception ex) when (ex is InvalidOperationException or JsonException or ArgumentException or HttpRequestException)
         {
             var outcome = CreateOutcome(
                 ChannelTurnOutcomeKind.Failed,
@@ -702,18 +702,7 @@ public sealed class ChannelTurnOrchestrator
         return simple;
     }
 
-    private static string BuildPreview(string text)
-    {
-        const int maxLength = 96;
-
-        var normalized = text.Trim();
-        if (normalized.Length <= maxLength)
-        {
-            return normalized;
-        }
-
-        return $"{normalized[..maxLength]}...";
-    }
+    private static string BuildPreview(string text) => ChannelTextExtensions.Preview(text);
 
     // ── Channel text approval helpers ────────────────────────────────────────
 
@@ -807,12 +796,6 @@ public sealed class ChannelTurnOrchestrator
         return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: false);
     }
 
-    private static string BuildApprovalNotificationText(ChannelOutboundDraft draft, string token)
-    {
-        var preview = BuildPreview(draft.MessageText);
-        return $"[草稿 #{token}]\n{preview}\n回复 ok {token} 发送 · no {token} 取消";
-    }
-
     private static bool ApprovalMatchesBinding(Approval approval, string bindingId)
     {
         if (string.IsNullOrWhiteSpace(approval.PayloadJson))
@@ -851,121 +834,6 @@ public sealed class ChannelTurnOrchestrator
     }
 
 
-
-    private static string FormatSessionStatusMessage(AgentSessionState? state)
-    {
-        if (state is null)
-        {
-            return "会话暂时不可用（可能正在初始化或轮转中），请稍后重试。";
-        }
-
-        return state.RuntimeState switch
-        {
-            AgentRuntimeState.Working => FormatWorkingState(state),
-            AgentRuntimeState.Paused => FormatPausedState(state),
-            AgentRuntimeState.Ready => FormatReadyState(state),
-            _ => $"当前状态未知，已执行 {state.StepCount} 步。",
-        };
-    }
-
-    private static string FormatWorkingState(AgentSessionState state)
-    {
-        var toolSuffix = state.CurrentToolName is not null
-            && state.BreakpointState is BreakpointState.ToolPending or BreakpointState.PreTool or BreakpointState.ToolExecuting
-            ? $"（{state.CurrentToolName}）"
-            : string.Empty;
-
-        var bpText = state.BreakpointState switch
-        {
-            BreakpointState.PreModel => "准备调用模型",
-            BreakpointState.StreamingModel => "正在生成回复",
-            BreakpointState.ToolPending => $"准备调用工具{toolSuffix}",
-            BreakpointState.AwaitingApproval => "等待审批",
-            BreakpointState.PreTool => $"即将执行工具{toolSuffix}",
-            BreakpointState.ToolExecuting => $"正在执行工具{toolSuffix}",
-            BreakpointState.PostTool => "工具执行完成，处理结果中",
-            BreakpointState.Ready => "准备中",
-            _ => state.BreakpointState.ToString(),
-        };
-
-        var sb = new StringBuilder();
-        sb.Append($"正在处理中，已执行 {state.StepCount} 步 — 当前阶段：{bpText}");
-
-        if (state.TurnStartedAt.HasValue)
-        {
-            var elapsed = DateTimeOffset.UtcNow - state.TurnStartedAt.Value;
-            sb.Append($"（已持续 {FormatElapsed(elapsed)}）");
-        }
-
-        if (state.MaxIterations > 0)
-        {
-            sb.Append($"\n迭代进度：{state.IterationCount}/{state.MaxIterations}");
-        }
-
-        if (state.PendingQueueCount > 0)
-        {
-            sb.Append($"\n排队消息：{state.PendingQueueCount} 条待处理");
-        }
-
-        return sb.ToString();
-    }
-
-    private static string FormatPausedState(AgentSessionState state)
-    {
-        var toolInfo = state.CurrentToolName is not null ? $"（{state.CurrentToolName}）" : "";
-        var sb = new StringBuilder();
-        sb.Append($"已暂停，已执行 {state.StepCount} 步（等待审批{toolInfo}）");
-
-        if (state.TurnStartedAt.HasValue)
-        {
-            var elapsed = DateTimeOffset.UtcNow - state.TurnStartedAt.Value;
-            sb.Append($"，本轮已持续 {FormatElapsed(elapsed)}");
-        }
-
-        sb.Append('。');
-
-        if (state.PendingQueueCount > 0)
-        {
-            sb.Append($"\n排队消息：{state.PendingQueueCount} 条待处理");
-        }
-
-        return sb.ToString();
-    }
-
-    private static string FormatReadyState(AgentSessionState state)
-    {
-        var sb = new StringBuilder();
-        sb.Append("空闲，随时可以处理新消息");
-
-        if (state.LastActivityAt.HasValue)
-        {
-            var elapsed = DateTimeOffset.UtcNow - state.LastActivityAt.Value;
-            sb.Append($"（上次活跃：{FormatElapsed(elapsed)}前）");
-        }
-
-        sb.Append('。');
-
-        if (state.MessageCount > 0)
-        {
-            sb.Append($"\n本会话共 {state.MessageCount} 条消息");
-        }
-
-        if (state.PendingQueueCount > 0)
-        {
-            sb.Append($"\n排队消息：{state.PendingQueueCount} 条待处理");
-        }
-
-        return sb.ToString();
-    }
-
-    private static string FormatElapsed(TimeSpan elapsed)
-    {
-        if (elapsed.TotalHours >= 1)
-            return $"{(int)elapsed.TotalHours} 小时 {elapsed.Minutes} 分";
-        if (elapsed.TotalMinutes >= 1)
-            return $"{(int)elapsed.TotalMinutes} 分 {elapsed.Seconds} 秒";
-        return $"{elapsed.Seconds} 秒";
-    }
 
     // Fixed by Nietzsche: load persisted dedup state from disk on startup.
     // Re-populates the in-memory set with recently processed message IDs so

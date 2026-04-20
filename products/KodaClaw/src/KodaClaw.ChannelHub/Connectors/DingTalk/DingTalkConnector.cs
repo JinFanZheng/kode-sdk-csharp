@@ -46,7 +46,7 @@ public sealed class DingTalkConnector : IChannelConnector
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.DingTalk;
 
-    public Task StartAsync(
+    public async Task StartAsync(
         ChannelAccount account,
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
         CancellationToken cancellationToken = default)
@@ -63,7 +63,9 @@ public sealed class DingTalkConnector : IChannelConnector
         }
 
         var accountId = ValidateAndNormalizeAccountId(account.Id);
-        var configuration = DingTalkConnectorConfiguration.FromAccount(account, _secretResolver);
+        var configuration = await DingTalkConnectorConfiguration
+            .FromAccountAsync(account, _secretResolver, cancellationToken)
+            .ConfigureAwait(false);
 
         var streamClient = new DingTalkStreamClient(
             _apiClient,
@@ -90,8 +92,6 @@ public sealed class DingTalkConnector : IChannelConnector
         _logger.LogInformation("DingTalk Stream connector starting for account {AccountId}", accountId);
         RecordDiagnosticEvent("dingtalk.account_started", "info",
             $"DingTalk account started: accountId={accountId}");
-
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(string accountId, CancellationToken cancellationToken = default)
@@ -909,19 +909,6 @@ public sealed class DingTalkConnector : IChannelConnector
         return contentJson.Value.TryGetProperty("recognition", out var el)
             ? el.GetString()
             : null;
-    }
-
-    private static string? ParseVideoDuration(string? contentJson)
-    {
-        if (string.IsNullOrWhiteSpace(contentJson)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(contentJson);
-            return doc.RootElement.TryGetProperty("duration", out var el)
-                ? el.GetString()
-                : null;
-        }
-        catch (JsonException) { return null; }
     }
 
     private static string? ParseFileName(JsonElement? contentJson)

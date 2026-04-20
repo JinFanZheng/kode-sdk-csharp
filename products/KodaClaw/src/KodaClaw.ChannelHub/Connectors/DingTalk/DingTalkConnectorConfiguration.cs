@@ -9,9 +9,10 @@ internal sealed record DingTalkConnectorConfiguration(
     string RobotCode,
     DeliveryMode? DefaultDeliveryMode = null)
 {
-    public static DingTalkConnectorConfiguration FromAccount(
+    public static async Task<DingTalkConnectorConfiguration> FromAccountAsync(
         ChannelAccount account,
-        ChannelSecretResolver? secretResolver = null)
+        ChannelSecretResolver? secretResolver = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
         if (account.ConnectorKind != ChannelConnectorKind.DingTalk)
@@ -50,7 +51,7 @@ internal sealed record DingTalkConnectorConfiguration(
             }
         }
 
-        var appKey = NormalizeNullable(appKeyFromConfig ?? account.ExternalAccountId);
+        var appKey = ChannelHubValidation.NormalizeNullableText(appKeyFromConfig ?? account.ExternalAccountId);
         if (string.IsNullOrWhiteSpace(appKey))
         {
             throw new ArgumentException(
@@ -59,7 +60,11 @@ internal sealed record DingTalkConnectorConfiguration(
         }
 
         var resolver = secretResolver ?? new ChannelSecretResolver();
-        var appSecret = resolver.Resolve(appSecretFromConfig, credentialReferenceFromConfig, account.CredentialReference);
+        var appSecret = await resolver.ResolveAsync(
+            appSecretFromConfig,
+            credentialReferenceFromConfig,
+            account.CredentialReference,
+            cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(appSecret))
         {
             throw new ArgumentException(
@@ -67,7 +72,7 @@ internal sealed record DingTalkConnectorConfiguration(
                 nameof(account));
         }
 
-        var robotCode = NormalizeNullable(robotCodeFromConfig);
+        var robotCode = ChannelHubValidation.NormalizeNullableText(robotCodeFromConfig);
         if (string.IsNullOrWhiteSpace(robotCode))
         {
             throw new ArgumentException(
@@ -93,21 +98,11 @@ internal sealed record DingTalkConnectorConfiguration(
 
             if (property.Value.ValueKind == JsonValueKind.String)
             {
-                return NormalizeNullable(property.Value.GetString());
+                return ChannelHubValidation.NormalizeNullableText(property.Value.GetString());
             }
         }
 
         return null;
     }
 
-    private static string? NormalizeNullable(string? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        var normalized = value.Trim();
-        return normalized.Length == 0 ? null : normalized;
-    }
 }

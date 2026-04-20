@@ -12,8 +12,8 @@ internal static class ChannelHubValidation
     {
         ArgumentNullException.ThrowIfNull(account);
 
-        ValidateId(account.Id, nameof(account.Id));
-        ValidateId(account.DisplayName, nameof(account.DisplayName));
+        RequireNonEmpty(account.Id, nameof(account.Id));
+        RequireNonEmpty(account.DisplayName, nameof(account.DisplayName));
 
         if (account.CreatedAt == default)
         {
@@ -30,19 +30,19 @@ internal static class ChannelHubValidation
     {
         ArgumentNullException.ThrowIfNull(binding);
 
-        ValidateId(binding.Id, nameof(binding.Id));
-        ValidateId(binding.AccountId, nameof(binding.AccountId));
-        ValidateId(binding.ExternalThreadId, nameof(binding.ExternalThreadId));
-        ValidateId(binding.SessionId, nameof(binding.SessionId));
-        ValidateId(binding.PolicyId, nameof(binding.PolicyId));
-        ValidateId(binding.DeliveryRuleId, nameof(binding.DeliveryRuleId));
+        RequireNonEmpty(binding.Id, nameof(binding.Id));
+        RequireNonEmpty(binding.AccountId, nameof(binding.AccountId));
+        RequireNonEmpty(binding.ExternalThreadId, nameof(binding.ExternalThreadId));
+        RequireNonEmpty(binding.SessionId, nameof(binding.SessionId));
+        RequireNonEmpty(binding.PolicyId, nameof(binding.PolicyId));
+        RequireNonEmpty(binding.DeliveryRuleId, nameof(binding.DeliveryRuleId));
 
         if (binding.ChannelIdentity is null)
         {
             throw new ArgumentException("Channel identity is required.", nameof(binding));
         }
 
-        ValidateId(binding.ChannelIdentity.Id, nameof(binding.ChannelIdentity.Id));
+        RequireNonEmpty(binding.ChannelIdentity.Id, nameof(binding.ChannelIdentity.Id));
 
         if (binding.CreatedAt == default)
         {
@@ -74,7 +74,7 @@ internal static class ChannelHubValidation
         }
     }
 
-    public static void ValidateId(string value, string paramName)
+    public static void RequireNonEmpty(string value, string paramName)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
