@@ -1,6 +1,6 @@
 using Kode.Agent.Sdk.Core.Abstractions;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 /// <summary>
 /// Lightweight runtime state snapshot for a channel session agent.

@@ -1,5 +1,7 @@
 using Kode.Agent.Sdk.Core.Agent;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Runtime.Diagnostics;

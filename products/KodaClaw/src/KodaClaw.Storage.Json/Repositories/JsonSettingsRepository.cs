@@ -1,5 +1,6 @@
 using System.Globalization;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Settings;
 using KodaClaw.Storage;
 
 namespace KodaClaw.Storage.Json.Repositories;

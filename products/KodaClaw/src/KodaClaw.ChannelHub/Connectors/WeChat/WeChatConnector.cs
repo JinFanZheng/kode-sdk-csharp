@@ -4,7 +4,12 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Media;
+using KodaClaw.Contracts.Secrets;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Media;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 

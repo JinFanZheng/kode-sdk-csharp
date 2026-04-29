@@ -1,6 +1,7 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Policy;
 
 public sealed record ChannelPolicyDecision(
     ChannelThreadType ThreadType,

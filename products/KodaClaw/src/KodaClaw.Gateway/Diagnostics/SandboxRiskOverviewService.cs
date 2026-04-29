@@ -1,4 +1,9 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Approvals;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.System;
 using KodaClaw.PluginHost.Permissions;
 
 namespace KodaClaw.Gateway;

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.PluginHost;

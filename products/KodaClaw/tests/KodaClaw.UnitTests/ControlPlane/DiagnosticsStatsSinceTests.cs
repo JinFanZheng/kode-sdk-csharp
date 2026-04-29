@@ -1,5 +1,6 @@
 using KodaClaw.ControlPlane;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ControlPlane;

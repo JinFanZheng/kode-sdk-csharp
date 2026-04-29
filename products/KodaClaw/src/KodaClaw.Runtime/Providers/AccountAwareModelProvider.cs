@@ -1,10 +1,10 @@
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Secrets;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
-using Kode.Agent.Sdk.Infrastructure.Providers;
-using KodaClaw.Contracts;
-using KodaClaw.ModelHub;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Providers;
 
 /// <summary>
 /// Account-first IModelProvider: resolves the appropriate model from

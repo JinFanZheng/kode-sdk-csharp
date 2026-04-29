@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Bootstrap;
 
 public sealed record BootstrapDraftResult(
     string IdentityMarkdown,

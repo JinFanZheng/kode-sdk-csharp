@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Channels;
 
 /// <summary>
 /// status: "wait" | "scaned" | "confirmed" | "expired"

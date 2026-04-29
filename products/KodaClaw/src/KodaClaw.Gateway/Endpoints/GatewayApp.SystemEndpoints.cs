@@ -1,5 +1,11 @@
 using System.IO;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Backup;
+using KodaClaw.Contracts.Bootstrap;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;

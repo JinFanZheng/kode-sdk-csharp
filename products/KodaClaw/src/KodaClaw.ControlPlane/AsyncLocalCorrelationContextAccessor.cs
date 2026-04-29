@@ -1,5 +1,6 @@
 using System.Threading;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Sessions;
 
 namespace KodaClaw.ControlPlane;
 

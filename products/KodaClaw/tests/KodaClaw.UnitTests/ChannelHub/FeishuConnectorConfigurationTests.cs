@@ -1,6 +1,7 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;

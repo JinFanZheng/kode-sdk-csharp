@@ -1,5 +1,10 @@
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Secrets;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.Extensions.Configuration;
 
 namespace KodaClaw.Gateway;

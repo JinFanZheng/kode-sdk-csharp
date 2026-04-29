@@ -1,6 +1,6 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Secrets;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Secrets;
 
 /// <summary>
 /// Platform-specific OS credential store backend (macOS Keychain, Windows Credential Manager, Linux Secret Service).

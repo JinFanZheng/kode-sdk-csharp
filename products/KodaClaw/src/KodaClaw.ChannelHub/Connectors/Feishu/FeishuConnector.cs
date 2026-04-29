@@ -5,6 +5,11 @@ using KodaClaw.Contracts;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.Logging;
 using KodaClaw.ChannelHub.Connectors.Feishu.Models;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Media;
+using KodaClaw.Contracts.Secrets;
+using KodaClaw.Workspace.Media;
 
 namespace KodaClaw.ChannelHub.Connectors.Feishu;
 

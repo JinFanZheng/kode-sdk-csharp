@@ -1,6 +1,7 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Moq;
 using Xunit;
 

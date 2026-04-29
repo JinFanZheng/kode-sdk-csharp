@@ -1,4 +1,6 @@
-namespace KodaClaw.Runtime;
+using KodaClaw.Contracts.Models;
+
+namespace KodaClaw.Runtime.Providers;
 
 public enum RuntimeProviderKind
 {
@@ -114,7 +116,7 @@ internal static class RuntimeProviderSelector
     public static async Task<string> ResolveModelOrFallbackAsync(
         IRuntimeConfigurationResolver? resolver,
         string? fallbackModel,
-        KodaClaw.Contracts.IProviderAccountRepository? accountRepo,
+        IProviderAccountRepository? accountRepo,
         CancellationToken cancellationToken = default)
     {
         try
@@ -124,7 +126,7 @@ internal static class RuntimeProviderSelector
         catch (InvalidOperationException) when (accountRepo is not null)
         {
             var resolved = await accountRepo.ResolveDefaultForAsync(
-                KodaClaw.Contracts.ModelCapabilitySet.Text,
+                ModelCapabilitySet.Text,
                 cancellationToken);
 
             if (resolved is not null && !string.IsNullOrWhiteSpace(resolved.Model.ModelId))

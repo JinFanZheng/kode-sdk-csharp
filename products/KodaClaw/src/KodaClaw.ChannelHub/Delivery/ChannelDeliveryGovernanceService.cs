@@ -2,9 +2,13 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using KodaClaw.ChannelHub.Common;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Approvals;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Sessions;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Delivery;
 
 public sealed class ChannelDeliveryGovernanceService
 {

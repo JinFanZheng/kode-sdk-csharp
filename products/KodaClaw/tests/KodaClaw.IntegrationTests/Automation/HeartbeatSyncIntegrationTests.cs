@@ -1,9 +1,12 @@
 using FluentAssertions;
 using KodaClaw.Automation;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.ControlPlane;
 using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Heartbeat;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 

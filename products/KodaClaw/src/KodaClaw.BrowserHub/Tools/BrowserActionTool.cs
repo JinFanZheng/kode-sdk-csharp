@@ -3,7 +3,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using KodaClaw.BrowserHub.Models;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Browser;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 

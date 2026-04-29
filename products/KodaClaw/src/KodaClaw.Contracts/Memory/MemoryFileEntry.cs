@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Memory;
 
 /// <summary>
 /// Lightweight DTO representing a memory entry parsed from file metadata.

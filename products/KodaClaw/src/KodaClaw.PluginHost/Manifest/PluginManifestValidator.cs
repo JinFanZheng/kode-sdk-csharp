@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
 using KodaClaw.PluginHost.Permissions;
 
 namespace KodaClaw.PluginHost.Manifest;

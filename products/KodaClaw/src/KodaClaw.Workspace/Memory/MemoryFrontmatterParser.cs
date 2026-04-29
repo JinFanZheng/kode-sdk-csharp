@@ -1,4 +1,4 @@
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Memory;
 
 /// <summary>
 /// Parses YAML-like frontmatter from memory markdown files.

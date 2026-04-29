@@ -1,9 +1,10 @@
-using System.Text;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Secrets;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Tools;
 
 /// <summary>
 /// Agent tool for managing provider accounts and models at runtime.

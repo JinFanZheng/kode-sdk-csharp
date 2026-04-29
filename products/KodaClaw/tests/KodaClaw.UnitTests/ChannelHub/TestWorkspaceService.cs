@@ -1,4 +1,6 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 
 namespace KodaClaw.UnitTests.ChannelHub;
 

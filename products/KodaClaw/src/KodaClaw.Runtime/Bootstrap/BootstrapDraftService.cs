@@ -1,11 +1,13 @@
 using System.Text;
 using System.Text.Json;
-using KodaClaw.Contracts;
-using KodaClaw.ModelHub;
+using KodaClaw.Contracts.Bootstrap;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Runtime.Prompt;
+using KodaClaw.Runtime.Providers;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Bootstrap;
 
 public sealed class BootstrapDraftService : IBootstrapDraftService
 {

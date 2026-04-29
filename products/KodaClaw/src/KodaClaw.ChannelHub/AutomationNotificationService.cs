@@ -1,4 +1,7 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
 
 namespace KodaClaw.ChannelHub;
 

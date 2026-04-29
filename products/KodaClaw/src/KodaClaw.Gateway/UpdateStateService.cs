@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.Extensions.Configuration;
 
 namespace KodaClaw.Gateway;

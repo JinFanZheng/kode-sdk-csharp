@@ -1,4 +1,6 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Sessions;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Gateway;

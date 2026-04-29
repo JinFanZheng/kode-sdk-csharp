@@ -1,6 +1,7 @@
 using System.Text.Json;
 using KodaClaw.Contracts;
-using Microsoft.Extensions.Logging;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 
 namespace KodaClaw.Gateway;
 
@@ -57,7 +58,7 @@ internal sealed class SessionRetentionService
         }
     }
 
-    private async Task<int> CleanAutoSessionsAsync(
+    private Task<int> CleanAutoSessionsAsync(
         string sessionsRoot,
         int retentionDays,
         int maxPerTask,
@@ -69,7 +70,7 @@ internal sealed class SessionRetentionService
 
         if (autoFolders.Count == 0)
         {
-            return 0;
+            return Task.FromResult(0);
         }
 
         // 只处理已完成的（有 meta.json 的），跳过正在执行中的
@@ -118,7 +119,7 @@ internal sealed class SessionRetentionService
         }
 
         _logger?.LogInformation("SessionRetention: deleted {Deleted} expired auto- session folders", deleted);
-        return deleted;
+        return Task.FromResult(deleted);
     }
 
     private Task<int> CleanSummarizedSessionsAsync(

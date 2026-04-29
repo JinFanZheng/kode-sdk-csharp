@@ -1,8 +1,9 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Tools;
 
 /// <summary>
 /// Tool that applies a section-level patch to a workspace protocol file.

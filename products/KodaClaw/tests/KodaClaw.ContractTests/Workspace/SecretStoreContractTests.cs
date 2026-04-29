@@ -1,6 +1,8 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Secrets;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Secrets;
 using Xunit;
 
 namespace KodaClaw.ContractTests.Workspace;

@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Models;
 
 /// <summary>
 /// Structured pricing information for a model (per 1M tokens).

@@ -1,5 +1,9 @@
 using KodaClaw.ChannelHub;
+using KodaClaw.ChannelHub.Inbound;
+using KodaClaw.ChannelHub.Turn;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.Runtime;
 
 namespace KodaClaw.Gateway.Channels;

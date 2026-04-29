@@ -1,4 +1,4 @@
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Bootstrap;
 
 public sealed class BootstrapDraftOptions
 {

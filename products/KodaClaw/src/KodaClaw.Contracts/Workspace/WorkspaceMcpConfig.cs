@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Workspace;
 
 /// <summary>
 /// Represents the workspace/mcp.json file — a user-level MCP server declaration

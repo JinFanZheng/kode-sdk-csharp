@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Channels;
 
 /// <summary>
 /// 消息格式偏好，指导 connector 如何渲染 MessageText。

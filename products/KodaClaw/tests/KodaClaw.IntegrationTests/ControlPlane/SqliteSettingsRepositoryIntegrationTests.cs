@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Settings;
 using KodaClaw.ControlPlane;
 using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;

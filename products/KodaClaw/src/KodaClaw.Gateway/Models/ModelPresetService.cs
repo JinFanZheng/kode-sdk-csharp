@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Models;
 
 namespace KodaClaw.Gateway;
 

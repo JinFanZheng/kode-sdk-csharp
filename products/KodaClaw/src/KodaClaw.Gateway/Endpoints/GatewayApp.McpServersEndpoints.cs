@@ -1,4 +1,6 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.McpHub;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;

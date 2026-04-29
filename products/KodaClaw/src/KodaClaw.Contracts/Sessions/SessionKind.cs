@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Sessions;
 
 [JsonConverter(typeof(JsonStringEnumConverter<SessionKind>))]
 public enum SessionKind

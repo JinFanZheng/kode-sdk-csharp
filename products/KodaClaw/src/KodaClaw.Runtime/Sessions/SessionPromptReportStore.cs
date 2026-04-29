@@ -1,8 +1,8 @@
-using System.Linq;
 using System.Text.Json;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Runtime.Prompt;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public static class SessionPromptReportStore
 {

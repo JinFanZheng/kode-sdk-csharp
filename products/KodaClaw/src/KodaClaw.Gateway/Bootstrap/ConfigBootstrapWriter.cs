@@ -1,5 +1,7 @@
 using System.Text;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Secrets;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Gateway;

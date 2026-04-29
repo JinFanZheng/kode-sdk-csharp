@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Kode.Agent.Sdk.Diagnostics;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.Runtime.Diagnostics;
 using Moq;
 using Xunit;

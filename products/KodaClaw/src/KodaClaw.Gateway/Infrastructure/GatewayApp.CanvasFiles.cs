@@ -7,6 +7,10 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using KodaClaw.Contracts.Canvas;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 
 public static partial class GatewayApp
 {

@@ -1,4 +1,4 @@
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Delivery;
 
 public enum ChannelDeliveryDisposition
 {

@@ -1,6 +1,8 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Memory;
 using Moq;
 using Xunit;
 

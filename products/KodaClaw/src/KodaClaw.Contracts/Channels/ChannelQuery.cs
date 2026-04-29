@@ -1,4 +1,6 @@
-namespace KodaClaw.Contracts;
+using KodaClaw.Contracts.Sessions;
+
+namespace KodaClaw.Contracts.Channels;
 
 public sealed record ChannelQuery(
     ChannelConnectorKind? ConnectorKind = null,

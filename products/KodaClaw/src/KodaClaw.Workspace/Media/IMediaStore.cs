@@ -1,6 +1,6 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Media;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Media;
 
 public interface IMediaStore
 {

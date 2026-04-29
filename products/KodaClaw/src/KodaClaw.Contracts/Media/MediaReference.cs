@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Media;
 
 /// <summary>
 /// A reference to a stored media file, used as an outbound attachment.

@@ -1,3 +1,4 @@
+using KodaClaw.ChannelHub.Audit;
 using KodaClaw.Contracts;
 using KodaClaw.ChannelHub.Commands;
 using KodaClaw.ChannelHub.Connectors.Feishu;
@@ -6,6 +7,13 @@ using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.ChannelHub.Connectors.DingTalk;
 using KodaClaw.ChannelHub.Connectors.WeChat;
 using KodaClaw.ChannelHub.Connectors.Relay;
+using KodaClaw.ChannelHub.Delivery;
+using KodaClaw.ChannelHub.Inbound;
+using KodaClaw.ChannelHub.Policy;
+using KodaClaw.ChannelHub.Send;
+using KodaClaw.ChannelHub.Turn;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 

@@ -1,14 +1,17 @@
-using System.Diagnostics;
 using System.Text.Json;
-using Cronos;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Settings;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.Automation;
+namespace KodaClaw.Automation.Scheduler;
 
 public sealed class AutomationScheduler : IAutomationScheduler
 {

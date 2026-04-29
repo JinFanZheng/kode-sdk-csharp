@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Timers;
 
 public interface IOneShotTimerRepository
 {

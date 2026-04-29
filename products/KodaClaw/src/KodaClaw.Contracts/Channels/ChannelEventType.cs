@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Channels;
 
 [JsonConverter(typeof(JsonStringEnumConverter<ChannelEventType>))]
 public enum ChannelEventType

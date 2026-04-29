@@ -1,5 +1,8 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.System;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Media;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;

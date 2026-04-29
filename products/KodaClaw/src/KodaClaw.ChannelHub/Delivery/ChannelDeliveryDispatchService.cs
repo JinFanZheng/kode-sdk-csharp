@@ -1,8 +1,11 @@
 using System.Text.Json;
 using KodaClaw.ChannelHub.Common;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Media;
+using KodaClaw.Contracts.Sessions;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Delivery;
 
 public sealed class ChannelDeliveryDispatchService
 {

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Browser;
 
 namespace KodaClaw.BrowserHub.Device;
 

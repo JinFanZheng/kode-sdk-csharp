@@ -1,9 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
 using KodaClaw.ChannelHub.Common;
-using KodaClaw.Contracts;
+using KodaClaw.ChannelHub.Policy;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Sessions;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Inbound;
 
 public sealed class ChannelEventIngestionService
 {

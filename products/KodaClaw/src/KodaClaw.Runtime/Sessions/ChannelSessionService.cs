@@ -1,18 +1,24 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Media;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.McpHub;
-using KodaClaw.ModelHub;
+using KodaClaw.Runtime.Prompt;
+using KodaClaw.Runtime.Providers;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Context;
-using Kode.Agent.Sdk.Diagnostics;
 using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
+using Kode.Agent.Sdk.Diagnostics;
 using Kode.Agent.Store.Json;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public sealed class ChannelSessionService : IChannelSessionService, IAsyncDisposable
 {

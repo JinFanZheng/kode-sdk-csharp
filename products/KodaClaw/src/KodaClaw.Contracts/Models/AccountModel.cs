@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Models;
 
 /// <summary>
 /// An individual model bound to a <see cref="ProviderAccount"/>.

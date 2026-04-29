@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Threading.Channels;
 using Kode.Agent.Sdk.Core.Abstractions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 
 namespace KodaClaw.ChannelHub.Turn;
 

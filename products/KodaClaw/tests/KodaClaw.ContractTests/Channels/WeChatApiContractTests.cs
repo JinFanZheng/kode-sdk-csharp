@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.WeChat;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Xunit;
 
 namespace KodaClaw.ContractTests.Channels;

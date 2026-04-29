@@ -1,7 +1,8 @@
 using System.Text.Json;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Media;
+using KodaClaw.Contracts.Workspace;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Media;
 
 /// <summary>
 /// File-system-backed media store under <c>{workspace}/media/</c>.

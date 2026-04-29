@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using KodaClaw.ChannelHub.Common;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 
 namespace KodaClaw.ChannelHub.Connectors.Relay;
 

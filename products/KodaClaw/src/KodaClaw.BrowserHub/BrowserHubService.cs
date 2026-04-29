@@ -5,7 +5,7 @@ using KodaClaw.BrowserHub.Connection;
 using KodaClaw.BrowserHub.Device;
 using KodaClaw.BrowserHub.Models;
 using KodaClaw.BrowserHub.Screenshot;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Browser;
 
 namespace KodaClaw.BrowserHub;
 

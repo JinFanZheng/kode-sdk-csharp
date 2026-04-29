@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Settings;
 
 [JsonConverter(typeof(JsonStringEnumConverter<ThemeMode>))]
 public enum ThemeMode

@@ -3,6 +3,7 @@ using FluentAssertions;
 using Kode.Agent.Sdk.Core.Abstractions;
 using KodaClaw.ChannelHub.Turn;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;

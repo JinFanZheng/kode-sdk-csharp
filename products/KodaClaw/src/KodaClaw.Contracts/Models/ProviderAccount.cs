@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Models;
 
 /// <summary>
 /// A provider account aggregates credentials (API key, base URL) shared by

@@ -1,4 +1,8 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Secrets;
+using KodaClaw.Contracts.System;
 using KodaClaw.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;

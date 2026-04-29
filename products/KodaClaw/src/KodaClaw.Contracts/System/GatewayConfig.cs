@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.System;
 
 /// <summary>
 /// Persisted configuration for the local Gateway stored in config/gateway.json.

@@ -1,6 +1,8 @@
 using FluentAssertions;
 using KodaClaw.Automation;
+using KodaClaw.Automation.Scheduler;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
 using Xunit;
 
 namespace KodaClaw.UnitTests.Automation;

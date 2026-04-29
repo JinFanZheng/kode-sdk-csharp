@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Sessions;
 
 public sealed record SessionMessageItem(
     string Id,

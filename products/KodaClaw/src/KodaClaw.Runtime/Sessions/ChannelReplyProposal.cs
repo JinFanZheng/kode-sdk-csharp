@@ -1,4 +1,4 @@
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public sealed record ChannelReplyProposal(
     string Action,

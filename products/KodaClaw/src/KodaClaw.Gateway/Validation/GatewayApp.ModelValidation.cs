@@ -1,4 +1,7 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Secrets;
+using KodaClaw.Contracts.System;
 
 public static partial class GatewayApp
 {

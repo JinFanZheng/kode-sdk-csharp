@@ -2,7 +2,7 @@ using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Infrastructure.Providers;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Providers;
 
 public interface IRuntimeModelProviderFactory
 {

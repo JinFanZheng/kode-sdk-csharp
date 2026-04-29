@@ -1,4 +1,7 @@
-namespace KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Plugins;
+
+namespace KodaClaw.Contracts.System;
 
 public sealed record SandboxRiskOverviewResponse(
     DateTimeOffset GeneratedAt,

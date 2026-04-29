@@ -1,8 +1,8 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Inbox;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Tools;
 
 /// <summary>
 /// Tool that reads Inbox items so the Agent can review what requires attention.

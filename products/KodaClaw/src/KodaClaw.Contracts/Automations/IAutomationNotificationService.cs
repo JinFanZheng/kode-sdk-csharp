@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Automations;
 
 public interface IAutomationNotificationService
 {

@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 
 namespace KodaClaw.ControlPlane;
 

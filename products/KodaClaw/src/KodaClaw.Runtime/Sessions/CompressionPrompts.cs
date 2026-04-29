@@ -1,4 +1,4 @@
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 /// <summary>
 /// Compression prompts for channel sessions, split by thread type.

@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Channels;
 
 public interface IChannelAuditRepository
 {

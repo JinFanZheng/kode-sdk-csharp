@@ -1,7 +1,10 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Kode.Agent.Sdk.Core.Types;
 using Moq;
 using Xunit;

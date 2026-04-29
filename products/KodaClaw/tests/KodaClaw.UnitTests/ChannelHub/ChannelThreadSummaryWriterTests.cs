@@ -1,6 +1,10 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Workspace;
+using KodaClaw.Runtime.Sessions;
 using Moq;
 using Xunit;
 
@@ -154,7 +158,7 @@ public sealed class ChannelThreadSummaryWriterTests : IDisposable
     public async Task Write_should_truncate_to_target_lines_when_exceeds_compression_threshold_without_llm()
     {
         // Arrange: use custom options with low threshold so we can trigger without 80+ entries.
-        var options = new KodaClaw.Runtime.ChannelSessionOptions
+        var options = new ChannelSessionOptions
         {
             SummaryCompressionThreshold = 10,
             SummaryCompressionTargetLines = 5,
@@ -180,7 +184,7 @@ public sealed class ChannelThreadSummaryWriterTests : IDisposable
     [Fact]
     public async Task Write_should_retain_most_recent_entries_after_compression_fallback()
     {
-        var options = new KodaClaw.Runtime.ChannelSessionOptions
+        var options = new ChannelSessionOptions
         {
             SummaryCompressionThreshold = 8,
             SummaryCompressionTargetLines = 4,

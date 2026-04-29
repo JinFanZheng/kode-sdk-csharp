@@ -2,7 +2,10 @@ using System.Text;
 using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.WeChat;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Media;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Media;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 

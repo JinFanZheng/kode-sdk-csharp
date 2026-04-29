@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Memory;
 
 /// <summary>
 /// Utility methods for parsing MEMORY.md section structure and normalizing keys.

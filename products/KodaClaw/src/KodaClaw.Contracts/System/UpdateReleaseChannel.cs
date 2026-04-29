@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.System;
 
 [JsonConverter(typeof(JsonStringEnumConverter<UpdateReleaseChannel>))]
 public enum UpdateReleaseChannel

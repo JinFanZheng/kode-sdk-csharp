@@ -1,6 +1,4 @@
-using System.Collections.Generic;
-
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Browser;
 
 public sealed record DomElement(
     int Index,

@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Plugins;
 
 public sealed record PluginPermissionSet(
     IReadOnlyList<string>? Filesystem = null,

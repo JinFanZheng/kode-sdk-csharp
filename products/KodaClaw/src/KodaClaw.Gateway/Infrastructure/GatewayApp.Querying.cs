@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Secrets;
 using KodaClaw.PluginHost.Hosting;
 using Xunit;
 

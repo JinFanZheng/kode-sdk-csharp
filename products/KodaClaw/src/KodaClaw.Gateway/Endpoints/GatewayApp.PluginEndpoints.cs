@@ -1,4 +1,7 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.System;
 using KodaClaw.Gateway.Plugins;
 using KodaClaw.PluginHost.Manifest;
 using Microsoft.AspNetCore.Builder;

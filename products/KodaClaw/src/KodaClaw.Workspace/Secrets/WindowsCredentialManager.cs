@@ -2,9 +2,9 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Secrets;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Secrets;
 
 /// <summary>
 /// Windows Credential Manager backend via advapi32 P/Invoke.

@@ -1,16 +1,23 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using Kode.Agent.Sdk.Core.Abstractions;
-using Kode.Agent.Sdk.Core.Types;
 using KodaClaw.ChannelHub.Commands;
 using KodaClaw.ChannelHub.Common;
-using KodaClaw.ChannelHub.Turn;
-using KodaClaw.Contracts;
+using KodaClaw.ChannelHub.Delivery;
+using KodaClaw.ChannelHub.Inbound;
+using KodaClaw.ChannelHub.Policy;
+using KodaClaw.ChannelHub.Send;
+using KodaClaw.Contracts.Approvals;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Sessions;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using KodaClaw.Workspace;
+using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Types;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Turn;
 
 public sealed class ChannelTurnOrchestrator
 {

@@ -1,4 +1,6 @@
-namespace KodaClaw.Contracts;
+using KodaClaw.Contracts.System;
+
+namespace KodaClaw.Contracts.Diagnostics;
 
 public sealed record DiagnosticBundleDesktopContext(
     bool DesktopMode,

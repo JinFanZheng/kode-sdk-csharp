@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Browser;
 
 namespace KodaClaw.BrowserHub.Device;
 

@@ -1,5 +1,7 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.McpHub;
 using Kode.Agent.Mcp;
 using Kode.Agent.Sdk.Core.Abstractions;

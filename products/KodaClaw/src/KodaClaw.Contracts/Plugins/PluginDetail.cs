@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Plugins;
 
 public sealed record PluginDetail(
     PluginRecord Record,

@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
 using KodaClaw.PluginHost.Permissions;
 
 namespace KodaClaw.PluginHost.Manifest;

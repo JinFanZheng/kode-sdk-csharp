@@ -1,5 +1,7 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Tools;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Moq;
 using Xunit;

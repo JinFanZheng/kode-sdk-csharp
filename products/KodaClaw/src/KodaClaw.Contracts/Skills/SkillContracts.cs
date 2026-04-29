@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Skills;
 
 public sealed record SkillDescriptor(
     string Name,

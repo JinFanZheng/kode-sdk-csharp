@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Secrets;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.ChannelHub;

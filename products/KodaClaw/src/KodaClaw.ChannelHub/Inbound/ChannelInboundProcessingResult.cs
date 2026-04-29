@@ -1,6 +1,6 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Inbound;
 
 public sealed record ChannelInboundProcessingResult(
     ThreadBinding Binding,

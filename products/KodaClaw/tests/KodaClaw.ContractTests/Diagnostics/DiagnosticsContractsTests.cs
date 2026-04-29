@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 using Xunit;
 
 namespace KodaClaw.ContractTests.Diagnostics;

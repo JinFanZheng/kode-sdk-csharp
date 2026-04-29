@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Browser;
 
 /// <summary>
 /// 浏览器操作的统一返回类型。

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Kode.Agent.Sdk.Core.Types;
 using Xunit;
 

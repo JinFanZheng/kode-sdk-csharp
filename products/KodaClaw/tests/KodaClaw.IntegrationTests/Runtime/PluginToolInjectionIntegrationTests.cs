@@ -1,11 +1,14 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.ControlPlane;
 using KodaClaw.PluginHost;
 using KodaClaw.PluginHost.Hosting;
 using KodaClaw.PluginHost.Trust;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;

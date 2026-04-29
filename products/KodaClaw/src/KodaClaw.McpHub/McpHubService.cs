@@ -1,4 +1,7 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Workspace;
 using Kode.Agent.Mcp;
 using Kode.Agent.Sdk.Core.Abstractions;
 

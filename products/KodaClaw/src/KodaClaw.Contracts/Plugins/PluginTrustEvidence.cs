@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Plugins;
 
 [JsonConverter(typeof(JsonStringEnumConverter<PluginTrustEvidenceSource>))]
 public enum PluginTrustEvidenceSource

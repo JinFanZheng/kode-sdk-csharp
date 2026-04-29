@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Plugins;
 
 public sealed record PluginManifest(
     string Id,

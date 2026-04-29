@@ -4,6 +4,11 @@ using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Store.Json;
 using System.IO;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
+using KodaClaw.Runtime.Sessions;
 
 public static partial class GatewayApp
 {

@@ -1,6 +1,15 @@
 using System.Text.Json;
 using KodaClaw.Automation;
+using KodaClaw.Automation.Scheduler;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Approvals;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Repair;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Store.Json;
 

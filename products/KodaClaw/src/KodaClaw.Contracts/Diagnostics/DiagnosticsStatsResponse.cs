@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Diagnostics;
 
 public sealed record DiagnosticsStatsResponse(
     int TotalEvents,

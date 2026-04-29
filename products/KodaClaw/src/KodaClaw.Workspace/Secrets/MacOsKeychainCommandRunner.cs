@@ -1,7 +1,7 @@
 using System.Diagnostics;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Secrets;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Secrets;
 
 public sealed class MacOsKeychainCommandRunner : IPlatformKeychain
 {

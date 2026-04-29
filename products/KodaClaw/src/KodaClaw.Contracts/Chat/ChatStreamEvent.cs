@@ -1,4 +1,6 @@
-namespace KodaClaw.Contracts;
+using KodaClaw.Contracts.System;
+
+namespace KodaClaw.Contracts.Chat;
 
 public sealed record ChatStreamEvent(
     string Type,

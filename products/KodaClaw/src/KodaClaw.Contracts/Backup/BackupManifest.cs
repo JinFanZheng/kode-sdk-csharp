@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Backup;
 
 public sealed record BackupManifest(
     string Product,

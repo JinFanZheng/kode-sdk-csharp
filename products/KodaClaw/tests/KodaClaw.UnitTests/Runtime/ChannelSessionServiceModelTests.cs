@@ -1,6 +1,9 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Moq;
 using Xunit;
 

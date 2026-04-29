@@ -1,3 +1,3 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Approvals;
 
 public sealed record ApprovalDecisionRequest(string? Note = null);

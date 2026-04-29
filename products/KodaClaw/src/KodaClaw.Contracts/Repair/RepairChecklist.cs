@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Repair;
 
 public sealed record RepairChecklist(
     DateTimeOffset GeneratedAt,

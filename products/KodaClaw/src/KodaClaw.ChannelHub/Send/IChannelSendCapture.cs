@@ -1,4 +1,4 @@
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Send;
 
 public interface IChannelSendCapture
 {

@@ -1,5 +1,6 @@
 using Kode.Agent.Sdk.Core.Abstractions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Sessions;
 
 namespace KodaClaw.McpHub;
 

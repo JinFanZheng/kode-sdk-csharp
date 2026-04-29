@@ -1,6 +1,8 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
 using KodaClaw.ControlPlane;
 using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;

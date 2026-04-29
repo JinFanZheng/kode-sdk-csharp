@@ -1,7 +1,14 @@
 using FluentAssertions;
 using KodaClaw.Automation;
+using KodaClaw.Automation.Scheduler;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Settings;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Moq;
 using Xunit;

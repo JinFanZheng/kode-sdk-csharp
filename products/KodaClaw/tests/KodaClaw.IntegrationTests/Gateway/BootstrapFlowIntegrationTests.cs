@@ -7,6 +7,10 @@ using System.Net.Http.Json;
 using System.Threading.Tasks;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Bootstrap;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 

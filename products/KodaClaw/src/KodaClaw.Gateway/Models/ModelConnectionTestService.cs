@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Secrets;
 
 namespace KodaClaw.Gateway;
 

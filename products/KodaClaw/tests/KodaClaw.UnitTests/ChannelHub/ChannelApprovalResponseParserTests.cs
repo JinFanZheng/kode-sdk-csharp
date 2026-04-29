@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub;
+using KodaClaw.ChannelHub.Delivery;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;

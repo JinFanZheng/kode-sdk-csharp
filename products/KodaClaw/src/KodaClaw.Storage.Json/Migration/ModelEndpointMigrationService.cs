@@ -1,5 +1,7 @@
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Models;
 
 namespace KodaClaw.Storage.Json.Migration;
 

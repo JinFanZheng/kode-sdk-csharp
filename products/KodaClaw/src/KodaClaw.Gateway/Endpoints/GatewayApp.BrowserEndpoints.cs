@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using System.Security.Cryptography;
 using System.Text.Json;
+using KodaClaw.Contracts.Browser;
+using KodaClaw.Contracts.Diagnostics;
 
 public static partial class GatewayApp
 {

@@ -3,6 +3,9 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.Workspace;
 
 namespace KodaClaw.Gateway;
 

@@ -1,6 +1,8 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Backup;
+using KodaClaw.Contracts.Repair;
 using Xunit;
 
 namespace KodaClaw.ContractTests.Workspace;

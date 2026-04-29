@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Canvas;
 
 public sealed record CanvasArtifactQuery(
     CanvasArtifactKind? Kind = null,

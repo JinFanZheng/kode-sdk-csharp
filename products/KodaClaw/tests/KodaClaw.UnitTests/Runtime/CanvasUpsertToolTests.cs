@@ -1,7 +1,11 @@
 using System.IO;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Canvas;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Tools;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Moq;
 using Xunit;

@@ -1,4 +1,4 @@
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Heartbeat;
 
 public sealed class HeartbeatCompilationException : Exception
 {

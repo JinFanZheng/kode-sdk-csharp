@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Chat;
 
 public sealed record ChatStreamRequest(
     string Message,

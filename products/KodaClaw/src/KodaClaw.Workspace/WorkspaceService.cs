@@ -3,6 +3,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
+using KodaClaw.Workspace.Git;
 
 namespace KodaClaw.Workspace;
 

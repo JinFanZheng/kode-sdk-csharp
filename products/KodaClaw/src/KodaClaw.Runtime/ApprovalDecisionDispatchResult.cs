@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Approvals;
 
 namespace KodaClaw.Runtime;
 

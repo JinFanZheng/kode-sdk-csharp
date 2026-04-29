@@ -1,8 +1,17 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Approvals;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.McpHub;
 using KodaClaw.PluginHost.Hosting;
+using KodaClaw.Runtime.Prompt;
+using KodaClaw.Runtime.Providers;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Context;
@@ -11,7 +20,7 @@ using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Store.Json;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 {
@@ -38,7 +47,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     private readonly IPluginLifecycleHost? _pluginLifecycleHost;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IWorkspaceReadinessService? _workspaceReadinessService;
-    private readonly KodaClaw.Contracts.IProviderAccountRepository? _accountRepository;
+    private readonly IProviderAccountRepository? _accountRepository;
     private readonly IMcpHubService? _mcpHubService;
     private readonly ISettingsRepository? _settingsRepository;
     private readonly IMemorySessionSummaryService? _sessionSummaryService;
@@ -56,7 +65,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         IPluginLifecycleHost? pluginLifecycleHost = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IWorkspaceReadinessService? workspaceReadinessService = null,
-        KodaClaw.Contracts.IProviderAccountRepository? accountRepository = null,
+        IProviderAccountRepository? accountRepository = null,
         IMcpHubService? mcpHubService = null,
         ISettingsRepository? settingsRepository = null,
         IMemorySessionSummaryService? sessionSummaryService = null)

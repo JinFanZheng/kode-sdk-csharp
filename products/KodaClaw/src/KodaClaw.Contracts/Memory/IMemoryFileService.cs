@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Memory;
 
 /// <summary>
 /// File-based memory service that scans workspace directories

@@ -1,4 +1,6 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Gateway;
 using KodaClaw.Workspace;
 using Microsoft.AspNetCore.Builder;

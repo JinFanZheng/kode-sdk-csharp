@@ -1,6 +1,8 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Secrets;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.ChannelHub;

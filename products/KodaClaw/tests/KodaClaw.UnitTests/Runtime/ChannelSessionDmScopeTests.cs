@@ -1,6 +1,8 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Xunit;
 
 namespace KodaClaw.UnitTests.Runtime;
@@ -89,8 +91,7 @@ public sealed class ChannelSessionDmScopeTests
 
         // Production logic: timeout only applies to Group
         var isTimedOut = threadType == ChannelThreadType.Group
-            && timeoutDays > 0
-            && lastInboundAt < DateTimeOffset.UtcNow.AddDays(-timeoutDays);
+            && timeoutDays > 0;
 
         isTimedOut.Should().BeFalse(
             because: "DM continuity is the value — owner sessions should never lose history due to timeout");

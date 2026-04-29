@@ -1,4 +1,4 @@
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Prompt;
 
 public enum PromptProfileId
 {

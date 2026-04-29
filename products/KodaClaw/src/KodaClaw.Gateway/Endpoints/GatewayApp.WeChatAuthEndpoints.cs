@@ -1,6 +1,9 @@
 using System.Text.Json;
 using KodaClaw.ChannelHub.Connectors.WeChat;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.System;
 using KodaClaw.Gateway.Channels;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;

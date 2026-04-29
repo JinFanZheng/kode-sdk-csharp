@@ -1,9 +1,12 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.PluginHost.Hosting;
 using KodaClaw.PluginHost.Manifest;
 using KodaClaw.PluginHost.Permissions;
 using KodaClaw.PluginHost.Trust;
 using Microsoft.Extensions.Configuration;
+using PluginPermissionRiskSummary = KodaClaw.Contracts.Plugins.PluginPermissionRiskSummary;
 
 namespace KodaClaw.Gateway.Plugins;
 
@@ -344,7 +347,7 @@ internal sealed class PluginGatewayService : IPluginGatewayService
 
         return new PluginDetail(
             Record: record,
-            PermissionSummary: new KodaClaw.Contracts.PluginPermissionRiskSummary(
+            PermissionSummary: new PluginPermissionRiskSummary(
                 permissionSummary.HighRiskReasons,
                 permissionSummary.MediumRiskReasons),
             HealthSummary: BuildHealthSummary(record),

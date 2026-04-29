@@ -3,6 +3,8 @@ using System.IO;
 using System.Threading.Tasks;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Bootstrap;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Workspace;
 using Xunit;
 

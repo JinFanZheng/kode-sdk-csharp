@@ -1,14 +1,14 @@
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Runtime.Diagnostics;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Sdk.Infrastructure.Sandbox;
 using Kode.Agent.Sdk.Tools;
 using Kode.Agent.Store.Json;
-using KodaClaw.Contracts;
-using KodaClaw.Runtime.Diagnostics;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public sealed class MainSessionOptions
 {

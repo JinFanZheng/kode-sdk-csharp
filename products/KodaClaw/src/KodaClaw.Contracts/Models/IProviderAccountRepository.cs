@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Models;
 
 /// <summary>
 /// Repository for <see cref="ProviderAccount"/> and <see cref="AccountModel"/> persistence.

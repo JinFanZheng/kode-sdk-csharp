@@ -1,8 +1,9 @@
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
-using KodaClaw.Contracts;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public interface IChannelSessionService
 {

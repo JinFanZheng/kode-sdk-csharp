@@ -1,4 +1,6 @@
-namespace KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+
+namespace KodaClaw.Contracts.Sessions;
 
 public sealed record SessionDetail(
     string SessionId,

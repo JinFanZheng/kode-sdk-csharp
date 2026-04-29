@@ -1,6 +1,6 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Audit;
 
 public sealed class ChannelAuditQueryService
 {

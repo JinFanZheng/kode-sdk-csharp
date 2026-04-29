@@ -1,4 +1,8 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Canvas;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;

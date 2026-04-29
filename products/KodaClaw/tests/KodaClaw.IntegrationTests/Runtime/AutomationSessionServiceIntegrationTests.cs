@@ -1,11 +1,15 @@
 using System.Linq;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
-using AutomationDefinitionContract = KodaClaw.Contracts.AutomationDefinition;
+using AutomationDefinitionContract = KodaClaw.Contracts.Automations.AutomationDefinition;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.Runtime;

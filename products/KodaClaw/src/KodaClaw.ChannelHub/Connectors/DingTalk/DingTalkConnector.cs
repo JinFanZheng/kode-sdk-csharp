@@ -1,7 +1,12 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Media;
+using KodaClaw.Contracts.Secrets;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Media;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.ChannelHub.Connectors.DingTalk;

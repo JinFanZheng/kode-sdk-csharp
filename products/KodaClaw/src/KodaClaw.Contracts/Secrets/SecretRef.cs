@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Secrets;
 
 public sealed record SecretRef
 {

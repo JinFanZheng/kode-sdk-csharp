@@ -1,6 +1,7 @@
 using System.Diagnostics.Metrics;
 using Kode.Agent.Sdk.Diagnostics;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 using Microsoft.Extensions.Hosting;
 
 namespace KodaClaw.Runtime.Diagnostics;

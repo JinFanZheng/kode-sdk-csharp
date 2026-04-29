@@ -1,6 +1,7 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.DingTalk;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;

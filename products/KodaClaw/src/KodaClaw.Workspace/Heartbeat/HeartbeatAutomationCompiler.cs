@@ -2,9 +2,10 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Cronos;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Workspace;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Heartbeat;
 
 public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
 {

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Xunit;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Sessions;
 
 namespace KodaClaw.UnitTests.Contracts;
 

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Send;
 
 public sealed class ChannelSendCapture : IChannelSendCapture
 {

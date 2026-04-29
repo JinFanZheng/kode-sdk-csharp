@@ -1,6 +1,6 @@
 using Kode.Agent.Sdk.Core.Abstractions;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public sealed record ChannelTurnExecutionResult(
     ChannelSessionHandle Session,

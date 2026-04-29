@@ -1,4 +1,6 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Canvas;
+using KodaClaw.Contracts.Workspace;
 
 namespace KodaClaw.Storage;
 

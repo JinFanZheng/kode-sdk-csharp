@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Settings;
 
 public sealed record KodaClawSettings(
     string DefaultLandingRoute,

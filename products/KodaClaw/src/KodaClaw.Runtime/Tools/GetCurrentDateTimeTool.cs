@@ -1,7 +1,7 @@
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Tools;
 
 /// <summary>
 /// Tool that returns the current local date and time.

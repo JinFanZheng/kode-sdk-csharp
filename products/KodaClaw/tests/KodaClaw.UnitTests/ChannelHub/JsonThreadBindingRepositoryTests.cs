@@ -1,5 +1,7 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
 using KodaClaw.Storage.Json.Repositories;
 using Xunit;
 

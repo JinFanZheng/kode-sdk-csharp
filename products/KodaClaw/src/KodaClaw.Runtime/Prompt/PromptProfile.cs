@@ -1,6 +1,6 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Prompt;
 
 public sealed record PromptProfile(
     PromptProfileId Id,

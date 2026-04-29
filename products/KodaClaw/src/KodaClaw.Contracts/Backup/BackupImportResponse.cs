@@ -1,4 +1,6 @@
-namespace KodaClaw.Contracts;
+using KodaClaw.Contracts.Repair;
+
+namespace KodaClaw.Contracts.Backup;
 
 public sealed record BackupImportResponse(
     DateTimeOffset ImportedAt,

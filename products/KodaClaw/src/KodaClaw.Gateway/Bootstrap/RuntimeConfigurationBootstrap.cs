@@ -1,8 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Secrets;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Runtime;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Secrets;
 using Microsoft.Extensions.Configuration;
 
 namespace KodaClaw.Gateway;

@@ -1,10 +1,11 @@
 using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Secrets;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Secrets;
 
 /// <summary>
 /// Linux credential backend.

@@ -1,9 +1,9 @@
 using System.Threading.Channels;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Heartbeat;
 
 internal sealed class HeartbeatFileWatcherHostedService : BackgroundService
 {

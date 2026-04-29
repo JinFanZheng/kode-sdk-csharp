@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Approvals;
 
 [JsonConverter(typeof(JsonStringEnumConverter<ApprovalStatus>))]
 public enum ApprovalStatus

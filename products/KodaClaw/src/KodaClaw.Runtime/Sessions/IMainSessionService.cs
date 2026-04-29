@@ -1,7 +1,7 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Sessions;
 using Kode.Agent.Sdk.Core.Abstractions;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public interface IMainSessionService
 {

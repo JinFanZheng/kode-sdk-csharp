@@ -1,7 +1,9 @@
 using System.IO;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;

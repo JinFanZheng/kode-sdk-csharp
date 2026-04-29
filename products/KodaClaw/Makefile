@@ -268,6 +268,7 @@ package-gateway-mac:
 	dotnet publish "$(GATEWAY_PROJECT)" \
 	  -r osx-arm64 --self-contained \
 	  -p:PublishSingleFile=true \
+	  -p:IncludeNativeLibrariesForSelfExtract=true \
 	  -p:DebugType=None \
 	  -p:DebugSymbols=false \
 	  -c Release \
@@ -277,6 +278,7 @@ package-gateway-mac-x64:
 	dotnet publish "$(GATEWAY_PROJECT)" \
 	  -r osx-x64 --self-contained \
 	  -p:PublishSingleFile=true \
+	  -p:IncludeNativeLibrariesForSelfExtract=true \
 	  -p:DebugType=None \
 	  -p:DebugSymbols=false \
 	  -c Release \
@@ -286,6 +288,7 @@ package-gateway-win:
 	dotnet publish "$(GATEWAY_PROJECT)" \
 	  -r win-x64 --self-contained \
 	  -p:PublishSingleFile=true \
+	  -p:IncludeNativeLibrariesForSelfExtract=true \
 	  -p:DebugType=None \
 	  -p:DebugSymbols=false \
 	  -c Release \
@@ -295,6 +298,7 @@ package-gateway-linux:
 	dotnet publish "$(GATEWAY_PROJECT)" \
 	  -r linux-x64 --self-contained \
 	  -p:PublishSingleFile=true \
+	  -p:IncludeNativeLibrariesForSelfExtract=true \
 	  -p:DebugType=None \
 	  -p:DebugSymbols=false \
 	  -c Release \

@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Browser;
 
 public sealed record TabInfo(
     [property: JsonPropertyName("id")] string TabId,

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Kode.Agent.Sdk.Core.Abstractions;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 /// <summary>
 /// Per-channel-session runtime token statistics.

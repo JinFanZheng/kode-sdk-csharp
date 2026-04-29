@@ -2,6 +2,7 @@ using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.Workspace;
 using System.Text.Json;
+using KodaClaw.Contracts.Workspace;
 using Xunit;
 
 namespace KodaClaw.ContractTests.Workspace;

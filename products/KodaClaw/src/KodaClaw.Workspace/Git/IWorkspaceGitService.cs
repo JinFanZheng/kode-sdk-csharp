@@ -1,6 +1,6 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Workspace;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Git;
 
 /// <summary>
 /// Manages the git repository for the workspace.

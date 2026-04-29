@@ -4,6 +4,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.System;
 using KodaClaw.ControlPlane;
 using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;

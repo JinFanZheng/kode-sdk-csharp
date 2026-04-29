@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.Automation;
+namespace KodaClaw.Automation.Scheduler;
 
 public sealed class AutomationSchedulerHostedService : BackgroundService
 {

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Xunit;
 
 namespace KodaClaw.UnitTests.Runtime;

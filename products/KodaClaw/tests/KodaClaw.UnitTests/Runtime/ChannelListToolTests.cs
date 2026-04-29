@@ -1,7 +1,10 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Tools;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Moq;
 using Xunit;

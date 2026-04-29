@@ -2,6 +2,7 @@ using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Feishu.Models;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;

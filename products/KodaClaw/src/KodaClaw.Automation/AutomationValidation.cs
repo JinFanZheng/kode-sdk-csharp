@@ -1,5 +1,6 @@
 using Cronos;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
 
 namespace KodaClaw.Automation;
 

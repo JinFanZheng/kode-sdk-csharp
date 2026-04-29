@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Models;
 
 /// <summary>
 /// The result of capability-matching resolution: an Account + Model pair

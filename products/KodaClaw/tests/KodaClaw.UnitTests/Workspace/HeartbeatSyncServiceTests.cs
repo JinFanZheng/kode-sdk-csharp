@@ -1,6 +1,10 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Heartbeat;
 using Moq;
 using Xunit;
 

@@ -3,6 +3,13 @@ using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.Contracts;
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
+using KodaClaw.ChannelHub.Audit;
+using KodaClaw.ChannelHub.Policy;
+using KodaClaw.Contracts.Approvals;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.System;
+using KodaClaw.Contracts.Workspace;
 
 public static partial class GatewayApp
 {

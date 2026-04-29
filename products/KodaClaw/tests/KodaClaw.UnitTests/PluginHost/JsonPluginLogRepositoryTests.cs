@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
 using KodaClaw.Storage.Json.Repositories;
 using Xunit;
 

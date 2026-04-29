@@ -1,6 +1,6 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Approvals;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Delivery;
 
 public enum ChannelDeliveryApprovalDispatchStatus
 {

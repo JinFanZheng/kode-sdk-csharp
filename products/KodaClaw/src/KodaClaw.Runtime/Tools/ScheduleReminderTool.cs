@@ -1,8 +1,9 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Timers;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Tools;
 
 /// <summary>
 /// Tool that schedules a one-shot reminder to run an agent session at a specific future time.

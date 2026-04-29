@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Repair;
 
 [JsonConverter(typeof(JsonStringEnumConverter<RepairChecklistState>))]
 public enum RepairChecklistState

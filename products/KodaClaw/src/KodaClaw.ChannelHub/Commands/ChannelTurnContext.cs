@@ -1,3 +1,5 @@
+using KodaClaw.Contracts.Channels;
+
 namespace KodaClaw.ChannelHub.Commands;
 
 using KodaClaw.Contracts;

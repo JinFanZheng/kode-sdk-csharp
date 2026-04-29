@@ -1,4 +1,13 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Approvals;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Canvas;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.Timers;
 using KodaClaw.Storage.Json.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

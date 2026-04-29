@@ -1,4 +1,14 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Bootstrap;
+using KodaClaw.Contracts.Memory;
+using KodaClaw.Contracts.Secrets;
+using KodaClaw.Contracts.Workspace;
+using KodaClaw.Workspace.Git;
+using KodaClaw.Workspace.Heartbeat;
+using KodaClaw.Workspace.Media;
+using KodaClaw.Workspace.Memory;
+using KodaClaw.Workspace.Secrets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;

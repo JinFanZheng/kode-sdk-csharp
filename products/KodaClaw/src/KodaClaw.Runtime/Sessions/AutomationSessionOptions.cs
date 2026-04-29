@@ -1,6 +1,6 @@
 using Kode.Agent.Sdk.Core.Types;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public sealed class AutomationSessionOptions
 {

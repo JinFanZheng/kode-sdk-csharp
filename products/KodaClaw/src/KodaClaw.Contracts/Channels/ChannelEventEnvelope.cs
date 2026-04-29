@@ -1,6 +1,6 @@
-using System.Collections.Generic;
+using KodaClaw.Contracts.Media;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Channels;
 
 public sealed record ChannelEventEnvelope(
     string EventId,

@@ -1,6 +1,6 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Heartbeat;
 
 public interface IHeartbeatAutomationCompiler
 {

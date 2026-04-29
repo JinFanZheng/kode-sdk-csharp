@@ -5,6 +5,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.IntegrationTests.PluginHost;
 using KodaClaw.PluginHost.Trust;
 using Microsoft.Extensions.Configuration;

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Kode.Agent.Sdk.Tools;
 
 namespace KodaClaw.BrowserHub.Tools;

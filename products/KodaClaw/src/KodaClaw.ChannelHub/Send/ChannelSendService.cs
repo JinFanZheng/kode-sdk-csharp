@@ -1,7 +1,10 @@
-using KodaClaw.Contracts;
+using KodaClaw.ChannelHub.Delivery;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Media;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Media;
 
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Send;
 
 public sealed class ChannelSendService : IChannelSendService
 {

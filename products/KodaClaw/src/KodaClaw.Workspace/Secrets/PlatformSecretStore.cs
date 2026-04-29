@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Secrets;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Secrets;
 
 public sealed class PlatformSecretStore : ISecretStore
 {

@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Inbox;
 using KodaClaw.Storage;
 
 namespace KodaClaw.Storage.Json.Repositories;

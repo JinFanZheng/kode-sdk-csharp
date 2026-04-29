@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
 
 namespace KodaClaw.PluginHost.Permissions;
 

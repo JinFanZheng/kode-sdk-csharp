@@ -1,5 +1,7 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Runtime;
 using Moq;
 using Xunit;

@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Prompt;
 
 public sealed record PromptContextDocument(string Path, string Content);
 

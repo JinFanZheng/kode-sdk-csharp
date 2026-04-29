@@ -1,6 +1,10 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Secrets;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.ChannelHub.Connectors.Relay;

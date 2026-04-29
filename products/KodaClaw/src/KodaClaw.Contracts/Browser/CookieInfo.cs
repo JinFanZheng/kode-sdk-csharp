@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Browser;
 
 public sealed record CookieInfo(
     string Name,

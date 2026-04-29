@@ -1,5 +1,6 @@
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Microsoft.Extensions.Hosting;
 
 namespace KodaClaw.Gateway.Channels;

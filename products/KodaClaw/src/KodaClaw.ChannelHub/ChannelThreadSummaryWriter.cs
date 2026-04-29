@@ -1,6 +1,9 @@
 using System.Globalization;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 

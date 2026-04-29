@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
 using KodaClaw.PluginHost.Manifest;
 using Xunit;
 

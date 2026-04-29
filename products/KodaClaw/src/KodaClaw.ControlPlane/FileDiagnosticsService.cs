@@ -2,6 +2,8 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 
 namespace KodaClaw.ControlPlane;
 
@@ -16,11 +18,11 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string _journalPath;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<DiagnosticEvent> _highPriorityCache = [];
     private readonly List<DiagnosticEvent> _lowPriorityCache = [];
     private readonly List<Channel<DiagnosticEvent>> _subscribers = [];
-    private Timer? _rotationTimer;
+    private readonly Timer? _rotationTimer;
     private int _rotating = 0;
 
     public FileDiagnosticsService(string workspaceRoot)

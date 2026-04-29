@@ -1,4 +1,6 @@
-namespace KodaClaw.Contracts;
+using KodaClaw.Contracts.System;
+
+namespace KodaClaw.Contracts.Workspace;
 
 public interface IWorkspaceService
 {

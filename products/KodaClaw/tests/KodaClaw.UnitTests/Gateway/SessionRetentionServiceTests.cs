@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.Gateway;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.DependencyInjection;

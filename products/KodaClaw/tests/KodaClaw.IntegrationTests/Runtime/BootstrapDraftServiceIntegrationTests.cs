@@ -1,6 +1,8 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Bootstrap;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Bootstrap;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 using Xunit;

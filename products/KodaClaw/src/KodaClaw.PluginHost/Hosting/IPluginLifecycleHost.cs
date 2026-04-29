@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
 using Kode.Agent.Sdk.Core.Abstractions;
 
 namespace KodaClaw.PluginHost.Hosting;

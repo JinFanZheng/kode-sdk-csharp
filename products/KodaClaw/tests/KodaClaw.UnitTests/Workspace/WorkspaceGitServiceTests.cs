@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Git;
 using Xunit;
 
 namespace KodaClaw.UnitTests.Workspace;

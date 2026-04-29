@@ -1,5 +1,6 @@
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using KodaClaw.Workspace;
 
 namespace KodaClaw.ChannelHub.Connectors.Relay;

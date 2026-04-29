@@ -4,6 +4,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.System;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 

@@ -1,4 +1,6 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Models;
 using KodaClaw.Storage.Json.Migration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

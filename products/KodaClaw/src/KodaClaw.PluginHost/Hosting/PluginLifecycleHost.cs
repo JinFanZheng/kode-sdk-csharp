@@ -1,5 +1,8 @@
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.Secrets;
 using KodaClaw.PluginHost.Trust;
 using Kode.Agent.Mcp;
 using Kode.Agent.Sdk.Core.Abstractions;

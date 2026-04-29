@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.ChannelHub.Connectors.WeChat;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;

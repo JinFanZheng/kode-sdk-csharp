@@ -1,4 +1,4 @@
-namespace KodaClaw.ChannelHub;
+namespace KodaClaw.ChannelHub.Delivery;
 
 /// <summary>
 /// Parses a plain-text message to detect whether it is an approval response.

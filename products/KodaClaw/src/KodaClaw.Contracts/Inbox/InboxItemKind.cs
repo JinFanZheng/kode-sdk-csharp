@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Inbox;
 
 [JsonConverter(typeof(JsonStringEnumConverter<InboxItemKind>))]
 public enum InboxItemKind

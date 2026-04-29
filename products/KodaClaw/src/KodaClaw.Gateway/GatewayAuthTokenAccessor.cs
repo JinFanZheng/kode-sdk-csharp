@@ -1,4 +1,6 @@
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Secrets;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.Extensions.Configuration;
 
 namespace KodaClaw.Gateway;

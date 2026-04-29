@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.ControlPlane;
 using Xunit;
 

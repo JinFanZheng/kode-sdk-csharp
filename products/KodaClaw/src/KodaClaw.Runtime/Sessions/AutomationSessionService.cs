@@ -1,7 +1,12 @@
 using System.Text;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Models;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Settings;
+using KodaClaw.Contracts.Workspace;
 using KodaClaw.McpHub;
-using KodaClaw.ModelHub;
+using KodaClaw.Runtime.Prompt;
+using KodaClaw.Runtime.Providers;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Context;
@@ -9,7 +14,7 @@ using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public sealed class AutomationSessionService : IAutomationSessionService, IAsyncDisposable
 {

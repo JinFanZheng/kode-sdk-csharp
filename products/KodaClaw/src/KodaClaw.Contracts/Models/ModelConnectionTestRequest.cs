@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Models;
 
 public sealed record ModelConnectionTestRequest(
     string? PresetId,

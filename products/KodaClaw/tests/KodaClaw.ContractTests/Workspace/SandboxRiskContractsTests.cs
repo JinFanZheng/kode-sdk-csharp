@@ -1,6 +1,9 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Plugins;
+using KodaClaw.Contracts.System;
 using Xunit;
 
 namespace KodaClaw.ContractTests.Workspace;

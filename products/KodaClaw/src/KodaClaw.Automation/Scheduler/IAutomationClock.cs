@@ -1,4 +1,4 @@
-namespace KodaClaw.Automation;
+namespace KodaClaw.Automation.Scheduler;
 
 public interface IAutomationClock
 {

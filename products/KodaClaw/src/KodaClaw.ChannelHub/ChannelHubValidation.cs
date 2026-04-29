@@ -1,5 +1,7 @@
 using System.Globalization;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
 
 namespace KodaClaw.ChannelHub;
 

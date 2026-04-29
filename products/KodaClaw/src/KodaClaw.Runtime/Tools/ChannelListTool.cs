@@ -1,8 +1,8 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Tools;
 
 public sealed class ChannelListArgs
 {

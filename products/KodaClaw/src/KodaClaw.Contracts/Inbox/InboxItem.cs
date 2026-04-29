@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Inbox;
 
 public sealed record InboxItem(
     string Id,

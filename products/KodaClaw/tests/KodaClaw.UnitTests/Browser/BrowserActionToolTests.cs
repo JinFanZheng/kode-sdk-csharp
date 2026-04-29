@@ -5,6 +5,7 @@ using KodaClaw.BrowserHub;
 using KodaClaw.BrowserHub.Models;
 using KodaClaw.BrowserHub.Tools;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Browser;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 using Moq;

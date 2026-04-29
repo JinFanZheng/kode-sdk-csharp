@@ -1,8 +1,10 @@
 using Cronos;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Heartbeat;
 
 public interface IHeartbeatSyncService
 {

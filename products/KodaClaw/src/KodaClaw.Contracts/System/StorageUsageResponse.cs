@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.System;
 
 public sealed record StorageUsageResponse
 {

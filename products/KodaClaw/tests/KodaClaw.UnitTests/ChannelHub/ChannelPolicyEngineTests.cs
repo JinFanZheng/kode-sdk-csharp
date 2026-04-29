@@ -1,6 +1,9 @@
 using FluentAssertions;
 using KodaClaw.ChannelHub;
+using KodaClaw.ChannelHub.Policy;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Sessions;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;

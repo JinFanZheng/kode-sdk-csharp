@@ -1,9 +1,15 @@
 using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Automation;
+using KodaClaw.Automation.Scheduler;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Sessions;
+using KodaClaw.Contracts.Settings;
 using KodaClaw.ControlPlane;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;

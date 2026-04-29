@@ -1,4 +1,4 @@
-namespace KodaClaw.Contracts;
+namespace KodaClaw.Contracts.Workspace;
 
 public static class KodaClawWorkspaceLayout
 {

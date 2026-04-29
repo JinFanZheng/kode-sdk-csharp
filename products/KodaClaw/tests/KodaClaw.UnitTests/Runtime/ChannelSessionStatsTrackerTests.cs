@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Kode.Agent.Sdk.Core.Abstractions;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Sessions;
 using Xunit;
 
 namespace KodaClaw.UnitTests.Runtime;

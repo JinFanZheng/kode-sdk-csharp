@@ -1,4 +1,6 @@
-namespace KodaClaw.Contracts;
+using KodaClaw.Contracts.Media;
+
+namespace KodaClaw.Contracts.Channels;
 
 public sealed record ChannelOutboundDraft(
     string DraftId,

@@ -3,6 +3,9 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Bootstrap;
+using KodaClaw.Contracts.Diagnostics;
+using KodaClaw.Contracts.Workspace;
 
 namespace KodaClaw.Workspace;
 

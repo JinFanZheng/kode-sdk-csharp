@@ -1,11 +1,13 @@
 using System.Runtime.CompilerServices;
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Chat;
+using KodaClaw.Contracts.System;
 using KodaClaw.Workspace;
+using KodaClaw.Workspace.Media;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
-namespace KodaClaw.Runtime;
+namespace KodaClaw.Runtime.Sessions;
 
 public sealed class ChatSessionService : IChatSessionService
 {

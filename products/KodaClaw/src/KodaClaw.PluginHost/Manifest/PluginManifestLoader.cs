@@ -1,5 +1,6 @@
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Contracts.Plugins;
 
 namespace KodaClaw.PluginHost.Manifest;
 

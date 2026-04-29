@@ -1,8 +1,8 @@
-using KodaClaw.Contracts;
+using KodaClaw.Contracts.Workspace;
 using LibGit2Sharp;
 using Microsoft.Extensions.Logging;
 
-namespace KodaClaw.Workspace;
+namespace KodaClaw.Workspace.Git;
 
 /// <summary>
 /// Implements git-based version tracking for workspace protocol files.
