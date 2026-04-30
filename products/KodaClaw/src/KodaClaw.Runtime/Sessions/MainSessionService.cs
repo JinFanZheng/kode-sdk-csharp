@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using KodaClaw.Contracts.Approvals;
 using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.Contracts.Inbox;
@@ -865,8 +866,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         var today = DateTimeOffset.Now.Date;
         var todayMemoryPath = Path.Combine(workspaceDirectory, "memory", $"{today:yyyy-MM-dd}.md");
         var yesterdayMemoryPath = Path.Combine(workspaceDirectory, "memory", $"{today.AddDays(-1):yyyy-MM-dd}.md");
-        await TryAddContextDocumentAsync(yesterdayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
-        await TryAddContextDocumentAsync(todayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
+        await TryAddFilteredDailyMemoryAsync(yesterdayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
+        await TryAddFilteredDailyMemoryAsync(todayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
 
         var promptCharBudget = await ResolvePromptCharacterBudgetAsync(cancellationToken);
         var sessionStartedAt = DateTimeOffset.Now;
@@ -987,6 +988,64 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             ? absolutePath[workspaceRoot.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             : absolutePath;
         documents.Add(new PromptContextDocument(displayPath, content));
+    }
+
+    private static async Task TryAddFilteredDailyMemoryAsync(
+        string absolutePath,
+        string workspaceRoot,
+        HashSet<string> seenPaths,
+        ICollection<PromptContextDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        if (!seenPaths.Add(absolutePath) || !File.Exists(absolutePath))
+        {
+            return;
+        }
+
+        var content = await File.ReadAllTextAsync(absolutePath, cancellationToken);
+        var segments = Regex.Split(content, @"<!-- \d{2}:\d{2} \| (permanent|lasting|standard|ephemeral) -->");
+
+        var filtered = new System.Text.StringBuilder();
+        // Preserve content before any priority markers (no-marker preamble)
+        if (!string.IsNullOrWhiteSpace(segments[0]))
+        {
+            filtered.Append(segments[0].TrimEnd());
+            filtered.AppendLine();
+        }
+
+        for (var i = 1; i < segments.Length; i += 2)
+        {
+            var priority = segments[i];
+            var body = i + 1 < segments.Length ? segments[i + 1] : string.Empty;
+
+            if (priority == "ephemeral")
+            {
+                continue;
+            }
+
+            if (priority == "standard")
+            {
+                var firstLineEnd = body.IndexOf('\n');
+                var firstLine = firstLineEnd >= 0 ? body[..firstLineEnd] : body;
+                filtered.AppendLine($"<!-- standard --> {firstLine.Trim()}");
+                continue;
+            }
+
+            // permanent or lasting — keep in full
+            filtered.Append(body.TrimEnd());
+            filtered.AppendLine();
+        }
+
+        var filteredContent = filtered.ToString().TrimEnd();
+        if (string.IsNullOrWhiteSpace(filteredContent))
+        {
+            return;
+        }
+
+        var displayPath = absolutePath.StartsWith(workspaceRoot, StringComparison.OrdinalIgnoreCase)
+            ? absolutePath[workspaceRoot.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            : absolutePath;
+        documents.Add(new PromptContextDocument(displayPath, filteredContent));
     }
 
     private void TrackSession(string sessionId, IAgent agent)
