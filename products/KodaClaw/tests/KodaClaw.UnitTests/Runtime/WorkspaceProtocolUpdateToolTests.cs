@@ -117,6 +117,36 @@ public sealed class WorkspaceProtocolUpdateToolTests : IDisposable
         result.Should().Contain("## New Section\n- new item");
     }
 
+    // ── CountSections ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void CountSections_counts_heading2_sections()
+    {
+        var content = "# Title\n\n## Section A\n- a\n\n## Section B\n- b\n";
+        WorkspaceProtocolUpdateTool.CountSections(content).Should().Be(2);
+    }
+
+    [Fact]
+    public void CountSections_ignores_heading1()
+    {
+        var content = "# Title\n\n## Section A\n- a\n";
+        WorkspaceProtocolUpdateTool.CountSections(content).Should().Be(1);
+    }
+
+    [Fact]
+    public void CountSections_returns_zero_for_empty_content()
+    {
+        WorkspaceProtocolUpdateTool.CountSections("").Should().Be(0);
+        WorkspaceProtocolUpdateTool.CountSections("no sections here").Should().Be(0);
+    }
+
+    [Fact]
+    public void CountSections_counts_chinese_section_titles()
+    {
+        var content = "# Heartbeat Automations\n\n## 加密货币监控\n- cron: \"0 */1 * * *\"\n- prompt: 检查市场行情\n\n## 每日总结\n- cron: \"0 22 * * *\"\n";
+        WorkspaceProtocolUpdateTool.CountSections(content).Should().Be(2);
+    }
+
     // ── Tool execution ────────────────────────────────────────────────────────
 
     [Fact]

@@ -23,6 +23,8 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
             ["heartbeat"] = KodaClawWorkspaceLayout.HeartbeatFile,
         };
 
+    private static readonly SemaphoreSlim _writeLock = new(1, 1);
+
     private readonly IWorkspaceService _workspaceService;
     private readonly IDiagnosticsService? _diagnosticsService;
 
@@ -96,7 +98,39 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
         var patched = ApplySectionPatch(currentContent, args.Section, args.Content);
 
         Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
-        await File.WriteAllTextAsync(filePath, patched, cancellationToken);
+
+        // Pre-write validation for heartbeat target: reject if section count would decrease
+        if (string.Equals(args.Target, "heartbeat", StringComparison.OrdinalIgnoreCase)
+            && File.Exists(filePath))
+        {
+            var currentCount = CountSections(currentContent);
+            var patchedCount = CountSections(patched);
+            if (patchedCount < currentCount)
+            {
+                return ToolResult.Fail(
+                    $"Section count would decrease ({currentCount} -> {patchedCount}). " +
+                    "This may indicate a concurrent write conflict. Retrying may resolve the issue.");
+            }
+        }
+
+        // Serialize file writes to prevent concurrent read-modify-write races
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var latest = File.Exists(filePath)
+                ? await File.ReadAllTextAsync(filePath, cancellationToken)
+                : GetDefaultContent(args.Target);
+            patched = ApplySectionPatch(latest, args.Section, args.Content);
+
+            // Atomic write: write to temp file first, then move to replace
+            var tmpPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+            await File.WriteAllTextAsync(tmpPath, patched, cancellationToken);
+            File.Move(tmpPath, filePath, overwrite: true);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
 
         Emit(context, "workspace_protocol_updated", new
         {
@@ -115,11 +149,11 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
             Timestamp: DateTimeOffset.UtcNow));
 
         var sectionTag = string.IsNullOrWhiteSpace(args.Section) ? args.Target : $"{args.Target}/{args.Section}";
-        await _workspaceService.TryCommitWorkspaceAsync(
+        var committed = await _workspaceService.TryCommitWorkspaceAsync(
             $"workspace({args.Target})[agent]: update {sectionTag}",
             cancellationToken);
 
-        return ToolResult.Ok(new { ok = true, target = args.Target, section = args.Section, path = filePath });
+        return ToolResult.Ok(new { ok = true, target = args.Target, section = args.Section, path = filePath, committed });
     }
 
     /// <summary>
@@ -170,6 +204,17 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
             + (after.Count > 0 ? "\n" + string.Join("\n", after).TrimEnd() + "\n" : "");
 
         return result;
+    }
+
+    internal static int CountSections(string content)
+    {
+        var count = 0;
+        foreach (var line in content.Split('\n'))
+        {
+            if (line.TrimStart().StartsWith("## ", StringComparison.Ordinal))
+                count++;
+        }
+        return count;
     }
 
     private static string GetDefaultContent(string target) => target.ToLowerInvariant() switch
