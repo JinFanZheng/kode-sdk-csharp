@@ -235,6 +235,63 @@ public sealed class ModelApiIntegrationTests
         payload!.DisplayName.Should().Be("Updated with headers");
     }
 
+    // ── Connection test: AnthropicCompatible (real MiMo endpoint) ─────────
+
+    [Fact]
+    public async Task Test_connection_anthropic_compatible_should_return_ok()
+    {
+        var apiKey = Environment.GetEnvironmentVariable("KODACLAW_TEST_XIAOMI_API_KEY");
+        if (string.IsNullOrEmpty(apiKey))
+            return; // Skip when no API key is configured
+
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var request = new ModelConnectionTestRequest(
+            PresetId: null,
+            ModelId: "mimo-v2.5",
+            BaseUrl: "https://token-plan-cn.xiaomimimo.com/anthropic",
+            ApiKey: apiKey,
+            Provider: "AnthropicCompatible",
+            EndpointId: null);
+
+        var response = await hosted.Client.PostAsJsonAsync("/api/models/test-connection", request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var payload = await response.Content.ReadFromJsonAsync<ModelConnectionTestResponse>();
+        payload.Should().NotBeNull();
+        payload!.Ok.Should().BeTrue($"expected success but got error: {payload.Error} - {payload.ErrorMessage}");
+        payload.ModelId.Should().Be("mimo-v2.5");
+        payload.LatencyMs.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Test_connection_invalid_api_key_should_return_authentication_error()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var request = new ModelConnectionTestRequest(
+            PresetId: null,
+            ModelId: "mimo-v2.5",
+            BaseUrl: "https://token-plan-cn.xiaomimimo.com/anthropic",
+            ApiKey: "sk-invalid-key",
+            Provider: "AnthropicCompatible",
+            EndpointId: null);
+
+        var response = await hosted.Client.PostAsJsonAsync("/api/models/test-connection", request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var payload = await response.Content.ReadFromJsonAsync<ModelConnectionTestResponse>();
+        payload.Should().NotBeNull();
+        payload!.Ok.Should().BeFalse();
+        payload.Error.Should().Be("authentication_error");
+    }
+
     private static Task<HostedGateway> StartGatewayAsync(
         string workspaceRoot)
     {

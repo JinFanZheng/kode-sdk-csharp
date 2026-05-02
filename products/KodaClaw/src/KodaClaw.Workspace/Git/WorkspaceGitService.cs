@@ -147,6 +147,10 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
             repo.Commit(message, sig, sig);
             return true;
         }
+        catch (EmptyCommitException)
+        {
+            return false;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Git commit failed for workspace at {RootPath}", _rootPath);

@@ -375,6 +375,7 @@ public sealed partial class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAge
         try
         {
             await AutoSealDanglingToolUsesAsync(note ?? "Interrupted by user", cancellationToken);
+            await SanitizeDuplicateToolResultsAsync(cancellationToken);
             await SaveStateAsync(cancellationToken);
         }
         catch

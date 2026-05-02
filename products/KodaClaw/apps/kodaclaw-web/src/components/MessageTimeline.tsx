@@ -57,7 +57,7 @@ function groupMessages(messages: ChatMessage[]): RenderItem[] {
 
   for (const msg of messages) {
     // Skip empty done assistant messages (tool placeholders that received no text)
-    if (msg.role === "assistant" && !msg.text && msg.status !== "streaming") continue;
+    if (msg.role === "assistant" && !msg.text && !msg.thinking && msg.status !== "streaming") continue;
 
     const isDecidedApproval = msg.role === "approval" && msg.decision !== "pending";
     const isToolActivity = msg.role === "tool_activity";

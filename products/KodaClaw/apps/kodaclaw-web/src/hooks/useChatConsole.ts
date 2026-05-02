@@ -50,6 +50,14 @@ function createMessage(
   };
 }
 
+function hasAssistantContent(message: ChatMessage | undefined): boolean {
+  if (!message) {
+    return false;
+  }
+
+  return Boolean(message.text || message.thinking);
+}
+
 export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSessionId: string) => void) {
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -366,9 +374,8 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           currentAssistantMsgId = nextAssistantMsg.id;
           setMessages((current) => {
             const prev = current.find((m) => m.id === prevAssistantId);
-            // If the previous assistant placeholder has no text, remove it entirely rather than
-            // leaving an empty "done" bubble sitting above the tool strip.
-            const withPrev = prev?.text
+            // Keep thinking-only assistant bubbles; they are still user-visible content.
+            const withPrev = hasAssistantContent(prev)
               ? current.map((m) => m.id === prevAssistantId ? { ...m, status: "done" as const } : m)
               : current.filter((m) => m.id !== prevAssistantId);
             return [
@@ -509,6 +516,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
       isHistory: true,
       toolName: item.toolName ?? null,
       inputPreview: item.inputPreview ?? null,
+      thinking: item.thinking ?? undefined,
     }));
     const separator = createMessage("history_separator", "", "done");
     setMessages((current) => [...historyMessages, separator, ...current]);
@@ -534,6 +542,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           isHistory: true,
           toolName: item.toolName ?? null,
           inputPreview: item.inputPreview ?? null,
+          thinking: item.thinking ?? undefined,
         }));
         setMessages((current) => [...historyMessages, ...current]);
         historySkipRef.current = skip;

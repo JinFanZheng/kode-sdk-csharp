@@ -144,8 +144,11 @@ public static partial class GatewayApp
             else if (m.Role == MessageRole.Assistant)
             {
                 var text = string.Concat(m.Content.OfType<TextContent>().Select(static t => t.Text));
+                var thinking = string.Concat(m.Content.OfType<ThinkingContent>().Select(static t => t.Thinking));
                 if (!string.IsNullOrWhiteSpace(text))
-                    allItems.Add(new SessionMessageItem(Id: "", Role: "assistant", Text: text, Timestamp: null));
+                    allItems.Add(new SessionMessageItem(Id: "", Role: "assistant", Text: text, Timestamp: null, Thinking: string.IsNullOrWhiteSpace(thinking) ? null : thinking));
+                else if (!string.IsNullOrWhiteSpace(thinking))
+                    allItems.Add(new SessionMessageItem(Id: "", Role: "assistant", Text: string.Empty, Timestamp: null, Thinking: thinking));
 
                 foreach (var toolUse in m.Content.OfType<ToolUseContent>())
                 {

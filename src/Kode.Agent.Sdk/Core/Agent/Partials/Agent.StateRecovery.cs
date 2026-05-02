@@ -137,6 +137,7 @@ public sealed partial class Agent
                 "Sealed missing tool_result after crash-resume; verify potential side effects.",
                 cancellationToken);
             sealedSnapshots.AddRange(dangling);
+            await agent.SanitizeDuplicateToolResultsAsync(cancellationToken);
 
             await agent.SaveStateAsync(cancellationToken);
         }

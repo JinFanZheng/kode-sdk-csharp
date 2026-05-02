@@ -365,7 +365,7 @@ export function ModelsSettingsDesk() {
     const key = pair.model.id;
     setCardTests((prev) => new Map(prev).set(key, { testing: true, result: null }));
     testModelConnection({
-      accountId: pair.account.id,
+      endpointId: pair.model.id,
       modelId: pair.model.modelId,
       baseUrl: pair.account.baseUrl ?? undefined,
       apiKey: "",

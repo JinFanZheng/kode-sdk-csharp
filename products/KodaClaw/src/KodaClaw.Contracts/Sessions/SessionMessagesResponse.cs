@@ -5,6 +5,7 @@ public sealed record SessionMessageItem(
     string Role,
     string Text,
     long? Timestamp,
+    string? Thinking = null,
     string? ToolName = null,
     string? InputPreview = null);
 

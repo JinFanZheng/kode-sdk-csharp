@@ -1193,7 +1193,7 @@ export interface ModelConnectionTestRequest {
   baseUrl?: string;
   apiKey: string;
   provider?: ModelProviderKind;
-  accountId?: string;
+  endpointId?: string;
 }
 
 export interface ModelConnectionTestResponse {
@@ -1257,6 +1257,7 @@ export interface SessionMessageItem {
   role: "user" | "assistant" | "tool_activity";
   text: string;
   timestamp?: number | null;
+  thinking?: string | null;
   toolName?: string | null;
   inputPreview?: string | null;
 }

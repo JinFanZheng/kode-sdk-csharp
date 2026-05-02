@@ -114,6 +114,12 @@ public record ThinkingContent : ContentBlock
     /// The thinking content.
     /// </summary>
     public required string Thinking { get; init; }
+
+    /// <summary>
+    /// Cryptographic signature returned by the provider (Anthropic / DeepSeek Anthropic-compatible).
+    /// Must be passed back verbatim in subsequent turns when tool calls were made.
+    /// </summary>
+    public string? Signature { get; init; }
 }
 
 /// <summary>

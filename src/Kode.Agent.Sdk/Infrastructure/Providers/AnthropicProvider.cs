@@ -114,6 +114,10 @@ public sealed class AnthropicProvider : IModelProvider
         var toolIdMap = new Dictionary<long, string>();
         var toolNameMap = new Dictionary<long, string>();
         var toolInputBuilders = new Dictionary<long, System.Text.StringBuilder>();
+        // Track thinking blocks: index → accumulated signature (text arrives via ThinkingDelta,
+        // signature arrives via SignatureDelta and must be returned verbatim in future turns).
+        var thinkingBlockIndexes = new HashSet<long>();
+        var thinkingSignatures = new Dictionary<long, string>();
         long messageStartInputTokens = 0;
 
         await foreach (var evt in _client.Messages.CreateStreaming(parameters, cancellationToken))
@@ -136,6 +140,12 @@ public sealed class AnthropicProvider : IModelProvider
             // Handle content block start
             if (evt.TryPickContentBlockStart(out var startEvent))
             {
+                // Track thinking block indexes so we can capture their signatures.
+                if (startEvent.ContentBlock.TryPickThinking(out _))
+                {
+                    thinkingBlockIndexes.Add(startEvent.Index);
+                }
+
                 if (startEvent.ContentBlock.TryPickToolUse(out var toolUse))
                 {
                     toolIdMap[startEvent.Index] = toolUse.ID;
@@ -236,6 +246,23 @@ public sealed class AnthropicProvider : IModelProvider
                     {
                         Type = StreamChunkType.ThinkingDelta,
                         ThinkingDelta = thinkingDelta.Thinking
+                    };
+                }
+                else if (deltaEvent.Delta.TryPickSignature(out var signatureDelta)
+                         && thinkingBlockIndexes.Contains(deltaEvent.Index))
+                {
+                    // Accumulate signature for this thinking block (usually a single delta).
+                    if (!thinkingSignatures.TryGetValue(deltaEvent.Index, out var existing))
+                        thinkingSignatures[deltaEvent.Index] = signatureDelta.Signature;
+                    else
+                        thinkingSignatures[deltaEvent.Index] = existing + signatureDelta.Signature;
+
+                    // Emit a ThinkingDelta chunk carrying only the signature so the agent
+                    // layer can store it for future turns without duplicating thinking text.
+                    yield return new StreamChunk
+                    {
+                        Type = StreamChunkType.ThinkingDelta,
+                        ThinkingSignature = signatureDelta.Signature
                     };
                 }
 
@@ -389,8 +416,16 @@ public sealed class AnthropicProvider : IModelProvider
             }
         }
 
-        var messages = request.Messages
+        // Coalesce consecutive messages of the same role before sending to the Anthropic API.
+        // This is a defensive measure that handles edge cases where the agent's internal state
+        // has consecutive user messages (e.g., after AutoSealDanglingToolUsesAsync places a
+        // synthetic tool_result user message before an existing partial-result user message).
+        // Anthropic requires every tool_use to have a corresponding tool_result in the
+        // IMMEDIATELY NEXT message, so consecutive user messages must be merged into one.
+        var nonSystemMessages = request.Messages
             .Where(m => m.Role != MessageRole.System)
+            .ToList();
+        var messages = CoalesceConsecutiveSameRoleMessages(nonSystemMessages)
             .Select(ConvertMessage)
             .ToList();
 
@@ -441,6 +476,69 @@ public sealed class AnthropicProvider : IModelProvider
         };
     }
 
+    /// <summary>
+    /// Merges consecutive messages of the same role into a single message.
+    /// Required because Anthropic's API demands strictly alternating user/assistant roles,
+    /// and every tool_use must have its tool_result in the IMMEDIATELY NEXT message.
+    /// </summary>
+    private static List<Message> CoalesceConsecutiveSameRoleMessages(List<Message> messages)
+    {
+        if (messages.Count <= 1) return messages;
+
+        var result = new List<Message>(messages.Count);
+        var current = messages[0];
+
+        for (var i = 1; i < messages.Count; i++)
+        {
+            var next = messages[i];
+            if (next.Role == current.Role)
+            {
+                var merged = new List<ContentBlock>(current.Content);
+                merged.AddRange(next.Content);
+                current = current with { Content = NormalizeAnthropicMessageContent(current.Role, merged) };
+            }
+            else
+            {
+                result.Add(current with { Content = NormalizeAnthropicMessageContent(current.Role, current.Content) });
+                current = next;
+            }
+        }
+        result.Add(current with { Content = NormalizeAnthropicMessageContent(current.Role, current.Content) });
+        return result;
+    }
+
+    private static List<ContentBlock> NormalizeAnthropicMessageContent(MessageRole role, IReadOnlyList<ContentBlock> content)
+    {
+        if (content.Count <= 1)
+            return content.ToList();
+
+        var normalized = new List<ContentBlock>(content.Count);
+        HashSet<string>? seenToolResultIds = null;
+        HashSet<string>? seenToolUseIds = null;
+
+        foreach (var block in content)
+        {
+            switch (block)
+            {
+                case ToolResultContent toolResult when role == MessageRole.User:
+                    seenToolResultIds ??= new HashSet<string>(StringComparer.Ordinal);
+                    if (!seenToolResultIds.Add(toolResult.ToolUseId))
+                        continue;
+                    break;
+
+                case ToolUseContent toolUse when role == MessageRole.Assistant:
+                    seenToolUseIds ??= new HashSet<string>(StringComparer.Ordinal);
+                    if (!seenToolUseIds.Add(toolUse.Id))
+                        continue;
+                    break;
+            }
+
+            normalized.Add(block);
+        }
+
+        return normalized;
+    }
+
     private static MessageParam ConvertMessage(Message msg)
     {
         var role = msg.Role == MessageRole.User ? Role.User : Role.Assistant;
@@ -489,8 +587,14 @@ public sealed class AnthropicProvider : IModelProvider
                 Content = JsonSerializer.Serialize(toolResult.Content) ?? "", // Fixed by Nietzsche: use JSON serialization instead of ToString() for anonymous types
                 IsError = toolResult.IsError
             }),
-            ThinkingContent thinking => new ContentBlockParam(new TextBlockParam
-                { Text = $"<thinking>{thinking.Thinking}</thinking>" }),
+            // Thinking blocks MUST be passed back verbatim (with signature) for Anthropic and
+            // Anthropic-compatible providers (e.g. DeepSeek). Sending them as plain text causes
+            // a 400 "thinking content must be passed back" error on subsequent turns.
+            ThinkingContent thinking => new ContentBlockParam(new ThinkingBlockParam
+            {
+                Thinking = thinking.Thinking,
+                Signature = thinking.Signature ?? string.Empty
+            }),
             _ => new ContentBlockParam(new TextBlockParam { Text = "" })
         };
     }
@@ -593,7 +697,17 @@ public sealed class AnthropicProvider : IModelProvider
 
         foreach (var block in response.Content)
         {
-            if (block.TryPickText(out var textBlock))
+            // Thinking blocks must be captured first (they appear before text in Anthropic responses
+            // with extended thinking enabled) and stored with their signature for future turns.
+            if (block.TryPickThinking(out var thinkingBlock))
+            {
+                content.Add(new ThinkingContent
+                {
+                    Thinking = thinkingBlock.Thinking,
+                    Signature = thinkingBlock.Signature
+                });
+            }
+            else if (block.TryPickText(out var textBlock))
             {
                 content.Add(new TextContent { Text = textBlock.Text });
             }

@@ -96,6 +96,10 @@ public sealed partial class Agent
         }
 
         await AutoSealDanglingToolUsesAsync("Sealed missing tool_result before model call.", cancellationToken);
+        if (await SanitizeDuplicateToolResultsAsync(cancellationToken) > 0)
+        {
+            await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
+        }
         if (await SanitizeOrphanToolResultsAsync(cancellationToken) > 0)
         {
             await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
@@ -155,6 +159,10 @@ public sealed partial class Agent
             await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
         }
         await AutoSealDanglingToolUsesAsync("Sealed missing tool_result after context compression.", cancellationToken);
+        if (await SanitizeDuplicateToolResultsAsync(cancellationToken) > 0)
+        {
+            await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
+        }
 
         // Step 1: Call the model
         _breakpointManager.TransitionTo(BreakpointState.PreModel);
@@ -198,6 +206,8 @@ public sealed partial class Agent
                 if (await SanitizeOrphanToolResultsAsync(cancellationToken) > 0)
                     await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
                 await AutoSealDanglingToolUsesAsync("Sealed after force-compress retry.", cancellationToken);
+                if (await SanitizeDuplicateToolResultsAsync(cancellationToken) > 0)
+                    await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
 
                 // Rebuild request with compressed _messages; _nextModelToolsOverride already null from
                 // first BuildModelRequest() call above, so this safely uses the normal tool list.

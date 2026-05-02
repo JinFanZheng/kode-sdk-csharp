@@ -82,18 +82,12 @@ public sealed partial class Agent
 
     private async Task<IReadOnlyList<ToolCallSnapshot>> AutoSealDanglingToolUsesAsync(string reason, CancellationToken cancellationToken)
     {
-        var toolResultIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var msg in _messages.Where(m => m.Role == MessageRole.User))
-        {
-            foreach (var res in msg.Content.OfType<ToolResultContent>())
-            {
-                toolResultIds.Add(res.ToolUseId);
-            }
-        }
-
         var sealedSnapshots = new List<ToolCallSnapshot>();
+        // Tracks modifications: (messageIndex, blocksToAdd) where blocksToAdd are prepended to an existing user message.
+        var modifications = new List<(int Index, List<ContentBlock> Blocks)>();
+        // Tracks insertions: (insertAtIndex, blocks) where a new user message is created.
         var insertions = new List<(int Index, List<ContentBlock> Blocks)>();
-        var alreadyInserted = new HashSet<string>(StringComparer.Ordinal);
+        var alreadyHandled = new HashSet<string>(StringComparer.Ordinal);
 
         for (var i = 0; i < _messages.Count; i++)
         {
@@ -103,11 +97,23 @@ public sealed partial class Agent
             var localToolUses = msg.Content.OfType<ToolUseContent>().ToList();
             if (localToolUses.Count == 0) continue;
 
-            var blocks = new List<ContentBlock>();
+            // Check which tool_results are present in the IMMEDIATELY NEXT message.
+            // Anthropic requires every tool_use to have a matching tool_result in the
+            // immediately following message — not just somewhere later in the history.
+            var nextIndex = i + 1;
+            var nextIsUserMsg = nextIndex < _messages.Count && _messages[nextIndex].Role == MessageRole.User;
+            var toolResultsInNext = new HashSet<string>(StringComparer.Ordinal);
+            if (nextIsUserMsg)
+            {
+                foreach (var res in _messages[nextIndex].Content.OfType<ToolResultContent>())
+                    toolResultsInNext.Add(res.ToolUseId);
+            }
+
+            var missingBlocks = new List<ContentBlock>();
             foreach (var use in localToolUses)
             {
-                if (alreadyInserted.Contains(use.Id)) continue;
-                if (toolResultIds.Contains(use.Id)) continue;
+                if (alreadyHandled.Contains(use.Id)) continue;
+                if (toolResultsInNext.Contains(use.Id)) continue; // already in the immediate next message
 
                 _toolRunner.RegisterToolCall(use.Id, use.Name, use.Input);
                 var existing = _toolRunner.GetToolCall(use.Id);
@@ -116,28 +122,48 @@ public sealed partial class Agent
                 var snapshot = _toolRunner.GetSnapshot(use.Id);
                 if (snapshot != null) sealedSnapshots.Add(snapshot);
 
-                blocks.Add(new ToolResultContent
+                missingBlocks.Add(new ToolResultContent
                 {
                     ToolUseId = use.Id,
                     Content = sealedPayload.Payload,
                     IsError = true
                 });
-                alreadyInserted.Add(use.Id);
-                toolResultIds.Add(use.Id);
+                alreadyHandled.Add(use.Id);
             }
 
-            if (blocks.Count > 0)
+            if (missingBlocks.Count == 0) continue;
+
+            if (nextIsUserMsg)
             {
-                insertions.Add((i + 1, blocks));
+                // The immediately next message is already a user message — prepend the missing
+                // tool_results to it so ALL tool_uses are covered in that single message.
+                // This avoids creating consecutive user messages, which violates the Anthropic
+                // API constraint that tool_results must be in the message IMMEDIATELY after the
+                // assistant message that issued the tool_use.
+                modifications.Add((nextIndex, missingBlocks));
+            }
+            else
+            {
+                // No user message immediately after — insert a new one.
+                insertions.Add((nextIndex, missingBlocks));
             }
         }
 
-        if (insertions.Count == 0) return sealedSnapshots;
+        if (modifications.Count == 0 && insertions.Count == 0) return sealedSnapshots;
 
-        for (var k = insertions.Count - 1; k >= 0; k--)
+        // Apply modifications in reverse index order so indices stay valid.
+        foreach (var (idx, blocksToAdd) in modifications.OrderByDescending(m => m.Index))
         {
-            var ins = insertions[k];
-            _messages.Insert(ins.Index, new Message { Role = MessageRole.User, Content = ins.Blocks });
+            var existing = _messages[idx];
+            var newContent = new List<ContentBlock>(blocksToAdd); // missing results first
+            newContent.AddRange(existing.Content);               // then original content
+            _messages[idx] = existing with { Content = newContent };
+        }
+
+        // Apply insertions in reverse index order.
+        foreach (var (insertAt, blocks) in insertions.OrderByDescending(ins => ins.Index))
+        {
+            _messages.Insert(insertAt, new Message { Role = MessageRole.User, Content = blocks });
         }
 
         await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
@@ -212,6 +238,76 @@ public sealed partial class Agent
         }
 
         return converted;
+    }
+
+    // Anthropic requires exactly one tool_result per tool_use. Older repair paths or
+    // persisted buggy sessions may leave duplicate tool_result blocks behind; keep the
+    // earliest occurrence and drop later duplicates so the next model call remains valid.
+    private async Task<int> SanitizeDuplicateToolResultsAsync(
+        CancellationToken cancellationToken,
+        string note = "Sanitized duplicate tool_result blocks (same tool_use_id repeated).")
+    {
+        var seenToolResultIds = new HashSet<string>(StringComparer.Ordinal);
+        var removed = 0;
+        var changedAny = false;
+
+        for (var i = 0; i < _messages.Count; i++)
+        {
+            var msg = _messages[i];
+            if (msg.Role != MessageRole.User) continue;
+
+            var changed = false;
+            var next = new List<ContentBlock>(msg.Content.Count);
+            foreach (var block in msg.Content)
+            {
+                if (block is ToolResultContent tr)
+                {
+                    if (!seenToolResultIds.Add(tr.ToolUseId))
+                    {
+                        changed = true;
+                        removed++;
+                        continue;
+                    }
+                }
+
+                next.Add(block);
+            }
+
+            if (!changed) continue;
+
+            changedAny = true;
+            if (next.Count == 0)
+            {
+                _messages.RemoveAt(i);
+                i--;
+            }
+            else
+            {
+                _messages[i] = msg with { Content = next };
+            }
+        }
+
+        if (changedAny)
+        {
+            try
+            {
+                await _dependencies.Store.SaveMessagesAsync(AgentId, _messages, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to persist messages after duplicate tool_result repair");
+            }
+
+            _eventBus.EmitMonitor(new ContextRepairEvent
+            {
+                Type = "context_repair",
+                Reason = "duplicate_tool_result",
+                Converted = removed,
+                Note = note
+            });
+        }
+
+        return removed;
     }
 
     // Collapses runs of identical user-role reminder messages into a single copy.

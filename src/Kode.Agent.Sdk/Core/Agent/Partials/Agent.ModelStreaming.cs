@@ -79,6 +79,7 @@ public sealed partial class Agent
         var contentBlocks = new List<ContentBlock>();
         var textBuilder = new System.Text.StringBuilder();
         var thinkingBuilder = new System.Text.StringBuilder();
+        var thinkingSignatureBuilder = new System.Text.StringBuilder();
         var toolUseBuilders = new Dictionary<string, (string Name, System.Text.StringBuilder Input)>();
         TokenUsage? usage = null;
         ModelStopReason stopReason = ModelStopReason.EndTurn;
@@ -147,8 +148,17 @@ public sealed partial class Agent
                             break;
 
                         case StreamChunkType.ThinkingDelta:
+                            // ThinkingDelta chunks carry either thinking text OR a signature (not both).
+                            // Text is always accumulated regardless of ExposeThinking so it can be
+                            // passed back in future turns (required by Anthropic / DeepSeek Anthropic-compat).
+                            if (chunk.ThinkingSignature != null)
+                            {
+                                thinkingSignatureBuilder.Append(chunk.ThinkingSignature);
+                            }
                             if (chunk.ThinkingDelta != null)
                             {
+                                thinkingBuilder.Append(chunk.ThinkingDelta);
+                                // Only surface thinking to the front-end when ExposeThinking is enabled.
                                 if ((_currentRunOptions?.ExposeThinking ?? _config.ExposeThinking) == true)
                                 {
                                     if (!thinkingStarted)
@@ -160,7 +170,6 @@ public sealed partial class Agent
                                             Step = step
                                         });
                                     }
-                                    thinkingBuilder.Append(chunk.ThinkingDelta);
                                     _eventBus.EmitProgress(new ThinkChunkEvent
                                     {
                                         Type = "think_chunk",
@@ -274,10 +283,18 @@ public sealed partial class Agent
             });
         }
 
-        // Add thinking content if any (only if exposeThinking enabled; per-run override wins)
-        if ((_currentRunOptions?.ExposeThinking ?? _config.ExposeThinking) == true && thinkingBuilder.Length > 0)
+        // Add thinking content if any.
+        // Always written to history regardless of ExposeThinking — Anthropic and Anthropic-compatible
+        // providers (e.g. DeepSeek) require thinking blocks with their signature to be passed back
+        // verbatim in any turn that contained tool calls; omitting them causes a 400 error.
+        if (thinkingBuilder.Length > 0)
         {
-            contentBlocks.Insert(0, new ThinkingContent { Thinking = thinkingBuilder.ToString() });
+            var signature = thinkingSignatureBuilder.Length > 0 ? thinkingSignatureBuilder.ToString() : null;
+            contentBlocks.Insert(0, new ThinkingContent
+            {
+                Thinking = thinkingBuilder.ToString(),
+                Signature = signature
+            });
         }
 
         if (thinkingStarted)

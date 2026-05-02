@@ -134,6 +134,14 @@ public record StreamChunk
     public string? ThinkingDelta { get; init; }
 
     /// <summary>
+    /// Thinking signature delta — emitted once per thinking block when the provider
+    /// sends a <c>signature_delta</c> event (Anthropic / DeepSeek Anthropic-compatible).
+    /// The agent layer captures and stores this alongside the accumulated thinking text
+    /// so it can be passed back verbatim in future turns.
+    /// </summary>
+    public string? ThinkingSignature { get; init; }
+
+    /// <summary>
     /// Tool use information (for tool_use chunks).
     /// </summary>
     public ToolUseChunk? ToolUse { get; init; }

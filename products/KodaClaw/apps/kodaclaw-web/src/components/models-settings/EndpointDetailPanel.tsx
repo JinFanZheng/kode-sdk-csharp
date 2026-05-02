@@ -76,6 +76,7 @@ export function EndpointDetailPanel({
     setTestingConnection(true);
     setTestResult(null);
     testModelConnection({
+      endpointId: account.models[0]?.id,
       modelId: account.models[0]?.modelId ?? "",
       apiKey: endpointDraft.apiKeyValue.trim(),
       baseUrl: endpointDraft.baseUrl || undefined,

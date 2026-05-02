@@ -2,11 +2,13 @@ using System.ClientModel.Primitives;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.ClientModel;
 using FluentAssertions;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Sdk.Infrastructure.Providers;
 using OpenAI;
+using OpenAI.Chat;
 using Xunit;
 
 namespace Kode.Agent.Tests.Unit;
@@ -41,6 +43,36 @@ public sealed class OpenAIProviderContentPartTests
         }
         """;
 
+    private const string FakeThinkingStreamSse = """
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"first reason"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"final answer"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}
+
+        data: [DONE]
+
+        """;
+
+    private const string FakeThinkingStreamSseMultiFragment = """
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"好的"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"，"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"用户"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"想"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"reasoning_content":"测试"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-thinking","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}
+
+        data: [DONE]
+
+        """;
+
     private static (OpenAIProvider provider, List<string> capturedBodies) CreateProviderWithCapture()
     {
         var bodies = new List<string>();
@@ -58,6 +90,35 @@ public sealed class OpenAIProviderContentPartTests
         // Internal constructor — does not inject a second MediaRewriteHttpHandler
         var provider = new OpenAIProvider(new OpenAIOptions { ApiKey = "test-key" }, clientOptions);
         return (provider, bodies);
+    }
+
+    private static OpenAIProvider CreateProviderWithStreamingResponse(string sseResponse)
+    {
+        var captureHandler = new CapturingHttpMessageHandler([], sseResponse, "text/event-stream");
+        var rewriteHandler = new MediaRewriteHttpHandler(captureHandler);
+
+        var clientOptions = new OpenAIClientOptions
+        {
+            Transport = new HttpClientPipelineTransport(new HttpClient(rewriteHandler)),
+            Endpoint = new Uri("https://mock.local/api/paas/v4/")
+        };
+
+        return new OpenAIProvider(new OpenAIOptions { ApiKey = "test-key" }, clientOptions);
+    }
+
+    private static ChatClient CreateChatClientWithStreamingResponse(string sseResponse)
+    {
+        var captureHandler = new CapturingHttpMessageHandler([], sseResponse, "text/event-stream");
+        var rewriteHandler = new MediaRewriteHttpHandler(captureHandler);
+
+        var clientOptions = new OpenAIClientOptions
+        {
+            Transport = new HttpClientPipelineTransport(new HttpClient(rewriteHandler)),
+            Endpoint = new Uri("https://mock.local/api/paas/v4/")
+        };
+
+        var client = new OpenAIClient(new ApiKeyCredential("test-key"), clientOptions);
+        return client.GetChatClient("deepseek-chat");
     }
 
     // =========================================================================
@@ -98,6 +159,44 @@ public sealed class OpenAIProviderContentPartTests
         var part = GetFirstUserContentPart(doc);
         part.GetProperty("type").GetString().Should().Be("file_url");
         part.GetProperty("file_url").GetProperty("url").GetString().Should().Be(fileUrl);
+    }
+
+    [Fact]
+    public void TransformThinking_WhenEnabled_InjectsThinkingAndRemovesWrongReasoningContentField()
+    {
+        const string json = """{"messages":[{"role":"user","content":"hello"}],"reasoning_content":"high"}""";
+        MediaRewriteHttpHandler.ThinkingEnabled.Value = true;
+        try
+        {
+            var output = MediaRewriteHttpHandler.TransformThinking(json);
+            using var doc = JsonDocument.Parse(output);
+            doc.RootElement.GetProperty("thinking").GetProperty("type").GetString().Should().Be("enabled");
+            doc.RootElement.GetProperty("reasoning_effort").GetString().Should().Be("high");
+            doc.RootElement.TryGetProperty("reasoning_content", out _).Should().BeFalse();
+        }
+        finally
+        {
+            MediaRewriteHttpHandler.ThinkingEnabled.Value = false;
+        }
+    }
+
+    [Fact]
+    public void TransformReasoningSseLine_RewritesReasoningContentIntoMarkerizedContent()
+    {
+        const string sseLine = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"deep thought\",\"content\":\" visible\"}}]}";
+        MediaRewriteHttpHandler.ThinkingEnabled.Value = true;
+        try
+        {
+            var output = MediaRewriteHttpHandler.TransformReasoningSseLine(sseLine);
+            output.Should().Contain(OpenAIProvider.ThinkingMarkerStart);
+            output.Should().Contain(OpenAIProvider.ThinkingMarkerEnd);
+            output.Should().Contain("deep thought");
+            output.Should().Contain(" visible");
+        }
+        finally
+        {
+            MediaRewriteHttpHandler.ThinkingEnabled.Value = false;
+        }
     }
 
     // =========================================================================
@@ -265,6 +364,226 @@ public sealed class OpenAIProviderContentPartTests
         bodyText.Should().Contain("You are helpful.");
     }
 
+        [Fact]
+        public async Task CompleteAsync_WithReasoningContentResponse_ProducesThinkingContent()
+        {
+                const string reasoningResponseJson = """
+                        {
+                            "id": "chatcmpl-thinking",
+                            "object": "chat.completion",
+                            "created": 1700000000,
+                            "model": "deepseek-chat",
+                            "choices": [{
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "reasoning_content": "first reason",
+                                    "content": "final answer"
+                                },
+                                "finish_reason": "stop"
+                            }],
+                            "usage": { "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12 }
+                        }
+                        """;
+
+                var bodies = new List<string>();
+                var captureHandler = new CapturingHttpMessageHandler(bodies, reasoningResponseJson);
+                var rewriteHandler = new MediaRewriteHttpHandler(captureHandler);
+                var clientOptions = new OpenAIClientOptions
+                {
+                        Transport = new HttpClientPipelineTransport(new HttpClient(rewriteHandler)),
+                        Endpoint = new Uri("https://mock.local/api/paas/v4/")
+                };
+                var provider = new OpenAIProvider(new OpenAIOptions { ApiKey = "test-key" }, clientOptions);
+
+                var response = await provider.CompleteAsync(new ModelRequest
+                {
+                        Model = "deepseek-chat",
+                        EnableThinking = true,
+                        Messages = [Message.User("plain text")],
+                        MaxTokens = 10
+                });
+
+                response.Content.OfType<ThinkingContent>().Should().ContainSingle();
+                response.Content.OfType<ThinkingContent>().Single().Thinking.Should().Be("first reason");
+                response.Content.OfType<TextContent>().Should().ContainSingle();
+                response.Content.OfType<TextContent>().Single().Text.Should().Be("final answer");
+        }
+
+            [Fact]
+            public async Task StreamAsync_WithReasoningContentSse_EmitsThinkingDelta()
+            {
+                var provider = CreateProviderWithStreamingResponse(FakeThinkingStreamSse);
+
+                var chunks = new List<StreamChunk>();
+                await foreach (var chunk in provider.StreamAsync(new ModelRequest
+                {
+                    Model = "deepseek-chat",
+                    EnableThinking = true,
+                    Messages = [Message.User("plain text")],
+                    MaxTokens = 10
+                }))
+                {
+                    chunks.Add(chunk);
+                }
+
+                chunks.Should().Contain(c => c.Type == StreamChunkType.ThinkingDelta && c.ThinkingDelta == "first reason");
+                chunks.Should().Contain(c => c.Type == StreamChunkType.TextDelta && c.TextDelta == "final answer");
+            }
+
+            [Fact]
+            public async Task StreamAsync_WithMultiFragmentReasoningContentSse_EmitsAllThinkingDeltas()
+            {
+                var provider = CreateProviderWithStreamingResponse(FakeThinkingStreamSseMultiFragment);
+
+                var chunks = new List<StreamChunk>();
+                await foreach (var chunk in provider.StreamAsync(new ModelRequest
+                {
+                    Model = "deepseek-chat",
+                    EnableThinking = true,
+                    Messages = [Message.User("plain text")],
+                    MaxTokens = 10
+                }))
+                {
+                    chunks.Add(chunk);
+                }
+
+                chunks.Where(c => c.Type == StreamChunkType.ThinkingDelta)
+                    .Select(c => c.ThinkingDelta)
+                    .Should().ContainInOrder("好的", "，", "用户", "想", "测试");
+                chunks.Should().Contain(c => c.Type == StreamChunkType.TextDelta && c.TextDelta == "hi");
+            }
+
+            [Fact]
+            public async Task OpenAiSdkStreaming_WithMultiFragmentReasoningContentSse_ExposesAllContentUpdates()
+            {
+                var chatClient = CreateChatClientWithStreamingResponse(FakeThinkingStreamSseMultiFragment);
+                MediaRewriteHttpHandler.ThinkingEnabled.Value = true;
+                try
+                {
+                    var updates = new List<string>();
+                    await foreach (var update in chatClient.CompleteChatStreamingAsync(
+                                       [new UserChatMessage("plain text")],
+                                       new ChatCompletionOptions()))
+                    {
+                        updates.AddRange(update.ContentUpdate.Where(part => !string.IsNullOrEmpty(part.Text)).Select(part => part.Text));
+                    }
+
+                    updates.Should().ContainInOrder(
+                        OpenAIProvider.ThinkingMarkerStart + "好的" + OpenAIProvider.ThinkingMarkerEnd,
+                        OpenAIProvider.ThinkingMarkerStart + "，" + OpenAIProvider.ThinkingMarkerEnd,
+                        OpenAIProvider.ThinkingMarkerStart + "用户" + OpenAIProvider.ThinkingMarkerEnd,
+                        OpenAIProvider.ThinkingMarkerStart + "想" + OpenAIProvider.ThinkingMarkerEnd,
+                        OpenAIProvider.ThinkingMarkerStart + "测试" + OpenAIProvider.ThinkingMarkerEnd,
+                        "hi");
+                }
+                finally
+                {
+                    MediaRewriteHttpHandler.ThinkingEnabled.Value = false;
+                }
+            }
+
+            [Fact]
+            public async Task CompleteAsync_WithDeepSeekAssistantThinkingToolHistory_SendsThinkingContentBlocksBackToApi()
+            {
+                var (provider, bodies) = CreateProviderWithCapture();
+
+                await provider.CompleteAsync(new ModelRequest
+                {
+                    Model = "deepseek-chat",
+                    EnableThinking = true,
+                    Messages =
+                    [
+                        Message.User("plain text"),
+                        Message.Assistant(
+                            new ThinkingContent { Thinking = "first reason" },
+                            new ToolUseContent
+                            {
+                                Id = "call_1",
+                                Name = "lookup_weather",
+                                Input = new { city = "Shanghai" }
+                            }),
+                        new Message
+                        {
+                            Role = MessageRole.User,
+                            Content =
+                            [
+                                new ToolResultContent
+                                {
+                                    ToolUseId = "call_1",
+                                    Content = new { ok = true }
+                                }
+                            ]
+                        }
+                    ],
+                    MaxTokens = 10
+                });
+
+                bodies.Should().ContainSingle();
+                using var doc = JsonDocument.Parse(bodies[0]);
+                var assistantMessage = doc.RootElement.GetProperty("messages")
+                    .EnumerateArray()
+                    .First(m => m.GetProperty("role").GetString() == "assistant");
+
+                assistantMessage.GetProperty("content").ValueKind.Should().Be(JsonValueKind.Array);
+                var contentParts = assistantMessage.GetProperty("content").EnumerateArray().ToList();
+                contentParts.Should().ContainSingle();
+                contentParts[0].GetProperty("type").GetString().Should().Be("thinking");
+                contentParts[0].GetProperty("thinking").GetString().Should().Be("first reason");
+                assistantMessage.TryGetProperty("reasoning_content", out _).Should().BeFalse();
+                bodies[0].Should().NotContain(OpenAIProvider.ThinkingMarkerStart);
+                bodies[0].Should().NotContain(OpenAIProvider.ThinkingMarkerEnd);
+            }
+
+            [Fact]
+            public async Task CompleteAsync_WithNonDeepSeekAssistantThinkingToolHistory_KeepsReasoningContentField()
+            {
+                var (provider, bodies) = CreateProviderWithCapture();
+
+                await provider.CompleteAsync(new ModelRequest
+                {
+                    Model = "gpt-4o-mini",
+                    EnableThinking = true,
+                    Messages =
+                    [
+                        Message.User("plain text"),
+                        Message.Assistant(
+                            new ThinkingContent { Thinking = "first reason" },
+                            new ToolUseContent
+                            {
+                                Id = "call_1",
+                                Name = "lookup_weather",
+                                Input = new { city = "Shanghai" }
+                            }),
+                        new Message
+                        {
+                            Role = MessageRole.User,
+                            Content =
+                            [
+                                new ToolResultContent
+                                {
+                                    ToolUseId = "call_1",
+                                    Content = new { ok = true }
+                                }
+                            ]
+                        }
+                    ],
+                    MaxTokens = 10
+                });
+
+                bodies.Should().ContainSingle();
+                using var doc = JsonDocument.Parse(bodies[0]);
+                var assistantMessage = doc.RootElement.GetProperty("messages")
+                    .EnumerateArray()
+                    .First(m => m.GetProperty("role").GetString() == "assistant");
+
+                assistantMessage.GetProperty("reasoning_content").GetString().Should().Be("first reason");
+                assistantMessage.GetProperty("content").ValueKind.Should().Be(JsonValueKind.String);
+                assistantMessage.GetProperty("content").GetString().Should().Be(string.Empty);
+                bodies[0].Should().NotContain(OpenAIProvider.ThinkingMarkerStart);
+                bodies[0].Should().NotContain(OpenAIProvider.ThinkingMarkerEnd);
+            }
+
     // =========================================================================
     // Helpers
     // =========================================================================
@@ -291,7 +610,7 @@ public sealed class OpenAIProviderContentPartTests
             .EnumerateArray()
             .First();
 
-    private sealed class CapturingHttpMessageHandler(List<string> bodies, string responseJson)
+    private sealed class CapturingHttpMessageHandler(List<string> bodies, string responseJson, string mediaType = "application/json")
         : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -303,7 +622,7 @@ public sealed class OpenAIProviderContentPartTests
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(responseJson, Encoding.UTF8, "application/json")
+                Content = new StringContent(responseJson, Encoding.UTF8, mediaType)
             };
         }
     }
