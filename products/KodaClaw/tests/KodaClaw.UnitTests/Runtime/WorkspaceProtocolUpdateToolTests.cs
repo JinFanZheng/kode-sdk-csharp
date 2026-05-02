@@ -245,6 +245,91 @@ public sealed class WorkspaceProtocolUpdateToolTests : IDisposable
         contents.Should().Contain("- Name: Koda");
     }
 
+    // Heartbeat section count validation
+
+    [Fact]
+    public async Task Execute_heartbeat_rejects_when_section_count_would_decrease()
+    {
+        var wsDir = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory);
+        Directory.CreateDirectory(wsDir);
+        var heartbeatPath = Path.Combine(wsDir, KodaClawWorkspaceLayout.HeartbeatFile);
+        await File.WriteAllTextAsync(heartbeatPath,
+            "# Heartbeat Automations\n\n## Section A\n- cron: \"0 9 * * *\"\n- prompt: task a\n\n## Section B\n- cron: \"0 10 * * *\"\n- prompt: task b\n");
+        var result = await ExecuteAsync(new WorkspaceProtocolUpdateArgs
+        {
+            Target = "heartbeat",
+            Content = "## Only One\n- cron: \"0 9 * * *\"\n- prompt: only\n",
+        });
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Section count would decrease");
+    }
+
+    [Fact]
+    public async Task Execute_non_heartbeat_target_does_not_validate_section_count()
+    {
+        var wsDir = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory);
+        Directory.CreateDirectory(wsDir);
+        var userPath = Path.Combine(wsDir, KodaClawWorkspaceLayout.UserFile);
+        await File.WriteAllTextAsync(userPath,
+            "# User Profile\n\n## Working Style\n- verbose\n\n## Communication\n- formal\n");
+        var result = await ExecuteAsync(new WorkspaceProtocolUpdateArgs
+        {
+            Target = "user",
+            Content = "Just one thing",
+        });
+        result.Success.Should().BeTrue();
+    }
+
+    // Atomic write: no partial file on normal write
+
+    [Fact]
+    public async Task Execute_heartbeat_does_not_leave_temp_files()
+    {
+        var wsDir = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory);
+        Directory.CreateDirectory(wsDir);
+        await File.WriteAllTextAsync(
+            Path.Combine(wsDir, KodaClawWorkspaceLayout.HeartbeatFile),
+            "# Heartbeat Automations\n\n");
+        await ExecuteAsync(new WorkspaceProtocolUpdateArgs
+        {
+            Target = "heartbeat",
+            Section = "Test Section",
+            Content = "- cron: \"0 9 * * *\"\n- prompt: test\n",
+        });
+        var tmpFiles = Directory.GetFiles(wsDir, "*.tmp", SearchOption.AllDirectories);
+        tmpFiles.Should().BeEmpty();
+    }
+
+    // Concurrent writes are serialized
+
+    [Fact]
+    public async Task Concurrent_heartbeat_writes_do_not_lose_sections()
+    {
+        var wsDir = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory);
+        Directory.CreateDirectory(wsDir);
+        var heartbeatPath = Path.Combine(wsDir, KodaClawWorkspaceLayout.HeartbeatFile);
+        await File.WriteAllTextAsync(heartbeatPath, "# Heartbeat Automations\n\n");
+        var task1 = ExecuteAsync(new WorkspaceProtocolUpdateArgs
+        {
+            Target = "heartbeat",
+            Section = "Section A",
+            Content = "- cron: \"0 9 * * *\"\n- prompt: task a\n",
+        });
+        var task2 = ExecuteAsync(new WorkspaceProtocolUpdateArgs
+        {
+            Target = "heartbeat",
+            Section = "Section B",
+            Content = "- cron: \"0 10 * * *\"\n- prompt: task b\n",
+        });
+        var results = await Task.WhenAll(task1, task2);
+        results[0].Success.Should().BeTrue();
+        results[1].Success.Should().BeTrue();
+        var contents = await File.ReadAllTextAsync(heartbeatPath);
+        contents.Should().Contain("## Section A");
+        contents.Should().Contain("## Section B");
+        contents.Should().Contain("task a");
+        contents.Should().Contain("task b");
+    }
     public void Dispose()
     {
         if (Directory.Exists(_rootPath))
