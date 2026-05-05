@@ -92,7 +92,7 @@ public sealed class JobScheduler
         var pendingJobs = await _repo.ListAsync(JobStatus.Pending, ct);
 
         var dueJobs = pendingJobs
-            .Where(j => j.NextRunAt is not null && j.NextRunAt <= now)
+            .Where(j => j.NextRunAt == null || j.NextRunAt <= now)
             .OrderBy(j => j.NextRunAt)
             .ToList();
 
