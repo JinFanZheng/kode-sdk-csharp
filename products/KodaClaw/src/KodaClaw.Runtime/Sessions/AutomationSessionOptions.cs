@@ -42,4 +42,10 @@ public sealed class AutomationSessionOptions
     /// to the artifact store. See <see cref="MainSessionOptions.ToolResultThresholdBytes"/> for details.
     /// </summary>
     public int ToolResultThresholdBytes { get; init; } = 30_000;
+
+    /// <summary>
+    /// Optional job context injected into the system prompt for job-driven sessions.
+    /// Set by JobScheduler before each job session; consumed in BuildSystemPrompt.
+    /// </summary>
+    public string? JobContext { get; set; }
 }

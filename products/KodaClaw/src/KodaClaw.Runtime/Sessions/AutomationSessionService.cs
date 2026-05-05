@@ -520,7 +520,14 @@ User message:
                     $"Id: {definition.Id}",
                     !string.IsNullOrWhiteSpace(definition.Title) ? $"Title: {definition.Title}" : string.Empty,
                 ])
-            .AddSection("Prompt", definition.Prompt.Trim())
+            .AddSection("Prompt", definition.Prompt.Trim());
+
+        if (!string.IsNullOrWhiteSpace(_options.JobContext))
+        {
+            builder.AddSection("<job_context>", _options.JobContext);
+        }
+
+        builder
             .AddSection(
                 "Memory Boundary",
                 [
