@@ -3,6 +3,7 @@ using KodaClaw.Automation;
 using KodaClaw.Automation.Scheduler;
 using KodaClaw.Contracts;
 using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Jobs;
 using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.Contracts.Inbox;
 using KodaClaw.Contracts.Sessions;
@@ -279,6 +280,10 @@ public sealed class AutomationSchedulerDiagnosticsTests
                 Agent: agent.Object);
             return Task.FromResult(handle);
         }
+
+        public Task<AutomationSessionHandle> StartJobSessionAsync(
+            JobDefinition job, CancellationToken cancellationToken = default)
+            => Task.FromResult<AutomationSessionHandle>(default!);
     }
 
     private sealed class InMemoryDefinitionRepo : IAutomationDefinitionRepository

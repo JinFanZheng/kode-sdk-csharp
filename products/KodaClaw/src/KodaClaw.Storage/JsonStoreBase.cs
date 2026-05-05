@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Encodings.Web;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -26,12 +27,14 @@ public abstract class JsonStoreBase
             WriteIndented = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
         JsonOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
 
         _compactOptions = new JsonSerializerOptions(JsonOptions)
         {
             WriteIndented = false,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
     }
 
