@@ -295,6 +295,7 @@ public static partial class GatewayApp
         MapProviderAccountEndpoints(app);
         MapSettingsEndpoints(app);
         MapAutomationEndpoints(app);
+        MapJobEndpoints(app);
         MapPluginEndpoints(app);
         MapCanvasEndpoints(app);
         MapSkillsEndpoints(app);

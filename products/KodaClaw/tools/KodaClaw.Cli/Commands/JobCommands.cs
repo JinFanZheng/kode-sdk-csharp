@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using System.Text.Json.Serialization;
 
 namespace KodaClaw.Cli.Commands;
@@ -11,6 +12,7 @@ public static class JobCommands
         jobCmd.AddCommand(BuildListCommand());
         jobCmd.AddCommand(BuildStatusCommand());
         jobCmd.AddCommand(BuildResultCommand());
+        jobCmd.AddCommand(BuildCreateCommand());
         jobCmd.AddCommand(BuildCancelCommand());
         jobCmd.AddCommand(BuildUpdateCommand());
         jobCmd.AddCommand(BuildDeleteCommand());
@@ -213,6 +215,65 @@ public static class JobCommands
         return cmd;
     }
 
+    private static Command BuildCreateCommand()
+    {
+        var nameOpt = new Option<string>("--name", "Job name") { IsRequired = true };
+        var typeOpt = new Option<string>("--type", "Job type: one-shot | recurring | self-driven") { IsRequired = true };
+        var promptOpt = new Option<string>("--prompt", "Job prompt") { IsRequired = true };
+        var cronOpt = new Option<string?>("--cron", "Cron expression (required for recurring)");
+        var nextRunAtOpt = new Option<string?>("--next-run-at", "Next run time ISO 8601 (required for one-shot/self-driven)");
+        var fallbackIntervalOpt = new Option<int?>("--fallback-interval", "Fallback interval in minutes (self-driven only)");
+        var channelsOpt = new Option<string?>("--channels", "Comma-separated channel BindingIds");
+        var deliveryModeOpt = new Option<string?>("--delivery-mode", "auto | approval | none");
+        var timeoutOpt = new Option<int?>("--timeout", "Timeout in minutes (1-1440)");
+        var maxRetriesOpt = new Option<int?>("--max-retries", "Max retries (0-5)");
+        var jsonOpt = new Option<bool>("--json", "Output as JSON");
+        var cmd = new Command("create", "Create a new job") { nameOpt, typeOpt, promptOpt, cronOpt, nextRunAtOpt, fallbackIntervalOpt, channelsOpt, deliveryModeOpt, timeoutOpt, maxRetriesOpt, jsonOpt };
+
+        cmd.SetHandler(async (InvocationContext ctx) =>
+        {
+            var name = ctx.ParseResult.GetValueForOption(nameOpt)!;
+            var type = ctx.ParseResult.GetValueForOption(typeOpt)!;
+            var prompt = ctx.ParseResult.GetValueForOption(promptOpt)!;
+            var cron = ctx.ParseResult.GetValueForOption(cronOpt);
+            var nextRunAt = ctx.ParseResult.GetValueForOption(nextRunAtOpt);
+            var fallbackInterval = ctx.ParseResult.GetValueForOption(fallbackIntervalOpt);
+            var channels = ctx.ParseResult.GetValueForOption(channelsOpt);
+            var deliveryMode = ctx.ParseResult.GetValueForOption(deliveryModeOpt);
+            var timeout = ctx.ParseResult.GetValueForOption(timeoutOpt);
+            var maxRetries = ctx.ParseResult.GetValueForOption(maxRetriesOpt);
+            var json = ctx.ParseResult.GetValueForOption(jsonOpt);
+
+            using var client = new HttpGatewayClient(HttpGatewayClient.ResolveGatewayUrl(), HttpGatewayClient.ResolveToken());
+            try
+            {
+                var body = new Dictionary<string, object?>
+                {
+                    ["name"] = name,
+                    ["type"] = type,
+                    ["prompt"] = prompt,
+                };
+                if (cron != null) body["cron"] = cron;
+                if (nextRunAt != null) body["nextRunAt"] = nextRunAt;
+                if (fallbackInterval.HasValue) body["fallbackIntervalMinutes"] = fallbackInterval.Value;
+                if (channels != null) body["channels"] = channels.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (deliveryMode != null) body["deliveryMode"] = deliveryMode;
+                if (timeout.HasValue) body["timeoutMinutes"] = timeout.Value;
+                if (maxRetries.HasValue) body["maxRetries"] = maxRetries.Value;
+
+                var result = await client.PostAsync<JobCreateResponse>("api/jobs/create", body);
+                if (json)
+                    OutputFormatter.WriteJson(new { jobId = result!.Id, name = result.Name, type = result.Type, status = result.Status });
+                else
+                    OutputFormatter.WriteSuccess($"Job '{result!.Id}' created (name: {result.Name}, type: {result.Type})");
+            }
+            catch (HttpRequestException ex)
+            { OutputFormatter.WriteError($"Gateway error: {ex.Message}"); Environment.Exit(1); }
+        });
+
+        return cmd;
+    }
+
     private static Command BuildDeleteCommand()
     {
         var idArg = new Argument<string>("id", "Job ID");
@@ -294,6 +355,14 @@ public static class JobCommands
     private record JobUpdateResponse
     {
         [JsonPropertyName("updatedFields")] public IReadOnlyList<string> UpdatedFields { get; init; } = [];
+    }
+
+    private record JobCreateResponse
+    {
+        [JsonPropertyName("id")] public string Id { get; init; } = "";
+        [JsonPropertyName("name")] public string Name { get; init; } = "";
+        [JsonPropertyName("type")] public string Type { get; init; } = "";
+        [JsonPropertyName("status")] public string Status { get; init; } = "";
     }
 
     private record JobDeleteResponse
