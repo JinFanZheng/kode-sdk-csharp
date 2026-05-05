@@ -233,6 +233,8 @@ public sealed class JobScheduler
             return;
         }
 
+        var runCount = latest.RunCount + 1;
+
         // 成功
         if (latest.Type == JobType.OneShot)
         {
@@ -241,6 +243,7 @@ public sealed class JobScheduler
                 Status = JobStatus.Completed,
                 NextRunAt = null,
                 Runs = runs,
+                RunCount = runCount,
                 UpdatedAt = now,
             };
         }
@@ -251,6 +254,7 @@ public sealed class JobScheduler
                 Status = JobStatus.Pending,
                 NextRunAt = nextRunSet,
                 Runs = runs,
+                RunCount = runCount,
                 UpdatedAt = now,
             };
         }
@@ -261,6 +265,7 @@ public sealed class JobScheduler
                 Status = JobStatus.Pending,
                 NextRunAt = nextRunSet,
                 Runs = runs,
+                RunCount = runCount,
                 UpdatedAt = now,
             };
         }
