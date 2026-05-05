@@ -1,5 +1,6 @@
 using KodaClaw.Contracts.Automations;
 using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Jobs;
 using KodaClaw.Contracts.Sessions;
 using Kode.Agent.Sdk.Core.Abstractions;
 
@@ -9,6 +10,10 @@ public interface IAutomationSessionService
 {
     Task<AutomationSessionHandle> StartAutomationSessionAsync(
         AutomationDefinition definition,
+        CancellationToken cancellationToken = default);
+
+    Task<AutomationSessionHandle> StartJobSessionAsync(
+        JobDefinition job,
         CancellationToken cancellationToken = default);
 
     Task<AutomationFollowUpResult> RunFollowUpAsync(

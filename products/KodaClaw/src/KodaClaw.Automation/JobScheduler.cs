@@ -1,4 +1,7 @@
+using KodaClaw.Contracts.Automations;
 using KodaClaw.Contracts.Jobs;
+using KodaClaw.Runtime.Sessions;
+using Kode.Agent.Sdk.Core.Abstractions;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Automation;
@@ -6,15 +9,24 @@ namespace KodaClaw.Automation;
 public sealed class JobScheduler
 {
     private readonly IJobRepository _repo;
+    private readonly IAutomationSessionService _sessionService;
+    private readonly IAutomationNotificationService? _notificationService;
     private readonly int _maxConcurrent;
     private readonly ILogger<JobScheduler>? _logger;
 
-    public JobScheduler(IJobRepository repo, JobSchedulerOptions options, ILogger<JobScheduler>? logger = null)
+    public JobScheduler(
+        IJobRepository repo,
+        IAutomationSessionService sessionService,
+        JobSchedulerOptions options,
+        IAutomationNotificationService? notificationService = null,
+        ILogger<JobScheduler>? logger = null)
     {
         _repo = repo ?? throw new ArgumentNullException(nameof(repo));
+        _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
         ArgumentNullException.ThrowIfNull(options);
         _maxConcurrent = options.MaxConcurrent;
         TickInterval = options.TickInterval;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -28,7 +40,7 @@ public sealed class JobScheduler
     {
         ct.ThrowIfCancellationRequested();
 
-        // 1. 调度：pending → running（含错过补偿）
+        // 1. 调度：pending → running（含错过补偿），并启动 session 执行
         var started = await SchedulePendingJobsAsync(ct);
 
         // 2. 看门狗：扫描 running Job，超时标记 failed
@@ -140,9 +152,178 @@ public sealed class JobScheduler
             started++;
 
             _logger?.LogDebug("Job {JobId} transitioned pending→running", latest.Id);
+
+            // 启动 session 执行（fire-and-forget，每个 job 自行处理结果）
+            _ = RunJobSessionAsync(running, ct);
         }
 
         return started;
+    }
+
+    private async Task RunJobSessionAsync(JobDefinition runningJob, CancellationToken ct)
+    {
+        try
+        {
+            var handle = await _sessionService.StartJobSessionAsync(runningJob, ct);
+            AgentRunResult runResult;
+            try
+            {
+                runResult = await handle.Agent.RunAsync(runningJob.Prompt, ct);
+            }
+            finally
+            {
+                await handle.Agent.DisposeAsync();
+            }
+
+            await CompleteJobRunAsync(runningJob, runResult, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger?.LogError(ex, "Job {JobId} session execution failed", runningJob.Id);
+            await HandleJobSessionErrorAsync(runningJob, ex, ct);
+        }
+    }
+
+    /// <summary>
+    /// Session 成功完成后的处理：写 RunRecord，更新状态，发送通知（§4.5-§4.6）。
+    /// </summary>
+    private async Task CompleteJobRunAsync(
+        JobDefinition runningJob, AgentRunResult runResult, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var latest = await _repo.GetByIdAsync(runningJob.Id, ct);
+        if (latest is null || latest.Status != JobStatus.Running)
+            return;
+
+        var resultText = runResult.Response?.Trim() ?? "";
+        var status = runResult.Success ? "completed" : "failed";
+
+        // 构建完成后的 run record（替换 running 记录）
+        var latestRun = latest.Runs.LastOrDefault();
+        DateTimeOffset? nextRunSet = null;
+        if (latest.Type == JobType.Recurring && latest.Cron is not null)
+        {
+            nextRunSet = AutomationCronComputer.ComputeNextRunAt(latest.Cron, now);
+        }
+        else if (latest.Type == JobType.SelfDriven)
+        {
+            nextRunSet = now.AddMinutes(latest.FallbackIntervalMinutes ?? 60);
+        }
+
+        var completedRun = new JobRunRecord(
+            RunId: latestRun?.RunId ?? $"run-{now:yyyyMMddTHHmmss}",
+            StartedAt: latestRun?.StartedAt ?? now,
+            CompletedAt: now,
+            Status: status,
+            RetryCount: latestRun?.RetryCount ?? 0,
+            Result: resultText.Length > 2000 ? resultText[..2000] : resultText,
+            NextRunSet: nextRunSet);
+
+        var runs = ReplaceLatestRun(latest.Runs, completedRun);
+
+        JobDefinition updated;
+        if (!runResult.Success)
+        {
+            // 失败：走重试逻辑
+            var retryCount = (latestRun?.RetryCount ?? 0) + 1;
+            updated = latest with { Runs = runs, UpdatedAt = now };
+            await ApplyFailurePolicyAsync(updated, retryCount, now, ct);
+            return;
+        }
+
+        // 成功
+        if (latest.Type == JobType.OneShot)
+        {
+            updated = latest with
+            {
+                Status = JobStatus.Completed,
+                NextRunAt = null,
+                Runs = runs,
+                UpdatedAt = now,
+            };
+        }
+        else if (latest.Type == JobType.Recurring)
+        {
+            updated = latest with
+            {
+                Status = JobStatus.Pending,
+                NextRunAt = nextRunSet,
+                Runs = runs,
+                UpdatedAt = now,
+            };
+        }
+        else // SelfDriven
+        {
+            updated = latest with
+            {
+                Status = JobStatus.Pending,
+                NextRunAt = nextRunSet,
+                Runs = runs,
+                UpdatedAt = now,
+            };
+        }
+
+        await _repo.UpdateAsync(updated, ct);
+
+        _logger?.LogInformation("Job {JobId} completed: {Status}", latest.Id, status);
+
+        // §4.6：成功时推送通知到渠道
+        if (updated.DeliveryMode == JobDeliveryMode.Auto && updated.Channels.Count > 0)
+        {
+            await PushJobResultToChannelsAsync(updated, resultText, ct);
+        }
+    }
+
+    /// <summary>
+    /// Session 异常失败处理。
+    /// </summary>
+    private async Task HandleJobSessionErrorAsync(
+        JobDefinition runningJob, Exception ex, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var latest = await _repo.GetByIdAsync(runningJob.Id, ct);
+        if (latest is null || latest.Status != JobStatus.Running)
+            return;
+
+        var latestRun = latest.Runs.LastOrDefault();
+        var failedRun = new JobRunRecord(
+            RunId: latestRun?.RunId ?? $"run-{now:yyyyMMddTHHmmss}",
+            StartedAt: latestRun?.StartedAt ?? now,
+            CompletedAt: now,
+            Status: "failed",
+            RetryCount: latestRun?.RetryCount ?? 0,
+            Result: $"session_error: {ex.GetBaseException().Message}",
+            NextRunSet: null);
+
+        var runs = ReplaceLatestRun(latest.Runs, failedRun);
+        var retryCount = (latestRun?.RetryCount ?? 0) + 1;
+        var updated = latest with { Runs = runs, UpdatedAt = now };
+
+        await ApplyFailurePolicyAsync(updated, retryCount, now, ct);
+    }
+
+    /// <summary>
+    /// 推送 Job 结果到配置的渠道（§4.6）。
+    /// </summary>
+    private async Task PushJobResultToChannelsAsync(
+        JobDefinition job, string resultText, CancellationToken ct)
+    {
+        if (_notificationService is null || job.Channels.Count == 0)
+            return;
+
+        try
+        {
+            var message = string.IsNullOrWhiteSpace(resultText)
+                ? $"Job '{job.Name}' completed with no output."
+                : resultText;
+
+            await _notificationService.PushAsync(job.Channels, message, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Job {JobId} channel push failed for {ChannelCount} channels",
+                job.Id, job.Channels.Count);
+        }
     }
 
     private async Task RunWatchdogAsync(CancellationToken ct)

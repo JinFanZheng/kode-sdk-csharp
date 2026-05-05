@@ -2,6 +2,7 @@ using System.Text;
 using System.Collections.Concurrent;
 using KodaClaw.Contracts.Automations;
 using KodaClaw.Contracts.Channels;
+using KodaClaw.Contracts.Jobs;
 using KodaClaw.Contracts.Models;
 using KodaClaw.Contracts.Sessions;
 using KodaClaw.Contracts.Settings;
@@ -90,6 +91,44 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         return new AutomationSessionHandle(
             SessionId: sessionId,
             AutomationId: definition.Id,
+            SessionKind: SessionKind.Automation,
+            SessionDirectory: sessionDirectory,
+            Agent: agent);
+    }
+
+    public async Task<AutomationSessionHandle> StartJobSessionAsync(
+        JobDefinition job,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        EnsureJobIsValid(job);
+
+        var snapshot = await _workspaceService.EnsureInitializedAsync(cancellationToken);
+        var contextDocuments = await LoadBaselineContextDocumentsAsync(snapshot.RootPath, cancellationToken);
+        var promptCharBudget = await ResolvePromptCharacterBudgetAsync(cancellationToken);
+        var jobContext = BuildJobContextString(job);
+        var prompt = BuildJobSystemPrompt(job, jobContext, contextDocuments, promptCharBudget);
+        var systemPrompt = prompt.SystemPrompt;
+
+        var sessionId = GenerateSessionId(job.Id);
+        var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
+        Directory.CreateDirectory(sessionDirectory);
+        await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
+
+        var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
+        var configuredModel = await ResolveConfiguredModelForJobAsync(cancellationToken);
+        var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
+        var maxIterations = await ResolveMaxIterationsAsync(cancellationToken);
+        var contextWindowSize = await ResolveContextWindowSizeAsync(cancellationToken);
+        var agent = await AgentRuntime.CreateAsync(
+            sessionId,
+            CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, contextWindowSize, sessionTools, maxIterations),
+            dependencies,
+            cancellationToken);
+
+        return new AutomationSessionHandle(
+            SessionId: sessionId,
+            AutomationId: job.Id,
             SessionKind: SessionKind.Automation,
             SessionDirectory: sessionDirectory,
             Agent: agent);
@@ -216,6 +255,112 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         {
             throw new ArgumentException("Automation definition prompt is required.", nameof(definition));
         }
+    }
+
+    private static void EnsureJobIsValid(JobDefinition job)
+    {
+        if (string.IsNullOrWhiteSpace(job.Id))
+        {
+            throw new ArgumentException("Job id is required.", nameof(job));
+        }
+
+        if (string.IsNullOrWhiteSpace(job.Prompt))
+        {
+            throw new ArgumentException("Job prompt is required.", nameof(job));
+        }
+    }
+
+    private static string BuildJobContextString(JobDefinition job)
+    {
+        var sb = new StringBuilder();
+        sb.Append("JobId: ").AppendLine(job.Id);
+        if (!string.IsNullOrWhiteSpace(job.Name))
+            sb.Append("JobName: ").AppendLine(job.Name);
+        sb.Append("JobType: ").AppendLine(job.Type.ToString());
+        if (job.Cron is not null)
+            sb.Append("Cron: ").AppendLine(job.Cron);
+        sb.Append("TimeoutMinutes: ").AppendLine(job.TimeoutMinutes.ToString());
+        sb.Append("MaxRetries: ").AppendLine(job.MaxRetries.ToString());
+        if (job.Channels.Count > 0)
+            sb.Append("Channels: ").AppendLine(string.Join(", ", job.Channels));
+        sb.Append("DeliveryMode: ").AppendLine(job.DeliveryMode.ToString());
+        return sb.ToString();
+    }
+
+    private async Task<IReadOnlyList<PromptContextDocument>> LoadBaselineContextDocumentsAsync(
+        string workspaceRoot,
+        CancellationToken cancellationToken)
+    {
+        var documents = new List<PromptContextDocument>();
+        var seenPaths = new HashSet<string>(GetPathComparer());
+        var workspaceDirectory = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.WorkspaceDirectory);
+
+        foreach (var baselineFile in BaselineContextFiles)
+        {
+            var absolutePath = Path.Combine(workspaceDirectory, baselineFile);
+            await TryAddContextDocumentAsync(absolutePath, workspaceRoot, seenPaths, documents, cancellationToken);
+        }
+
+        return documents;
+    }
+
+    private PromptBuildResult BuildJobSystemPrompt(
+        JobDefinition job,
+        string jobContext,
+        IReadOnlyList<PromptContextDocument> contextDocuments,
+        int promptCharBudget)
+    {
+        var triggeredAt = DateTimeOffset.Now;
+        var builder = new PromptBuilder(PromptProfiles.Automation(_options.SystemPrompt))
+            .WithCharacterBudget(promptCharBudget)
+            .AddBody($"Triggered at: {triggeredAt:yyyy-MM-dd HH:mm:ss zzz} ({triggeredAt.DayOfWeek}).")
+            .AddSection("Runtime Environment", RuntimeEnvironmentContext.BuildLines(_workspaceService.RootPath))
+            .AddSection(
+                "Job Definition",
+                [
+                    $"Id: {job.Id}",
+                    !string.IsNullOrWhiteSpace(job.Name) ? $"Name: {job.Name}" : string.Empty,
+                    $"Type: {job.Type}",
+                ])
+            .AddSection("Prompt", job.Prompt.Trim());
+
+        if (!string.IsNullOrWhiteSpace(jobContext))
+        {
+            builder.AddSection("<job_context>", jobContext);
+        }
+
+        builder
+            .AddSection(
+                "Memory Boundary",
+                [
+                    "Treat only the loaded context files below as available memory for this run.",
+                    "Do not infer or recall workspace/MEMORY.md unless it was explicitly loaded.",
+                    "If required context is missing, state that gap instead of pretending the job remembers it.",
+                ]);
+
+        if (Environment.GetEnvironmentVariable("KODACLAW_DOCKER_MODE") == "true")
+        {
+            builder.AddBody("""
+                ## File Persistence (Docker Deployment)
+                Running inside a Docker container. Only paths under /data/ persist across restarts:
+                - ~/  (→ /data/home/) — tool binaries, credentials, code outputs
+                - workspace/  (→ /data/workspace/) — identity, memory, rules
+
+                Save work outputs to ~/projects/ or workspace/outputs/.
+                Do not write to /tmp/ or relative paths — they resolve to /app/ and vanish on restart.
+                """);
+        }
+
+        return builder.AddContextDocuments(contextDocuments).Build();
+    }
+
+    private async Task<string> ResolveConfiguredModelForJobAsync(CancellationToken cancellationToken)
+    {
+        return await RuntimeProviderSelector.ResolveModelOrFallbackAsync(
+            _runtimeConfigurationResolver,
+            _options.Model,
+            _accountRepository,
+            cancellationToken);
     }
 
     private async Task<IReadOnlyList<PromptContextDocument>> LoadContextDocumentsAsync(
