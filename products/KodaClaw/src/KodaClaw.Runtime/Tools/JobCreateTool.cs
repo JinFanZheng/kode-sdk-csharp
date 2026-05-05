@@ -1,3 +1,4 @@
+using KodaClaw.Automation;
 using KodaClaw.Contracts.Jobs;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
@@ -54,6 +55,10 @@ public sealed class JobCreateTool : ToolBase<JobCreateArgs>
         // Default for one-shot: next_run_at = now
         if (jobType == JobType.OneShot && nextRunAt == null)
             nextRunAt = DateTimeOffset.UtcNow;
+
+        // Default for recurring: compute next cron time
+        if (jobType == JobType.Recurring && nextRunAt == null && !string.IsNullOrWhiteSpace(args.Cron))
+            nextRunAt = AutomationCronComputer.ComputeNextRunAt(args.Cron, DateTimeOffset.UtcNow);
 
         var now = DateTimeOffset.UtcNow;
 
