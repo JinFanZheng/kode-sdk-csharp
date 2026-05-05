@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Encodings.Web;
 using System.Text.Json.Serialization;
+using System.Text.Unicode;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Storage;
@@ -27,14 +28,14 @@ public abstract class JsonStoreBase
             WriteIndented = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
         };
         JsonOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
 
         _compactOptions = new JsonSerializerOptions(JsonOptions)
         {
             WriteIndented = false,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
         };
     }
 
