@@ -207,7 +207,9 @@ public sealed class JobScheduler
         }
         else if (latest.Type == JobType.SelfDriven)
         {
-            nextRunSet = now.AddMinutes(latest.FallbackIntervalMinutes ?? 60);
+            // 使用 job_reschedule 已经更新的 NextRunAt（Agent 在 session 中调用）
+            // 如果 Agent 未调用，fallback 到 fallback_interval
+            nextRunSet = latest.NextRunAt ?? now.AddMinutes(latest.FallbackIntervalMinutes ?? 60);
         }
 
         var completedRun = new JobRunRecord(
