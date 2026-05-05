@@ -276,6 +276,20 @@ public record TokenUsage
     public required int InputTokens { get; init; }
     public required int OutputTokens { get; init; }
     public int TotalTokens => InputTokens + OutputTokens;
+
+    /// <summary>
+    /// Number of prompt tokens that were read from cache (cache hit).
+    /// Populated by providers that track prefix caching (DeepSeek, Anthropic).
+    /// Null when the provider does not report cache tokens.
+    /// </summary>
+    public int? CacheHitTokens { get; init; }
+
+    /// <summary>
+    /// Number of prompt tokens that were NOT read from cache (cache miss).
+    /// Populated by providers that track prefix caching (DeepSeek, Anthropic).
+    /// Null when the provider does not report cache tokens.
+    /// </summary>
+    public int? CacheMissTokens { get; init; }
 }
 
 /// <summary>

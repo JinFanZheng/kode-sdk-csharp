@@ -313,7 +313,9 @@ public sealed partial class Agent
                 Type = "token_usage",
                 InputTokens = usage.InputTokens,
                 OutputTokens = usage.OutputTokens,
-                TotalTokens = usage.InputTokens + usage.OutputTokens
+                TotalTokens = usage.InputTokens + usage.OutputTokens,
+                CacheHitTokens = usage.CacheHitTokens,
+                CacheMissTokens = usage.CacheMissTokens
             });
             KodeAgentMetrics.TokensInput.Add(usage.InputTokens, modelDimensions);
             KodeAgentMetrics.TokensOutput.Add(usage.OutputTokens, modelDimensions);

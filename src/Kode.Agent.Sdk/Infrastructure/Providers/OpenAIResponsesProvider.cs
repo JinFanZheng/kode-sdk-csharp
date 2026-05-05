@@ -26,8 +26,19 @@ public sealed class OpenAIResponsesProvider : IModelProvider
     private readonly RetryPolicy _retryPolicy;
     private readonly ILogger<OpenAIResponsesProvider>? _logger;
     private readonly string _endpoint;
+    private readonly OpenAIResponsesOptions _options;
 
     public string ProviderName => "openai-responses";
+
+    /// <inheritdoc />
+    public ModelCapabilities? GetModelCapabilities(string modelId)
+    {
+        // User-configured overrides (no SDK upgrade required)
+        if (_options.ModelCapabilitiesOverride?.TryGetValue(modelId, out var caps) == true)
+            return caps;
+        // Centralised registry (built-in + prefix heuristics)
+        return ModelCapabilitiesRegistry.Default.Get(modelId);
+    }
 
     /// <summary>Production constructor.</summary>
     public OpenAIResponsesProvider(OpenAIResponsesOptions options, ILogger<OpenAIResponsesProvider>? logger = null)
@@ -44,6 +55,7 @@ public sealed class OpenAIResponsesProvider : IModelProvider
         _retryPolicy = options.RetryPolicy ?? RetryPolicy.Default;
         var baseUrl = options.BaseUrl?.TrimEnd('/') ?? "https://api.openai.com/v1";
         _endpoint = baseUrl + "/responses";
+        _options = options;
         _httpClient = httpClient;
         _httpClient.Timeout = Timeout.InfiniteTimeSpan;
         _httpClient.DefaultRequestHeaders.Authorization =
@@ -60,6 +72,7 @@ public sealed class OpenAIResponsesProvider : IModelProvider
         _retryPolicy = options.RetryPolicy ?? RetryPolicy.Default;
         var baseUrl = options.BaseUrl?.TrimEnd('/') ?? "https://api.openai.com/v1";
         _endpoint = baseUrl + "/responses";
+        _options = options;
         _httpClient = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
         _httpClient.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", options.ApiKey);
@@ -671,4 +684,11 @@ public class OpenAIResponsesOptions
     /// Defaults to <see cref="RetryPolicy.Default"/> when null.
     /// </summary>
     public RetryPolicy? RetryPolicy { get; init; }
+
+    /// <summary>
+    /// Optional per-model capability overrides. Entries here take precedence over
+    /// the SDK's built-in registry, so new models can be configured without an
+    /// SDK upgrade. Key is the model ID (case-insensitive).
+    /// </summary>
+    public IReadOnlyDictionary<string, ModelCapabilities>? ModelCapabilitiesOverride { get; init; }
 }

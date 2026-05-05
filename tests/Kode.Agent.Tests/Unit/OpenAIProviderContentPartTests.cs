@@ -484,7 +484,7 @@ public sealed class OpenAIProviderContentPartTests
             }
 
             [Fact]
-            public async Task CompleteAsync_WithDeepSeekAssistantThinkingToolHistory_SendsThinkingContentBlocksBackToApi()
+            public async Task CompleteAsync_WithDeepSeekAssistantThinkingToolHistory_NowUsesReasoningContentField()
             {
                 var (provider, bodies) = CreateProviderWithCapture();
 
@@ -525,12 +525,11 @@ public sealed class OpenAIProviderContentPartTests
                     .EnumerateArray()
                     .First(m => m.GetProperty("role").GetString() == "assistant");
 
-                assistantMessage.GetProperty("content").ValueKind.Should().Be(JsonValueKind.Array);
-                var contentParts = assistantMessage.GetProperty("content").EnumerateArray().ToList();
-                contentParts.Should().ContainSingle();
-                contentParts[0].GetProperty("type").GetString().Should().Be("thinking");
-                contentParts[0].GetProperty("thinking").GetString().Should().Be("first reason");
-                assistantMessage.TryGetProperty("reasoning_content", out _).Should().BeFalse();
+                // After DeepSeekProvider extraction, OpenAIProvider treats DeepSeek models
+                // the same as other models: thinking goes to reasoning_content field.
+                assistantMessage.GetProperty("reasoning_content").GetString().Should().Be("first reason");
+                assistantMessage.GetProperty("content").ValueKind.Should().Be(JsonValueKind.String);
+                assistantMessage.GetProperty("content").GetString().Should().Be(string.Empty);
                 bodies[0].Should().NotContain(OpenAIProvider.ThinkingMarkerStart);
                 bodies[0].Should().NotContain(OpenAIProvider.ThinkingMarkerEnd);
             }

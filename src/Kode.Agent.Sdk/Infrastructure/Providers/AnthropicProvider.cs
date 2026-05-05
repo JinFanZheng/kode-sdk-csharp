@@ -27,6 +27,18 @@ public sealed class AnthropicProvider : IModelProvider
 
     public string ProviderName => "anthropic";
 
+    // ── Model capability registry ────────────────────────────────────────────
+
+    /// <inheritdoc />
+    public ModelCapabilities? GetModelCapabilities(string modelId)
+    {
+        // User-configured overrides (no SDK upgrade required)
+        if (_options.ModelCapabilitiesOverride?.TryGetValue(modelId, out var caps) == true)
+            return caps;
+        // Centralised registry (built-in + prefix heuristics, claude-* already covered)
+        return ModelCapabilitiesRegistry.Default.Get(modelId);
+    }
+
     public AnthropicProvider(AnthropicOptions options, ILogger<AnthropicProvider>? logger = null)
     {
         _options = options;
@@ -878,4 +890,11 @@ public class AnthropicOptions
     /// Defaults to <see cref="RetryPolicy.Default"/> when null.
     /// </summary>
     public RetryPolicy? RetryPolicy { get; init; }
+
+    /// <summary>
+    /// Optional per-model capability overrides. Entries here take precedence over
+    /// the SDK's built-in registry, so new models can be configured without an
+    /// SDK upgrade. Key is the model ID (case-insensitive).
+    /// </summary>
+    public IReadOnlyDictionary<string, ModelCapabilities>? ModelCapabilitiesOverride { get; init; }
 }

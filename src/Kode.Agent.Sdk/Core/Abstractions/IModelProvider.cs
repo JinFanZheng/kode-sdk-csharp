@@ -34,6 +34,14 @@ public interface IModelProvider
     /// Validates that the provider is properly configured.
     /// </summary>
     Task<bool> ValidateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the capability profile for the given model.
+    /// Returns null for unknown models, signaling the caller to use safe defaults.
+    /// </summary>
+    /// <param name="modelId">The model identifier (e.g., "deepseek-v4-pro").</param>
+    /// <returns>Capabilities or null if the model is unknown.</returns>
+    ModelCapabilities? GetModelCapabilities(string modelId);
 }
 
 /// <summary>
@@ -207,6 +215,62 @@ public enum ModelStopReason
     /// Triggers a force-compress-and-retry in the agent run loop.
     /// </summary>
     ContextOverflow
+}
+
+/// <summary>
+/// Cache control type supported by a model.
+/// </summary>
+public enum CacheControlType
+{
+    /// <summary>No explicit cache control support.</summary>
+    None,
+    /// <summary>
+    /// Ephemeral cache control — cache blocks are automatically managed by the provider
+    /// with a TTL (DeepSeek V4 prefix cache, Anthropic prompt cache).
+    /// </summary>
+    Ephemeral,
+    /// <summary>
+    /// Prompt prefix cache — the provider caches the longest common prefix of the prompt
+    /// automatically (OpenAI gpt-4.1 series, gpt-4o with automatic caching).
+    /// </summary>
+    PromptPrefix
+}
+
+/// <summary>
+/// Model capability profile used by ContextManager for adaptive compression.
+/// Providers declare known capabilities per model; unknown models return null
+/// for graceful fallback to defaults.
+/// </summary>
+public record ModelCapabilities
+{
+    /// <summary>
+    /// Context window size in tokens (e.g., 1_000_000 for DeepSeek V4, 200_000 for Claude).
+    /// </summary>
+    public required int ContextWindow { get; init; }
+
+    /// <summary>
+    /// Whether the model supports transparent prompt prefix caching.
+    /// When true, replaying a message prefix should reuse cached tokens.
+    /// </summary>
+    public bool SupportsPrefixCache { get; init; }
+
+    /// <summary>
+    /// The cache control mechanism supported by this model.
+    /// </summary>
+    public CacheControlType CacheControlType { get; init; }
+
+    /// <summary>
+    /// Ratio of context window above which compression is triggered (default: 0.8).
+    /// </summary>
+    public double CompactionThresholdRatio { get; init; } = 0.8;
+
+    /// <summary>
+    /// Whether the model supports cache-aligned summary compression.
+    /// When true, replaying original messages + appending a summary instruction
+    /// preserves the prefix cache. Only valid for models with large context windows (≥ 500K)
+    /// and transparent prefix caching.
+    /// </summary>
+    public bool SupportsCacheAlignedSummary { get; init; }
 }
 
 /// <summary>

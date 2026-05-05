@@ -82,10 +82,19 @@ public sealed partial class Agent
             _ => null
         };
 
+        // Derive context options from model capabilities when user hasn't explicitly
+        // configured them. User-provided Context always takes precedence.
+        var contextOptions = _config.Context;
+        if (contextOptions == null && dependencies.ModelProvider != null)
+        {
+            var caps = dependencies.ModelProvider.GetModelCapabilities(_config.Model);
+            contextOptions = ContextManagerOptions.FromCapabilities(caps);
+        }
+
         _contextManager = new ContextManager(
             dependencies.Store,
             agentId,
-            _config.Context,
+            contextOptions,
             summarizer,
             dependencies.LoggerFactory?.CreateLogger<ContextManager>());
 

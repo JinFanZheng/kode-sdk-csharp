@@ -79,6 +79,29 @@ public record ContextManagerOptions
     /// into the message history. Disabled by default; opt-in per session.
     /// </summary>
     public ToolResultCompressionOptions? ToolResultCompression { get; init; }
+
+    /// <summary>
+    /// When true, automatic context compression is enabled. Set to false to disable
+    /// auto-compression (manual <c>ForceCompressAsync</c> still works).
+    /// Default: true.
+    /// </summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// Creates sensible defaults derived from model capabilities.
+    /// When capabilities are null, returns the existing safe defaults (50K).
+    /// </summary>
+    public static ContextManagerOptions FromCapabilities(ModelCapabilities? caps)
+    {
+        if (caps == null)
+            return new ContextManagerOptions(); // existing defaults: 50K / 30K
+
+        return new ContextManagerOptions
+        {
+            MaxTokens = (int)(caps.ContextWindow * caps.CompactionThresholdRatio),
+            CompressToTokens = (int)(caps.ContextWindow * 0.3),
+        };
+    }
 }
 
 /// <summary>
@@ -216,7 +239,8 @@ public class ContextManager
         return new ContextUsage(
             TotalTokens: calibratedTotal,
             MessageCount: messages.Count,
-            ShouldCompress: calibratedTotal > (int)(_options.MaxTokens * 0.9)
+            ShouldCompress: _options.Enabled
+                && calibratedTotal > (int)(_options.MaxTokens * 0.9)
         );
     }
 
@@ -353,8 +377,13 @@ public class ContextManager
         var singleMessageCap = Math.Max(1_000, regularBudget / 4);
 
         // ── 4. Select regular messages by importance + token budget ───────────
+        // Derive semantic pins before budget selection (errors, patches, working-set paths).
+        // The working set is derived from recent tool calls and text mentions.
+        var workingSetPaths = DeriveWorkingSetPaths(regularMessages);
+        var semanticPins = DerivePinnedIndices(regularMessages, workingSetPaths, null);
+
         var (retainedRegular, removedMessages) = SelectMessagesByBudget(
-            regularMessages, regularBudget, _options.MinRecentMessages, singleMessageCap);
+            regularMessages, regularBudget, _options.MinRecentMessages, singleMessageCap, semanticPins);
 
         // Force-mode hard-truncate: when the model already refused (overflow / empty
         // response) but our CJK-aware estimate still said we fit, the budget-based
@@ -521,7 +550,8 @@ public class ContextManager
     ///   Score = Recency(0-40) + Role(0-30) + ToolType(-20 to +20)
     /// </summary>
     private static (List<Message> retained, List<Message> removed) SelectMessagesByBudget(
-        IReadOnlyList<Message> messages, int tokenBudget, int minRecentCount = 0, int? singleMessageTokenCap = null)
+        IReadOnlyList<Message> messages, int tokenBudget, int minRecentCount = 0, int? singleMessageTokenCap = null,
+        HashSet<int>? semanticPins = null)
     {
         if (messages.Count == 0)
             return (new List<Message>(), new List<Message>());
@@ -575,6 +605,16 @@ public class ContextManager
         var protectedStart = Math.Max(0, working.Count - minRecentCount);
         var protectedIndices = new HashSet<int>(
             Enumerable.Range(protectedStart, working.Count - protectedStart));
+
+        // Merge semantic pins into the protected set (error messages, patches, working-set paths).
+        if (semanticPins is { Count: > 0 })
+        {
+            foreach (var pin in semanticPins)
+            {
+                if (pin >= 0 && pin < working.Count)
+                    protectedIndices.Add(pin);
+            }
+        }
 
         // Score each message; lower score = candidate for removal first.
         var scored = working
@@ -871,6 +911,197 @@ public class ContextManager
     }
 
     // Still used by MergeSummaryStackAsync to read summary body text.
+    // ── Semantic message pinning ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Derives a set of message indices that should be pinned (protected from removal)
+    /// based on semantic markers: error messages, patch/diff markers, and working-set
+    /// path mentions. External pin indices (passed by the caller) are always included.
+    /// </summary>
+    /// <param name="messages">All messages in the conversation.</param>
+    /// <param name="workingSetPaths">
+    /// Optional set of file paths that form the current working set. Messages mentioning
+    /// these paths are pinned to preserve context about active files.
+    /// </param>
+    /// <param name="externalPins">Optional externally-specified pin indices (always preserved).</param>
+    /// <returns>Set of message indices to protect from removal.</returns>
+    public static HashSet<int> DerivePinnedIndices(
+        IReadOnlyList<Message> messages,
+        HashSet<string>? workingSetPaths,
+        IReadOnlyList<int>? externalPins)
+    {
+        var pinned = new HashSet<int>();
+
+        // External pins are authoritative.
+        if (externalPins != null)
+        {
+            foreach (var i in externalPins)
+            {
+                if (i >= 0 && i < messages.Count)
+                    pinned.Add(i);
+            }
+        }
+
+        for (var i = 0; i < messages.Count; i++)
+        {
+            if (pinned.Contains(i)) continue;
+
+            var msgText = GetMessageText(messages[i]);
+
+            // Error markers: preserve failure context so the model knows what broke.
+            if (ContainsAnyMarker(msgText, ErrorMarkers))
+            {
+                pinned.Add(i);
+                continue;
+            }
+
+            // Patch/diff markers: preserve change evidence.
+            if (ContainsAnyMarker(msgText, PatchMarkers))
+            {
+                pinned.Add(i);
+                continue;
+            }
+
+            // Working-set path mentions: preserve context about active files.
+            if (workingSetPaths is { Count: > 0 }
+                && MentionsAnyPath(messages[i], workingSetPaths))
+            {
+                pinned.Add(i);
+            }
+        }
+
+        return pinned;
+    }
+
+    private static string GetMessageText(Message msg)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var block in msg.Content)
+        {
+            switch (block)
+            {
+                case TextContent t:
+                    sb.Append(t.Text);
+                    break;
+                case ToolUseContent tu:
+                    sb.Append(tu.Name);
+                    sb.Append(' ');
+                    sb.Append(SafeSerializeForEstimate(tu.Input));
+                    break;
+                case ToolResultContent tr:
+                    sb.Append(SafeSerializeForEstimate(tr.Content));
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static bool ContainsAnyMarker(string text, IReadOnlyList<string> markers)
+    {
+        foreach (var marker in markers)
+        {
+            if (text.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool MentionsAnyPath(Message msg, HashSet<string> paths)
+    {
+        var text = GetMessageText(msg);
+        foreach (var path in paths)
+        {
+            if (text.Contains(path, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static readonly string[] ErrorMarkers =
+    [
+        "error:", "error ", "failed", "panic", "traceback",
+        "stack trace", "assertion failed", "test failed"
+    ];
+
+    /// <summary>
+    /// Extracts a working set of file paths from recent tool calls and text mentions.
+    /// Used by semantic pinning to protect messages that reference actively-edited files.
+    /// </summary>
+    private static HashSet<string> DeriveWorkingSetPaths(IReadOnlyList<Message> messages)
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Walk messages in reverse (most recent first) and collect paths from tool inputs.
+        var recentCount = Math.Min(messages.Count, 12);
+        for (var i = messages.Count - 1; i >= messages.Count - recentCount && i >= 0; i--)
+        {
+            foreach (var block in messages[i].Content)
+            {
+                if (block is ToolUseContent tu)
+                {
+                    // Extract path-like values from tool input
+                    if (tu.Input is System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Object } je)
+                    {
+                        ExtractPathsFromJson(je, paths);
+                    }
+                }
+                else if (block is TextContent t)
+                {
+                    ExtractPathsFromText(t.Text, paths);
+                }
+            }
+            if (paths.Count >= 24) break; // cap at 24 paths
+        }
+        return paths;
+    }
+
+    private static void ExtractPathsFromJson(System.Text.Json.JsonElement element, HashSet<string> paths)
+    {
+        foreach (var prop in element.EnumerateObject())
+        {
+            if (prop.Name is "path" or "file" or "target" or "cwd" && prop.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var val = prop.Value.GetString();
+                if (!string.IsNullOrEmpty(val) && LooksLikeFilePath(val))
+                    paths.Add(val);
+            }
+            else if (prop.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var val = prop.Value.GetString();
+                if (!string.IsNullOrEmpty(val) && LooksLikeFilePath(val))
+                    paths.Add(val);
+            }
+        }
+    }
+
+    private static void ExtractPathsFromText(string text, HashSet<string> paths)
+    {
+        // Match common file path patterns: src/Foo.cs, /absolute/path, etc.
+        var matches = System.Text.RegularExpressions.Regex.Matches(text,
+            @"\b(?:[a-zA-Z0-9._\-]+/)+[a-zA-Z0-9._\-]+\.(?:cs|rs|ts|js|py|go|java|rb|php|c|cpp|h|hpp|swift|kt|scala|toml|yaml|yml|json|xml|md|sql|sh|bash|ps1)\b");
+        foreach (System.Text.RegularExpressions.Match m in matches)
+        {
+            paths.Add(m.Value);
+        }
+    }
+
+    private static bool LooksLikeFilePath(string val)
+    {
+        return val.Contains('/') || val.Contains('\\') || val.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+            || val.EndsWith(".rs", StringComparison.OrdinalIgnoreCase) || val.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
+            || val.EndsWith(".js", StringComparison.OrdinalIgnoreCase) || val.EndsWith(".py", StringComparison.OrdinalIgnoreCase)
+            || val.EndsWith(".go", StringComparison.OrdinalIgnoreCase) || val.EndsWith(".java", StringComparison.OrdinalIgnoreCase)
+            || val.EndsWith(".toml", StringComparison.OrdinalIgnoreCase) || val.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            || val.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || val.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase)
+            || val.EndsWith(".yml", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static readonly string[] PatchMarkers =
+    [
+        "diff --git", "+++ b/", "--- a/", "apply_patch",
+        "*** begin patch", "*** update file:", "*** add file:", "*** delete file:",
+        "```diff"
+    ];
+
     private static string GetText(Message msg)
     {
         // Short-circuit the common single-TextContent case to avoid List+Join allocation.

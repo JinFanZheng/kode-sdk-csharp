@@ -140,5 +140,6 @@ public sealed class TemplateMergeIntegrationTests
         }
 
         public Task<bool> ValidateAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 }

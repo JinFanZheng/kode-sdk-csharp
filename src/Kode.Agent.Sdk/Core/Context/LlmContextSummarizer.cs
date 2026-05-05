@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Kode.Agent.Sdk.Core.Abstractions;
 using Microsoft.Extensions.Logging;
 
 namespace Kode.Agent.Sdk.Core.Context;
@@ -73,34 +74,88 @@ public class LlmContextSummarizer : IContextSummarizer
         if (removedMessages.Count == 0)
             return new SummaryResult(string.Empty, null);
 
-        try
-        {
-            var model = options.CompressionModel ?? _primaryModel ?? "claude-haiku-4-5-20251001";
-            var prompt = string.IsNullOrWhiteSpace(options.CompressionPrompt)
-                ? DefaultPrompt
-                : options.CompressionPrompt;
+        const int maxRetries = 3;
+        const int baseDelayMs = 1000;
 
-            var request = new ModelRequest
+        for (var attempt = 0; attempt < maxRetries; attempt++)
+        {
+            try
             {
-                Model = model,
-                SystemPrompt = prompt,
-                Messages = [Message.User(BuildCompressionContext(removedMessages))],
-                MaxTokens = 1200,
-            };
+                var model = options.CompressionModel ?? _primaryModel ?? "claude-haiku-4-5-20251001";
+                var caps = _modelProvider.GetModelCapabilities(model);
 
-            var response = await _modelProvider.CompleteAsync(request, cancellationToken);
-            var raw = response.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? "";
+                ModelRequest request;
+                if (caps is { SupportsCacheAlignedSummary: true })
+                {
+                    request = BuildCacheAlignedRequest(model, removedMessages);
+                }
+                else
+                {
+                    var prompt = string.IsNullOrWhiteSpace(options.CompressionPrompt)
+                        ? DefaultPrompt
+                        : options.CompressionPrompt;
 
-            if (string.IsNullOrWhiteSpace(raw))
+                    request = new ModelRequest
+                    {
+                        Model = model,
+                        SystemPrompt = prompt,
+                        Messages = [Message.User(BuildCompressionContext(removedMessages))],
+                        MaxTokens = 1200,
+                    };
+                }
+
+                var response = await _modelProvider.CompleteAsync(request, cancellationToken);
+                var raw = response.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? "";
+
+                if (string.IsNullOrWhiteSpace(raw))
+                    return await _fallback.SummarizeAsync(removedMessages, options, cancellationToken);
+
+                return ParseResponse(raw);
+            }
+            catch (Exception ex) when (
+                attempt < maxRetries - 1
+                && !cancellationToken.IsCancellationRequested
+                && ex is not OperationCanceledException
+                && ex is not TaskCanceledException
+                && IsTransientError(ex))
+            {
+                // Exponential backoff with jitter: 1s, 2s, 4s ± 25%
+                var delayMs = baseDelayMs * (1 << attempt);
+                var jitterMs = Random.Shared.Next(-delayMs / 4, (delayMs / 4) + 1);
+                _logger?.LogWarning(ex,
+                    "LLM summarization transient error (attempt {Attempt}/{Max}), retrying in {DelayMs}ms",
+                    attempt + 1, maxRetries, delayMs + jitterMs);
+                await Task.Delay(delayMs + jitterMs, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "LLM summarization failed, falling back to static summary");
                 return await _fallback.SummarizeAsync(removedMessages, options, cancellationToken);
+            }
+        }
 
-            return ParseResponse(raw);
-        }
-        catch (Exception ex)
+        // Exhausted retries — fall back to static
+        _logger?.LogWarning("LLM summarization exhausted {MaxRetries} retries, falling back to static summary", maxRetries);
+        return await _fallback.SummarizeAsync(removedMessages, options, cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns true for transient errors that should be retried (server errors,
+    /// rate limits, timeouts). Authentication and client errors are NOT retried.
+    /// </summary>
+    private static bool IsTransientError(Exception ex)
+    {
+        if (ex is HttpRequestException httpEx)
         {
-            _logger?.LogWarning(ex, "LLM summarization failed, falling back to static summary");
-            return await _fallback.SummarizeAsync(removedMessages, options, cancellationToken);
+            var statusCode = (int?)httpEx.StatusCode;
+            return statusCode is >= 500 or 429; // 5xx + rate limit
         }
+        if (ex is TimeoutException)
+            return true;
+        var msg = ex.Message ?? string.Empty;
+        return msg.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("rate limit", StringComparison.OrdinalIgnoreCase);
     }
 
     // --- response parsing ---
@@ -127,6 +182,44 @@ public class LlmContextSummarizer : IContextSummarizer
         var end = text.IndexOf(close, start, StringComparison.OrdinalIgnoreCase);
         return end < 0 ? null : text[start..end];
     }
+
+    // --- cache-aligned summary path ---
+
+    /// <summary>
+    /// Builds a cache-aligned summary request for models with transparent prefix caching
+    /// (DeepSeek V4).  Replays the original removed messages verbatim so the prefix cache
+    /// hits on the bulk of the request, then appends a summary instruction as the final
+    /// user turn.  System prompt is null — the instruction is in the user message.
+    /// </summary>
+    private static ModelRequest BuildCacheAlignedRequest(
+        string model,
+        IReadOnlyList<Message> removedMessages)
+    {
+        var messages = new List<Message>(removedMessages.Count + 1);
+        messages.AddRange(removedMessages);
+        messages.Add(Message.User(CacheAlignedInstruction));
+
+        return new ModelRequest
+        {
+            Model = model,
+            SystemPrompt = null,  // key: no system prompt so prefix matches conversation
+            Messages = messages,
+            MaxTokens = 1200,
+        };
+    }
+
+    private const string CacheAlignedInstruction =
+        "Summarize the conversation above in a concise but comprehensive way. " +
+        "Preserve key information, decisions made, exact file paths, commands, errors, " +
+        "and tool-result facts needed to continue the work. " +
+        "Tool outputs may be abbreviated only when they are repetitive. " +
+        "Keep it under 900 words.\n\n" +
+        "Respond in EXACTLY this XML, nothing else:\n\n" +
+        "<summary>\nUnder 900 words. Include: task objective, completed steps, key findings, file paths.\n" +
+        "Omit: repetitive polling, verbose command output, intermediate failed attempts.\n" +
+        "</summary>\n\n" +
+        "<core-memory>\n## Current Task\n[one sentence]\n\n## Modified Files\n[bullets]\n\n" +
+        "## Key Decisions\n[bullets]\n\n## Next Steps\n[what remains]\n</core-memory>";
 
     // --- input construction ---
 

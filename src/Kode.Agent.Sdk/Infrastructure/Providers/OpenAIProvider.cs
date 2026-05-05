@@ -46,6 +46,16 @@ public sealed class OpenAIProvider : IModelProvider
 
     public string ProviderName => "openai";
 
+    /// <inheritdoc />
+    public ModelCapabilities? GetModelCapabilities(string modelId)
+    {
+        // User-configured overrides (no SDK upgrade required)
+        if (_options.ModelCapabilitiesOverride?.TryGetValue(modelId, out var caps) == true)
+            return caps;
+        // Centralised registry (built-in + prefix heuristics)
+        return ModelCapabilitiesRegistry.Default.Get(modelId);
+    }
+
     public OpenAIProvider(OpenAIOptions options, ILogger<OpenAIProvider>? logger = null)
     {
         _options = options;
@@ -869,7 +879,6 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
         var messages = rootObject["messages"]?.AsArray();
         if (messages is null) return json;
 
-        var replayAsThinkingContentBlocks = ShouldReplayAssistantThinkingAsContentBlocks(rootObject);
         var changed = false;
         foreach (var msg in messages.OfType<JsonObject>())
         {
@@ -879,18 +888,7 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
             if (msg["content"] is JsonValue stringContentNode
                 && stringContentNode.TryGetValue<string>(out var contentText))
             {
-                if (replayAsThinkingContentBlocks)
-                {
-                    var rebuiltContent = new JsonArray();
-                    if (AppendThinkingContentParts(rebuiltContent, contentText))
-                    {
-                        msg["content"] = rebuiltContent.Count > 0 ? rebuiltContent : JsonValue.Create(string.Empty);
-                        msg.Remove("reasoning_content");
-                        changed = true;
-                        continue;
-                    }
-                }
-                else if (TrySplitAssistantReasoning(contentText, out var visibleText, out var reasoningText))
+                if (TrySplitAssistantReasoning(contentText, out var visibleText, out var reasoningText))
                 {
                     msg["content"] = visibleText;
                     msg["reasoning_content"] = reasoningText;
@@ -903,7 +901,7 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
                 continue;
 
             var rebuiltParts = new JsonArray();
-            var reasoningBuilder = replayAsThinkingContentBlocks ? null : new StringBuilder();
+            var reasoningBuilder = new StringBuilder();
             var rebuilt = false;
             foreach (var partNode in contentParts)
             {
@@ -916,18 +914,6 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
                     continue;
                 }
 
-                if (replayAsThinkingContentBlocks)
-                {
-                    if (AppendThinkingContentParts(rebuiltParts, textPart))
-                    {
-                        rebuilt = true;
-                        continue;
-                    }
-
-                    rebuiltParts.Add(partNode.DeepClone());
-                    continue;
-                }
-
                 if (!TrySplitAssistantReasoning(textPart, out var visiblePartText, out var reasoningPartText))
                 {
                     rebuiltParts.Add(partNode.DeepClone());
@@ -935,7 +921,7 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
                 }
 
                 rebuilt = true;
-                reasoningBuilder!.Append(reasoningPartText);
+                reasoningBuilder.Append(reasoningPartText);
                 if (!string.IsNullOrEmpty(visiblePartText))
                 {
                     rebuiltParts.Add(new JsonObject
@@ -950,11 +936,7 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
                 continue;
 
             msg["content"] = rebuiltParts.Count > 0 ? rebuiltParts : JsonValue.Create(string.Empty);
-            if (replayAsThinkingContentBlocks)
-            {
-                msg.Remove("reasoning_content");
-            }
-            else if (reasoningBuilder is not null && reasoningBuilder.Length > 0)
+            if (reasoningBuilder.Length > 0)
             {
                 msg["reasoning_content"] = reasoningBuilder.ToString();
             }
@@ -963,44 +945,6 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
         }
 
         return changed ? rootObject.ToJsonString() : json;
-    }
-
-    private static bool ShouldReplayAssistantThinkingAsContentBlocks(JsonObject rootObject)
-    {
-        var model = rootObject["model"]?.GetValue<string>();
-        return !string.IsNullOrWhiteSpace(model)
-            && model.Contains("deepseek", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool AppendThinkingContentParts(JsonArray target, string text)
-    {
-        if (string.IsNullOrEmpty(text)
-            || !text.Contains(OpenAIProvider.ThinkingMarkerStart, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var changed = false;
-        foreach (var segment in OpenAIProvider.SplitThinkingMarkedText(text))
-        {
-            changed = true;
-            if (string.IsNullOrEmpty(segment.Text))
-                continue;
-
-            target.Add(segment.IsThinking
-                ? new JsonObject
-                {
-                    ["type"] = "thinking",
-                    ["thinking"] = segment.Text
-                }
-                : new JsonObject
-                {
-                    ["type"] = "text",
-                    ["text"] = segment.Text
-                });
-        }
-
-        return changed;
     }
 
     private static bool TrySplitAssistantReasoning(string text, out string visibleText, out string reasoningText)
@@ -1250,4 +1194,11 @@ public class OpenAIOptions
     /// Defaults to <see cref="RetryPolicy.Default"/> when null.
     /// </summary>
     public RetryPolicy? RetryPolicy { get; init; }
+
+    /// <summary>
+    /// Optional per-model capability overrides. Entries here take precedence over
+    /// the SDK's built-in registry, so new models can be configured without an
+    /// SDK upgrade. Key is the model ID (case-insensitive).
+    /// </summary>
+    public IReadOnlyDictionary<string, ModelCapabilities>? ModelCapabilitiesOverride { get; init; }
 }

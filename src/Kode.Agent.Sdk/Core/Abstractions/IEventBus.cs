@@ -360,6 +360,16 @@ public record TokenUsageEvent : MonitorEvent
     /// TS-aligned: totalTokens = inputTokens + outputTokens.
     /// </summary>
     public required int TotalTokens { get; init; }
+
+    /// <summary>
+    /// Cache hit tokens from provider (null when not reported).
+    /// </summary>
+    public int? CacheHitTokens { get; init; }
+
+    /// <summary>
+    /// Cache miss tokens from provider (null when not reported).
+    /// </summary>
+    public int? CacheMissTokens { get; init; }
 }
 
 /// <summary>
