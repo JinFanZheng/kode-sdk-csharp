@@ -16,6 +16,9 @@ public static class JobCommands
         jobCmd.AddCommand(BuildCancelCommand());
         jobCmd.AddCommand(BuildUpdateCommand());
         jobCmd.AddCommand(BuildDeleteCommand());
+        jobCmd.AddCommand(BuildRescheduleCommand());
+        jobCmd.AddCommand(BuildPauseCommand());
+        jobCmd.AddCommand(BuildResumeCommand());
         return jobCmd;
     }
 
@@ -300,6 +303,86 @@ public static class JobCommands
         return cmd;
     }
 
+    private static Command BuildRescheduleCommand()
+    {
+        var idArg = new Argument<string>("id", "Job ID");
+        var nextRunAtOpt = new Option<string>("--next-run-at", "Next run time ISO 8601") { IsRequired = true };
+        var jsonOpt = new Option<bool>("--json", "Output as JSON");
+        var cmd = new Command("reschedule", "Reschedule a self-driven job") { idArg, nextRunAtOpt, jsonOpt };
+
+        cmd.SetHandler(async (string id, string nextRunAt, bool json) =>
+        {
+            using var client = new HttpGatewayClient(HttpGatewayClient.ResolveGatewayUrl(), HttpGatewayClient.ResolveToken());
+            try
+            {
+                var body = new Dictionary<string, object?> { ["nextRunAt"] = nextRunAt };
+                var result = await client.PostAsync<JobRescheduleResponse>($"api/jobs/{id}/reschedule", body);
+                if (json)
+                    OutputFormatter.WriteJson(new { jobId = id, nextRunAt = result!.NextRunAt });
+                else
+                    OutputFormatter.WriteSuccess($"Job '{id}' rescheduled to {result!.NextRunAt}");
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            { OutputFormatter.WriteError($"Job '{id}' not found"); Environment.Exit(3); }
+            catch (HttpRequestException ex)
+            { OutputFormatter.WriteError($"Gateway error: {ex.Message}"); Environment.Exit(1); }
+        }, idArg, nextRunAtOpt, jsonOpt);
+
+        return cmd;
+    }
+
+    private static Command BuildPauseCommand()
+    {
+        var idArg = new Argument<string>("id", "Job ID");
+        var jsonOpt = new Option<bool>("--json", "Output as JSON");
+        var cmd = new Command("pause", "Pause a job") { idArg, jsonOpt };
+
+        cmd.SetHandler(async (string id, bool json) =>
+        {
+            using var client = new HttpGatewayClient(HttpGatewayClient.ResolveGatewayUrl(), HttpGatewayClient.ResolveToken());
+            try
+            {
+                var result = await client.PostAsync<JobPauseResumeResponse>($"api/jobs/{id}/pause");
+                if (json)
+                    OutputFormatter.WriteJson(new { jobId = id, previousStatus = result!.PreviousStatus, newStatus = result.NewStatus });
+                else
+                    OutputFormatter.WriteSuccess($"Job '{id}' paused (was {result!.PreviousStatus})");
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            { OutputFormatter.WriteError($"Job '{id}' not found"); Environment.Exit(3); }
+            catch (HttpRequestException ex)
+            { OutputFormatter.WriteError($"Gateway error: {ex.Message}"); Environment.Exit(1); }
+        }, idArg, jsonOpt);
+
+        return cmd;
+    }
+
+    private static Command BuildResumeCommand()
+    {
+        var idArg = new Argument<string>("id", "Job ID");
+        var jsonOpt = new Option<bool>("--json", "Output as JSON");
+        var cmd = new Command("resume", "Resume a paused job") { idArg, jsonOpt };
+
+        cmd.SetHandler(async (string id, bool json) =>
+        {
+            using var client = new HttpGatewayClient(HttpGatewayClient.ResolveGatewayUrl(), HttpGatewayClient.ResolveToken());
+            try
+            {
+                var result = await client.PostAsync<JobPauseResumeResponse>($"api/jobs/{id}/resume");
+                if (json)
+                    OutputFormatter.WriteJson(new { jobId = id, previousStatus = result!.PreviousStatus, newStatus = result.NewStatus });
+                else
+                    OutputFormatter.WriteSuccess($"Job '{id}' resumed (was {result!.PreviousStatus})");
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            { OutputFormatter.WriteError($"Job '{id}' not found"); Environment.Exit(3); }
+            catch (HttpRequestException ex)
+            { OutputFormatter.WriteError($"Gateway error: {ex.Message}"); Environment.Exit(1); }
+        }, idArg, jsonOpt);
+
+        return cmd;
+    }
+
     private static string Truncate(string text, int maxLen) =>
         text.Length <= maxLen ? text : text[..(maxLen - 3)] + "...";
 
@@ -368,5 +451,18 @@ public static class JobCommands
     private record JobDeleteResponse
     {
         [JsonPropertyName("deleted")] public bool Deleted { get; init; }
+    }
+
+    private record JobRescheduleResponse
+    {
+        [JsonPropertyName("jobId")] public string JobId { get; init; } = "";
+        [JsonPropertyName("nextRunAt")] public string NextRunAt { get; init; } = "";
+    }
+
+    private record JobPauseResumeResponse
+    {
+        [JsonPropertyName("jobId")] public string JobId { get; init; } = "";
+        [JsonPropertyName("previousStatus")] public string PreviousStatus { get; init; } = "";
+        [JsonPropertyName("newStatus")] public string NewStatus { get; init; } = "";
     }
 }

@@ -209,6 +209,9 @@ public static class ServiceCollectionExtensions
                 toolRegistry.Register("job_update", _ => new JobUpdateTool(jobRepository));
                 toolRegistry.Register("job_cancel", _ => new JobCancelTool(jobRepository));
                 toolRegistry.Register("job_delete", _ => new JobDeleteTool(jobRepository));
+                toolRegistry.Register("job_reschedule", _ => new JobRescheduleTool(jobRepository));
+                toolRegistry.Register("job_pause", _ => new JobPauseTool(jobRepository));
+                toolRegistry.Register("job_resume", _ => new JobResumeTool(jobRepository));
             }
 
             var modelProvider = sp.GetRequiredService<IModelProvider>();

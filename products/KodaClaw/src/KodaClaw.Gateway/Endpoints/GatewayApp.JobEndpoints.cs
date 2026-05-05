@@ -30,8 +30,16 @@ public static partial class GatewayApp
             {
                 if (status.Equals("pending", StringComparison.OrdinalIgnoreCase))
                     statusFilter = JobStatus.Pending;
+                else if (status.Equals("running", StringComparison.OrdinalIgnoreCase))
+                    statusFilter = JobStatus.Running;
+                else if (status.Equals("completed", StringComparison.OrdinalIgnoreCase))
+                    statusFilter = JobStatus.Completed;
+                else if (status.Equals("failed", StringComparison.OrdinalIgnoreCase))
+                    statusFilter = JobStatus.Failed;
                 else if (status.Equals("cancelled", StringComparison.OrdinalIgnoreCase))
                     statusFilter = JobStatus.Cancelled;
+                else if (status.Equals("paused", StringComparison.OrdinalIgnoreCase))
+                    statusFilter = JobStatus.Paused;
                 else
                 {
                     RecordDiagnosticEvent(
@@ -334,6 +342,187 @@ public static partial class GatewayApp
             return Results.Ok(new JobUpdateResponse(updatedFields));
         });
 
+        // POST /api/jobs/{id}/reschedule
+        jobs.MapPost("/{id}/reschedule", async (
+            HttpContext context,
+            string id,
+            RescheduleJobRequest request,
+            IConfiguration configuration,
+            IJobRepository jobRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration, diagnosticsService))
+                return Results.Unauthorized();
+
+            var job = await jobRepository.GetByIdAsync(id, cancellationToken);
+            if (job is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService, context,
+                    source: "gateway.jobs",
+                    eventType: "gateway.jobs.not_found",
+                    level: "warning",
+                    message: "Job reschedule targeted a missing job.",
+                    attributes: new Dictionary<string, string?> { ["jobId"] = id });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "job.not_found",
+                    Message: "Job was not found."));
+            }
+
+            if (job.Type != JobType.SelfDriven)
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.reschedule_not_allowed",
+                    Message: "仅 self-driven Job 可调用 reschedule。"));
+            }
+
+            if (!DateTimeOffset.TryParse(request.NextRunAt, out var nextRunAt))
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.next_run_at_invalid",
+                    Message: "nextRunAt must be a valid ISO 8601 datetime."));
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            if (nextRunAt < now.AddMinutes(5))
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.next_run_at_too_soon",
+                    Message: "nextRunAt must be at least 5 minutes in the future."));
+            }
+
+            if (nextRunAt > now.AddDays(30))
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.next_run_at_too_far",
+                    Message: "nextRunAt must be within 30 days."));
+            }
+
+            var updated = job with { NextRunAt = nextRunAt, UpdatedAt = now };
+            await jobRepository.UpdateAsync(updated, cancellationToken);
+
+            RecordDiagnosticEvent(
+                diagnosticsService, context,
+                source: "gateway.jobs",
+                eventType: "gateway.jobs.rescheduled",
+                level: "info",
+                message: "Job rescheduled.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["jobId"] = id,
+                    ["nextRunAt"] = nextRunAt.ToString("O"),
+                });
+
+            return Results.Ok(new JobRescheduleApiResponse(id, nextRunAt.ToString("O")));
+        });
+
+        // POST /api/jobs/{id}/pause
+        jobs.MapPost("/{id}/pause", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IJobRepository jobRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration, diagnosticsService))
+                return Results.Unauthorized();
+
+            var job = await jobRepository.GetByIdAsync(id, cancellationToken);
+            if (job is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService, context,
+                    source: "gateway.jobs",
+                    eventType: "gateway.jobs.not_found",
+                    level: "warning",
+                    message: "Job pause targeted a missing job.",
+                    attributes: new Dictionary<string, string?> { ["jobId"] = id });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "job.not_found",
+                    Message: "Job was not found."));
+            }
+
+            if (job.Status != JobStatus.Pending)
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.pause_not_allowed",
+                    Message: $"只能暂停 pending 状态的 Job，当前状态为 {job.Status.ToString().ToLowerInvariant()}。"));
+            }
+
+            var previousStatus = job.Status.ToString().ToLowerInvariant();
+            var updated = job with { Status = JobStatus.Paused, UpdatedAt = DateTimeOffset.UtcNow };
+            await jobRepository.UpdateAsync(updated, cancellationToken);
+
+            RecordDiagnosticEvent(
+                diagnosticsService, context,
+                source: "gateway.jobs",
+                eventType: "gateway.jobs.paused",
+                level: "info",
+                message: "Job paused.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["jobId"] = id,
+                    ["previousStatus"] = previousStatus,
+                });
+
+            return Results.Ok(new JobPauseResumeApiResponse(id, previousStatus, "paused"));
+        });
+
+        // POST /api/jobs/{id}/resume
+        jobs.MapPost("/{id}/resume", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IJobRepository jobRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration, diagnosticsService))
+                return Results.Unauthorized();
+
+            var job = await jobRepository.GetByIdAsync(id, cancellationToken);
+            if (job is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService, context,
+                    source: "gateway.jobs",
+                    eventType: "gateway.jobs.not_found",
+                    level: "warning",
+                    message: "Job resume targeted a missing job.",
+                    attributes: new Dictionary<string, string?> { ["jobId"] = id });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "job.not_found",
+                    Message: "Job was not found."));
+            }
+
+            if (job.Status != JobStatus.Paused)
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.resume_not_allowed",
+                    Message: $"只能 resume paused 状态的 Job，当前状态为 {job.Status.ToString().ToLowerInvariant()}。"));
+            }
+
+            var previousStatus = job.Status.ToString().ToLowerInvariant();
+            var updated = job with { Status = JobStatus.Pending, UpdatedAt = DateTimeOffset.UtcNow };
+            await jobRepository.UpdateAsync(updated, cancellationToken);
+
+            RecordDiagnosticEvent(
+                diagnosticsService, context,
+                source: "gateway.jobs",
+                eventType: "gateway.jobs.resumed",
+                level: "info",
+                message: "Job resumed.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["jobId"] = id,
+                    ["previousStatus"] = previousStatus,
+                });
+
+            return Results.Ok(new JobPauseResumeApiResponse(id, previousStatus, "pending"));
+        });
+
         // POST /api/jobs/{id}/delete
         jobs.MapPost("/{id}/delete", async (
             HttpContext context,
@@ -443,6 +632,20 @@ public static partial class GatewayApp
         public int? TimeoutMinutes { get; init; }
         public int? MaxRetries { get; init; }
     }
+
+    private sealed record RescheduleJobRequest
+    {
+        public string NextRunAt { get; init; } = "";
+    }
+
+    private sealed record JobRescheduleApiResponse(
+        string JobId,
+        string NextRunAt);
+
+    private sealed record JobPauseResumeApiResponse(
+        string JobId,
+        string PreviousStatus,
+        string NewStatus);
 
     private sealed record UpdateJobRequest
     {

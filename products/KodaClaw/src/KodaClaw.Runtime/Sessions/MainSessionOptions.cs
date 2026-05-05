@@ -56,6 +56,9 @@ public sealed class MainSessionOptions
         "job_update",
         "job_cancel",
         "job_delete",
+        "job_reschedule",
+        "job_pause",
+        "job_resume",
         // "browser_action"
         // fan_out_fan_in, map_reduce, debate — gated behind koda-orchestration skill
     ];
