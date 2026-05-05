@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Encodings.Web;
+using System.Text.Unicode;
 using System.Text.Json.Serialization;
 using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Abstractions;
@@ -26,7 +28,8 @@ public sealed class JsonAgentStore : IAgentStore
         {
             WriteIndented = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            PropertyNameCaseInsensitive = true
+            PropertyNameCaseInsensitive = true,
+            Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
         };
         _jsonOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         _jsonOptions.Converters.Add(new AgentEventJsonConverter());
@@ -34,7 +37,8 @@ public sealed class JsonAgentStore : IAgentStore
         // Events are stored as newline-delimited JSON (one Timeline per line); never indent.
         _eventJsonOptions = new JsonSerializerOptions(_jsonOptions)
         {
-            WriteIndented = false
+            WriteIndented = false,
+            Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
         };
     }
 
