@@ -28,6 +28,21 @@ describe("SettingsDesk", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
       if (url.includes("persona-presets")) return jsonResponse([]);
       if (url.includes("channels/accounts")) return jsonResponse([]);
+      if (url.includes("/api/memory/stats")) {
+        return jsonResponse({ activeCount: 0, dormantCount: 0, archivedCount: 0, topicsCount: 0, sessionsCount: 0 });
+      }
+      if (url.includes("/api/memory/entries")) {
+        return jsonResponse({ count: 0, entries: [] });
+      }
+      if (url.includes("/api/system/storage-usage")) {
+        return jsonResponse({
+          main: { count: 0, sizeBytes: 0 },
+          auto: { count: 0, sizeBytes: 0 },
+          channel: { count: 0, sizeBytes: 0 },
+          totalSizeBytes: 0,
+        });
+      }
+      if (url.includes("/api/sessions")) return jsonResponse({ sessions: [] });
       return jsonResponse({ target: "identity", content: "" });
     });
   });
@@ -122,6 +137,21 @@ describe("SettingsDesk", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
       if (url.includes("persona-presets")) return jsonResponse([]);
       if (url.includes("channels/accounts")) return jsonResponse([]);
+      if (url.includes("/api/memory/stats")) {
+        return jsonResponse({ activeCount: 0, dormantCount: 0, archivedCount: 0, topicsCount: 0, sessionsCount: 0 });
+      }
+      if (url.includes("/api/memory/entries")) {
+        return jsonResponse({ count: 0, entries: [] });
+      }
+      if (url.includes("/api/system/storage-usage")) {
+        return jsonResponse({
+          main: { count: 0, sizeBytes: 0 },
+          auto: { count: 0, sizeBytes: 0 },
+          channel: { count: 0, sizeBytes: 0 },
+          totalSizeBytes: 0,
+        });
+      }
+      if (url.includes("/api/sessions")) return jsonResponse({ sessions: [] });
       return jsonResponse({ target: "identity", content: "" });
     });
 

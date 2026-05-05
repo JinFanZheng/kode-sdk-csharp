@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
 import ReactMarkdown from "react-markdown";
@@ -9,13 +9,13 @@ import {
   submitApprovalDecision,
   updateInboxStatus,
 } from "../../lib/api";
-import { parseChannelDeliveryPayload } from "./inboxUtils";
+import { formatRelativeTime, parseChannelDeliveryPayload } from "./inboxUtils";
 import { useI18n, useLocaleText } from "../../i18n/I18nProvider";
 import { Skeleton } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
 import { Button } from "../ui/Button";
 import { Select } from "../ui/Select";
-import { Inbox, Zap } from "lucide-react";
+import { Inbox, Loader2, Zap } from "lucide-react";
 import { InboxDeliveryContext } from "./InboxDeliveryContext";
 import { InboxAutomationResultPush } from "./InboxAutomationResultPush";
 import { InboxLinkedApproval } from "./InboxLinkedApproval";
@@ -61,11 +61,27 @@ export function InboxApprovalDesk() {
   const [approvalOverrides, setApprovalOverrides] = useState<Record<string, Approval>>({});
   const [inboxStatusOverrides, setInboxStatusOverrides] = useState<Record<string, InboxItemStatus>>({});
   const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [markAllDone, setMarkAllDone] = useState(0);
+  const [markAllTotal, setMarkAllTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  // Per-item inline errors (kept separate from the global query-load error)
+  const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
+  const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
+  const [markAllError, setMarkAllError] = useState<string | null>(null);
 
   const formatTimestamp = useCallback(
     (value?: string | null) => formatDateTime(value, t.common.none),
     [formatDateTime, t.common.none],
   );
+
+  const formatRelative = useCallback(
+    (value?: string | null) => formatRelativeTime(value, t),
+    [t],
+  );
+
+  const listBodyRef = useRef<HTMLDivElement>(null);
 
   // ── Derived data ──
 
@@ -77,10 +93,56 @@ export function InboxApprovalDesk() {
   }, [approvals, approvalOverrides]);
 
   const filteredItems = useMemo(() => {
-    if (kindFilter === "approvals") return inboxItems.filter((i) => i.kind !== "AutomationResult");
-    if (kindFilter === "automations") return inboxItems.filter((i) => i.kind === "AutomationResult");
-    return inboxItems;
-  }, [inboxItems, kindFilter]);
+    let items = inboxItems;
+    if (kindFilter === "approvals") items = items.filter((i) => i.kind !== "AutomationResult");
+    else if (kindFilter === "automations") items = items.filter((i) => i.kind === "AutomationResult");
+    if (debouncedQuery.trim()) {
+      const q = debouncedQuery.toLowerCase().trim();
+      items = items.filter(
+        (i) =>
+          i.title.toLowerCase().includes(q) ||
+          (i.summary ?? "").toLowerCase().includes(q),
+      );
+    }
+    return items;
+  }, [inboxItems, kindFilter, debouncedQuery]);
+
+  // ── Keyboard navigation ──
+
+  const handleListKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const idx = filteredItems.findIndex((item) => item.id === selectedId);
+      let nextIdx: number;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        nextIdx = idx < filteredItems.length - 1 ? idx + 1 : idx;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        nextIdx = idx > 0 ? idx - 1 : idx;
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const card = listBodyRef.current?.querySelector(
+          `[data-testid="inbox-item-${selectedId}"]`,
+        ) as HTMLElement | null;
+        card?.click();
+        return;
+      } else {
+        return;
+      }
+      const nextId = filteredItems[nextIdx]?.id;
+      if (nextId) setSelectedId(nextId);
+    },
+    [filteredItems, selectedId],
+  );
+
+  // Scroll selected card into view
+  useEffect(() => {
+    if (!selectedId || !listBodyRef.current) return;
+    const card = listBodyRef.current.querySelector(
+      `[data-testid="inbox-item-${selectedId}"]`,
+    ) as HTMLElement | null;
+    card?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedId]);
 
   // ── Data mutations ──
 
@@ -99,7 +161,10 @@ export function InboxApprovalDesk() {
         void queryClient.invalidateQueries({ queryKey: ['inbox'] });
         void queryClient.invalidateQueries({ queryKey: ['approvals'] });
       } catch (err) {
-        setError(err instanceof Error ? err.message : t.errors.decisionFailed);
+        setApprovalErrors((cur) => ({
+          ...cur,
+          [approvalId]: err instanceof Error ? err.message : t.errors.decisionFailed,
+        }));
       } finally {
         setPendingApprovalIds((cur) => {
           const next = { ...cur };
@@ -119,7 +184,10 @@ export function InboxApprovalDesk() {
         setInboxStatusOverrides((cur) => ({ ...cur, [inboxId]: status }));
         void queryClient.invalidateQueries({ queryKey: ['inbox'] });
       } catch (err) {
-        setError(err instanceof Error ? err.message : t.errors.updateFailed);
+        setStatusErrors((cur) => ({
+          ...cur,
+          [inboxId]: err instanceof Error ? err.message : t.errors.updateFailed,
+        }));
       } finally {
         setPendingInboxIds((cur) => {
           const next = { ...cur };
@@ -145,24 +213,37 @@ export function InboxApprovalDesk() {
     if (itemsToMark.length === 0) return;
 
     setMarkingAllRead(true);
+    setMarkAllTotal(itemsToMark.length);
+    setMarkAllDone(0);
+
+    // Optimistic: mark all as acknowledged immediately
     const overrides: Record<string, InboxItemStatus> = {};
     for (const item of itemsToMark) {
       overrides[item.id] = "Acknowledged";
     }
     setInboxStatusOverrides((cur) => ({ ...cur, ...overrides }));
 
-    let firstError: string | null = null;
-    for (const item of itemsToMark) {
-      try {
-        await updateInboxStatus(item.id, "Acknowledged");
-      } catch (err) {
-        firstError ??= err instanceof Error ? err.message : t.errors.updateFailed;
-      }
-    }
+    const results = await Promise.allSettled(
+      itemsToMark.map((item) =>
+        updateInboxStatus(item.id, "Acknowledged").then(() => {
+          setMarkAllDone((prev) => prev + 1);
+        }),
+      ),
+    );
+
+    const firstError = results.find((r) => r.status === "rejected") as
+      | PromiseRejectedResult
+      | undefined;
+    const errorMsg =
+      firstError?.reason instanceof Error
+        ? firstError.reason.message
+        : firstError
+          ? t.errors.updateFailed
+          : null;
 
     setMarkingAllRead(false);
-    if (firstError) {
-      setError(firstError);
+    if (errorMsg) {
+      setMarkAllError(errorMsg);
     }
     void queryClient.invalidateQueries({ queryKey: ['inbox'] });
   }, [filteredItems, queryClient, t.errors.updateFailed]);
@@ -185,6 +266,12 @@ export function InboxApprovalDesk() {
   );
 
   // ── Side effects ──
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     setSelectedId((current) => {
@@ -224,8 +311,15 @@ export function InboxApprovalDesk() {
             disabled={isLoading || markingAllRead || filteredItems.every((i) => i.status === "Acknowledged" || i.status === "Resolved" || i.status === "Archived")}
             onClick={() => { void handleMarkAllRead(); }}
           >
-            {markingAllRead ? t.markingAllRead : t.markAllRead}
+            {markingAllRead && markAllTotal > 0
+              ? t.markingProgress(markAllDone, markAllTotal)
+              : markingAllRead
+                ? t.markingAllRead
+                : t.markAllRead}
           </Button>
+          {markAllError ? (
+            <span className="desk-feedback desk-feedback--error">{markAllError}</span>
+          ) : null}
           <label className="metric-label" htmlFor="inbox-status-filter">
             {t.statusFilter}
           </label>
@@ -241,6 +335,14 @@ export function InboxApprovalDesk() {
               <option key={s} value={s}>{formatInboxStatus(s, t)}</option>
             ))}
           </Select>
+          <input
+            type="search"
+            className="kc-input control-plane-filter"
+            data-testid="inbox-search"
+            placeholder={t.searchPlaceholder}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
       </div>
 
@@ -275,7 +377,15 @@ export function InboxApprovalDesk() {
               ))}
             </div>
 
-            <div className="timeline__body inbox-desk__list-body">
+            <div
+              ref={listBodyRef}
+              className="timeline__body inbox-desk__list-body"
+              role="listbox"
+              aria-label={t.title}
+              aria-activedescendant={selectedId ? `inbox-item-${selectedId}` : undefined}
+              tabIndex={0}
+              onKeyDown={handleListKeyDown}
+            >
               {isLoading ? <Skeleton height={52} count={3} /> : null}
               {!isLoading && filteredItems.length === 0 ? (
                 <EmptyState icon={<Inbox size={28} strokeWidth={1.5} />} title={t.emptyInbox} />
@@ -285,6 +395,10 @@ export function InboxApprovalDesk() {
                 return (
                   <article
                     key={item.id}
+                    id={`inbox-item-${item.id}`}
+                    role="option"
+                    aria-selected={selectedId === item.id}
+                    tabIndex={-1}
                     className={`message message--system control-plane-stack control-plane-queue-card${selectedId === item.id ? " control-plane-list-button--selected" : ""}${isAutomation ? " inbox-automation-result-card" : ""}`}
                     data-testid={`inbox-item-${item.id}`}
                     onClick={() => setSelectedId(item.id)}
@@ -298,12 +412,14 @@ export function InboxApprovalDesk() {
                       ) : (
                         <span className="message__role">{formatInboxKind(item.kind, t)}</span>
                       )}
-                      <span>{formatTimestamp(item.updatedAt)}</span>
+                      <time dateTime={item.updatedAt ?? undefined} title={formatTimestamp(item.updatedAt)}>
+                        {formatRelative(item.updatedAt)}
+                      </time>
                     </div>
                     <strong>{item.title}</strong>
                     <p className="control-plane-compact-copy inbox-card-summary">{item.summary}</p>
                     {item.requiresAction ? (
-                      <span className="stream-indicator is-live">{t.actionRequired}</span>
+                      <span className="inbox-action-badge">{t.actionRequired}</span>
                     ) : null}
                   </article>
                 );
@@ -348,6 +464,19 @@ export function InboxApprovalDesk() {
                 </div>
               </div>
 
+              {/* Linked approval section — promoted above fold */}
+              {linkedApproval ? (
+                <InboxLinkedApproval
+                  linkedApproval={linkedApproval}
+                  text={t}
+                  approvalNotes={approvalNotes}
+                  pendingApprovalIds={pendingApprovalIds}
+                  inlineError={approvalErrors[linkedApproval.id] ?? null}
+                  onApprovalDecision={handleApprovalDecision}
+                  onApprovalNoteChange={handleApprovalNoteChange}
+                />
+              ) : null}
+
               {/* AutomationResult channel push section */}
               <InboxAutomationResultPush
                 item={selectedItem}
@@ -363,7 +492,13 @@ export function InboxApprovalDesk() {
                 </div>
                 <div className="metric-item">
                   <span className="metric-label">{t.lastUpdated}</span>
-                  <span className="metric-value">{formatTimestamp(selectedItem.updatedAt)}</span>
+                  <time
+                    dateTime={selectedItem.updatedAt ?? undefined}
+                    title={formatTimestamp(selectedItem.updatedAt)}
+                    className="metric-value"
+                  >
+                    {formatRelative(selectedItem.updatedAt)}
+                  </time>
                 </div>
                 {selectedItem.sessionId ? (
                   <div className="metric-item">
@@ -390,18 +525,6 @@ export function InboxApprovalDesk() {
                 <InboxDeliveryContext payload={selectedPayload} text={t} />
               ) : null}
 
-              {/* Linked approval section */}
-              {linkedApproval ? (
-                <InboxLinkedApproval
-                  linkedApproval={linkedApproval}
-                  text={t}
-                  approvalNotes={approvalNotes}
-                  pendingApprovalIds={pendingApprovalIds}
-                  onApprovalDecision={handleApprovalDecision}
-                  onApprovalNoteChange={handleApprovalNoteChange}
-                />
-              ) : null}
-
               {/* Item actions */}
               <div className="control-plane-detail-actions">
                 {selectedItem.kind === "AutomationResult" ? (
@@ -414,6 +537,9 @@ export function InboxApprovalDesk() {
                     }
                     onClick={() => void handleStatusUpdate(selectedItem.id, "Acknowledged")}
                   >
+                    {(pendingInboxIds[selectedItem.id] ?? false) ? (
+                      <Loader2 size={14} className="icon-spinning" />
+                    ) : null}
                     {t.markRead}
                   </Button>
                 ) : (
@@ -434,8 +560,16 @@ export function InboxApprovalDesk() {
                         <option key={s} value={s}>{formatInboxStatus(s, t)}</option>
                       ))}
                     </Select>
+                    {(pendingInboxIds[selectedItem.id] ?? false) ? (
+                      <Loader2 size={14} className="icon-spinning" />
+                    ) : null}
                   </>
                 )}
+                {statusErrors[selectedItem.id] ? (
+                  <p className="desk-feedback desk-feedback--error" style={{ width: "100%" }}>
+                    {statusErrors[selectedItem.id]}
+                  </p>
+                ) : null}
               </div>
             </div>
           )}

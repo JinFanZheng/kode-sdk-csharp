@@ -1066,7 +1066,7 @@ export function ChannelsDesk() {
   }
 
   return (
-    <section className="" data-testid="channels-desk">
+    <section data-testid="channels-desk">
       <h2 className="desk-section-title">{text.title}</h2>
       <p className="desk-section-desc">{text.copy}</p>
 

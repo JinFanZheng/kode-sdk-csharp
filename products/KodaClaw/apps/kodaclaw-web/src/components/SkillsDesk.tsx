@@ -7,6 +7,7 @@ import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
 import { Button } from "./ui/Button";
 import { Lightbulb } from "lucide-react";
+import "./ControlPlaneDesk.css";
 
 type SkillSource = "built-in" | "global" | "workspace";
 

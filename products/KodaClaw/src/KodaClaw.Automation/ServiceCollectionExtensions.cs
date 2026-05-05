@@ -85,9 +85,14 @@ public static class ServiceCollectionExtensions
         });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, AutomationSchedulerHostedService>());
 
-        // JobScheduler registrations (Phase 1b-1)
+        // JobScheduler registrations (Phase 1b-1/1b-2)
         services.TryAddSingleton<JobSchedulerOptions>();
-        services.TryAddSingleton<JobScheduler>();
+        services.TryAddSingleton(provider => new JobScheduler(
+            provider.GetRequiredService<IJobRepository>(),
+            provider.GetRequiredService<IAutomationSessionService>(),
+            provider.GetRequiredService<JobSchedulerOptions>(),
+            provider.GetService<IAutomationNotificationService>(),
+            provider.GetService<ILogger<JobScheduler>>()));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, JobSchedulerHostedService>());
 
         return services;

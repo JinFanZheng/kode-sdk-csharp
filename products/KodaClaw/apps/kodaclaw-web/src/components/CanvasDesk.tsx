@@ -17,6 +17,8 @@ import { Button } from "./ui/Button";
 import { Select } from "./ui/Select";
 import { Layers } from "lucide-react";
 import type { CanvasArtifact, CanvasArtifactKind, CanvasEntryResponse } from "../types/contracts";
+import "./ControlPlaneDesk.css";
+import { formatRelativeTime } from "../lib/timeUtils";
 
 type CanvasKindFilter = CanvasArtifactKind | "all";
 
@@ -88,6 +90,12 @@ export function CanvasDesk() {
       unavailable: "暂无",
       loadDeskError: "加载画布工作台失败。",
       loadArtifactError: "加载画布制品失败。",
+      relativeTime: {
+        justNow: "刚刚",
+        minutesAgo: (n: number) => `${n} 分钟前`,
+        hoursAgo: (n: number) => `${n} 小时前`,
+        daysAgo: (n: number) => `${n} 天前`,
+      },
       kinds: {
         Report: "报告",
         Dashboard: "仪表盘",
@@ -133,6 +141,12 @@ export function CanvasDesk() {
       unavailable: "n/a",
       loadDeskError: "Failed to load canvas desk.",
       loadArtifactError: "Failed to load canvas artifact.",
+      relativeTime: {
+        justNow: "just now",
+        minutesAgo: (n: number) => `${n}m ago`,
+        hoursAgo: (n: number) => `${n}h ago`,
+        daysAgo: (n: number) => `${n}d ago`,
+      },
       kinds: {
         Report: "Report",
         Dashboard: "Dashboard",
@@ -403,7 +417,12 @@ export function CanvasDesk() {
                 >
                   <div className="canvas-artifact-card__header">
                     <span className="canvas-artifact-card__kind">{resolveKindLabel(artifact.kind)}</span>
-                    <span className="canvas-artifact-card__date">{formatDateTime(artifact.updatedAt, text.unavailable)}</span>
+                    <span
+                      className="canvas-artifact-card__date"
+                      title={formatDateTime(artifact.updatedAt, text.unavailable)}
+                    >
+                      {formatRelativeTime(artifact.updatedAt, text.relativeTime)}
+                    </span>
                   </div>
                   <span className="canvas-artifact-card__title">{artifact.title}</span>
                   {artifact.route ? <span className="canvas-artifact-card__route">{artifact.route}</span> : null}

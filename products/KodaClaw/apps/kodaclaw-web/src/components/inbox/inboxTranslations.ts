@@ -34,6 +34,7 @@ export const inboxTranslations = {
     refresh: "刷新",
     refreshing: "正在刷新...",
     statusFilter: "状态",
+    searchPlaceholder: "搜索标题或摘要...",
     kindTabs: { all: "全部", approvals: "审批", automations: "自动化结果" },
     emptyInbox: "当前筛选下没有收件。",
     emptyDetail: "从左侧选择一条收件记录查看详情。",
@@ -95,6 +96,7 @@ export const inboxTranslations = {
     markRead: "标为已读",
     markAllRead: "全部已读",
     markingAllRead: "标记中...",
+    markingProgress: (done: number, total: number) => `已标记 ${done}/${total}...`,
     errors: {
       loadFailed: "加载收件失败。",
       decisionFailed: "提交审批决策失败。",
@@ -103,6 +105,12 @@ export const inboxTranslations = {
     pushToChannel: "推送到渠道",
     pushing: "推送中...",
     pushFailed: "推送失败",
+    relativeTime: {
+      justNow: "刚刚",
+      minutesAgo: (n: number) => `${n} 分钟前`,
+      hoursAgo: (n: number) => `${n} 小时前`,
+      daysAgo: (n: number) => `${n} 天前`,
+    },
   },
   en: {
     common: {
@@ -116,6 +124,7 @@ export const inboxTranslations = {
     refresh: "Refresh",
     refreshing: "Refreshing...",
     statusFilter: "Status",
+    searchPlaceholder: "Search title or summary...",
     kindTabs: { all: "All", approvals: "Approvals", automations: "Automation Results" },
     emptyInbox: "No inbox items match the current filter.",
     emptyDetail: "Select an inbox item to view details.",
@@ -177,6 +186,7 @@ export const inboxTranslations = {
     markRead: "Mark as read",
     markAllRead: "Mark all read",
     markingAllRead: "Marking...",
+    markingProgress: (done: number, total: number) => `Marked ${done}/${total}...`,
     errors: {
       loadFailed: "Failed to load inbox.",
       decisionFailed: "Failed to submit approval decision.",
@@ -185,6 +195,12 @@ export const inboxTranslations = {
     pushToChannel: "Push to channel",
     pushing: "Pushing...",
     pushFailed: "Push failed",
+    relativeTime: {
+      justNow: "just now",
+      minutesAgo: (n: number) => `${n}m ago`,
+      hoursAgo: (n: number) => `${n}h ago`,
+      daysAgo: (n: number) => `${n}d ago`,
+    },
   },
 };
 

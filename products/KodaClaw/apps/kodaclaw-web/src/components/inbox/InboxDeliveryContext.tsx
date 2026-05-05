@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import type { ChannelDeliveryPayload, InboxText } from "./inboxTranslations";
 import { resolveGatewayPath } from "../../lib/config";
 import { formatDeliveryMode } from "./inboxTranslations";
@@ -16,7 +17,20 @@ function buildThreadAuditApi(bindingId: string) {
   return resolveGatewayPath(`/api/channels/threads/${bindingId}/audit?limit=20`);
 }
 
+type CopiedKey = "detail" | "audit" | null;
+
 export function InboxDeliveryContext({ payload, text }: Props) {
+  const [copied, setCopied] = useState<CopiedKey>(null);
+
+  const handleCopy = useCallback(async (key: CopiedKey, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      // clipboard API may not be available (e.g. non-HTTPS); silently ignore
+    }
+  }, []);
   return (
     <div className="inbox-delivery-context">
       <p className="metric-label">{text.deliveryContext}</p>
@@ -63,14 +77,32 @@ export function InboxDeliveryContext({ payload, text }: Props) {
           ))}
         <div className="metric-item">
           <span className="metric-label">{text.threadDetailApi}</span>
-          <span className="metric-value metric-value--path">
+          <span className="metric-value metric-value--path" style={{ display: "flex", alignItems: "center", gap: 4 }}>
             {buildThreadDetailApi(payload.bindingId)}
+            <button
+              type="button"
+              className="inbox-copy-btn"
+              data-testid="copy-thread-detail-api"
+              onClick={() => { void handleCopy("detail", buildThreadDetailApi(payload.bindingId)); }}
+              title="Copy"
+            >
+              {copied === "detail" ? <Check size={14} /> : <Copy size={14} />}
+            </button>
           </span>
         </div>
         <div className="metric-item">
           <span className="metric-label">{text.threadAuditApi}</span>
-          <span className="metric-value metric-value--path">
+          <span className="metric-value metric-value--path" style={{ display: "flex", alignItems: "center", gap: 4 }}>
             {buildThreadAuditApi(payload.bindingId)}
+            <button
+              type="button"
+              className="inbox-copy-btn"
+              data-testid="copy-thread-audit-api"
+              onClick={() => { void handleCopy("audit", buildThreadAuditApi(payload.bindingId)); }}
+              title="Copy"
+            >
+              {copied === "audit" ? <Check size={14} /> : <Copy size={14} />}
+            </button>
           </span>
         </div>
       </div>

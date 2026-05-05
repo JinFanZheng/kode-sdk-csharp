@@ -636,7 +636,7 @@ export function PluginsDesk() {
   const stopButtonEnabled = !isMutating && !!detail && detail.record.runtimeState === "Running";
 
   return (
-    <section className="" data-testid="plugins-desk">
+    <section data-testid="plugins-desk">
       <h2 className="desk-section-title">{text.title}</h2>
       <p className="desk-section-desc">{text.intro}</p>
 

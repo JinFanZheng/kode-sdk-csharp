@@ -9,8 +9,10 @@ import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
 import { Button } from "./ui/Button";
-import { Search, ChevronDown, ChevronRight } from "lucide-react";
+import { Search } from "lucide-react";
 import { getRuntimeConfig } from "../lib/config";
+import { CollapsibleSection } from "./ui/CollapsibleSection";
+import { MetricRow } from "./ui/MetricRow";
 import type {
   DiagnosticBundleExportRequest,
   DiagnosticBundleExportResponse,
@@ -52,43 +54,6 @@ function buildDiagnosticBundleRequest(
   }
 
   return request;
-}
-
-/** Collapsible section with a chevron toggle */
-function CollapsibleSection({
-  title,
-  defaultOpen = true,
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="diag-collapsible">
-      <button
-        type="button"
-        className="diag-collapsible__trigger"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        {open ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronRight size={14} strokeWidth={2} />}
-        <span>{title}</span>
-      </button>
-      {open && <div className="diag-collapsible__body">{children}</div>}
-    </div>
-  );
-}
-
-/** Two-column metric grid item */
-function MetricRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="metric-item">
-      <span className="metric-label">{label}</span>
-      <span className="metric-value">{children}</span>
-    </div>
-  );
 }
 
 export function SessionsDiagnosticsDesk({

@@ -19,6 +19,8 @@ import { ConfirmModal } from "./ui/ConfirmModal";
 import { Button } from "./ui/Button";
 import { Select } from "./ui/Select";
 import { Zap } from "lucide-react";
+import { parseCronHuman } from "../lib/cron";
+import { stripXml } from "../lib/textUtils";
 import type {
   AutomationDefinition,
   AutomationDefinitionSource,
@@ -34,18 +36,6 @@ type ConfirmState =
   | null;
 
 const SOURCE_FILTER_OPTIONS: AutomationDefinitionSource[] = ["Manual", "Heartbeat"];
-
-/** Strip XML/tool-call blocks (e.g. <function_calls>…</function_calls>) from LLM output. */
-function stripXml(value: string | null | undefined, maxLength = 200): string {
-  if (!value) return "";
-  const cleaned = value
-    .replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, "")
-    .replace(/<[^>]+\/>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (cleaned.length <= maxLength) return cleaned;
-  return `${cleaned.slice(0, maxLength - 3)}...`;
-}
 
 function resolveChannelLabel(bindingId: string): string {
   if (bindingId.startsWith("tg-")) return `Telegram · ${bindingId.slice(3)}`;
@@ -419,51 +409,8 @@ export function AutomationsDesk() {
     return text.triggerLabels[trigger as keyof typeof text.triggerLabels] ?? trigger;
   }
 
-  /** Convert a 5-field cron expression to a human-readable description. */
-  function parseCronHuman(expr: string): string {
-    const parts = expr.trim().split(/\s+/);
-    if (parts.length !== 5) return expr;
-    const [min, hour, dom, month, dow] = parts;
-
-    // Only handle the common dom=* month=* subset.
-    if (dom !== "*" || month !== "*") return expr;
-
-    // Every N minutes: */N * * * *
-    if (min.startsWith("*/") && hour === "*" && dow === "*") {
-      const n = parseInt(min.slice(2), 10);
-      if (Number.isFinite(n) && n > 0) return text.schedule.everyMinutes(n);
-    }
-
-    // Every N hours: (0|M) */N * * *
-    if (hour.startsWith("*/") && dow === "*") {
-      const n = parseInt(hour.slice(2), 10);
-      if (Number.isFinite(n) && n > 0)
-        return n === 1 ? text.schedule.hourly : text.schedule.everyHours(n);
-    }
-
-    // Specific time of day
-    const h = /^\d+$/.test(hour) ? parseInt(hour, 10) : NaN;
-    const m = /^\d+$/.test(min) ? parseInt(min, 10) : NaN;
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return expr;
-
-    const timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-
-    if (dow === "*") return text.schedule.dailyAt(timeStr);
-    if (dow === "1-5") return text.schedule.weekdays(timeStr);
-
-    const dayKeyMap: Record<string, keyof typeof text.dayNames> = {
-      "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday",
-      "4": "Thursday", "5": "Friday", "6": "Saturday", "7": "Sunday",
-    };
-    const dayLabel = dow
-      .split(",")
-      .map((d) => { const k = dayKeyMap[d.trim()]; return k ? text.dayNames[k] : d; })
-      .join("/");
-    return text.schedule.weekly(dayLabel, timeStr);
-  }
-
   function formatSchedule(cronExpression: string): string {
-    return parseCronHuman(cronExpression);
+    return parseCronHuman(cronExpression, text.schedule, text.dayNames);
   }
 
   /**
@@ -884,7 +831,7 @@ export function AutomationsDesk() {
 
       {error ? (
         <p
-          className="__feedback __feedback--error"
+          className="desk-feedback desk-feedback--error"
           data-testid="automations-error"
         >
           {error}

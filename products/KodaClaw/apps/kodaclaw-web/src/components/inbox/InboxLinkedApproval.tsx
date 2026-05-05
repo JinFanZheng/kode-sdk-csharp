@@ -1,4 +1,5 @@
 import React from "react";
+import { Loader2 } from "lucide-react";
 import { Button } from "../ui/Button";
 import type { Approval } from "../../types/contracts";
 import type { InboxText } from "./inboxTranslations";
@@ -12,6 +13,7 @@ type Props = {
   text: InboxText;
   approvalNotes: Record<string, string>;
   pendingApprovalIds: Record<string, boolean>;
+  inlineError?: string | null;
   onApprovalDecision: (approvalId: string, approve: boolean) => void;
   onApprovalNoteChange: (approvalId: string, value: string) => void;
 };
@@ -21,6 +23,7 @@ export function InboxLinkedApproval({
   text,
   approvalNotes,
   pendingApprovalIds,
+  inlineError,
   onApprovalDecision,
   onApprovalNoteChange,
 }: Props) {
@@ -69,6 +72,7 @@ export function InboxLinkedApproval({
               disabled={isPending}
               onClick={() => void onApprovalDecision(linkedApproval.id, true)}
             >
+              {isPending ? <Loader2 size={14} className="icon-spinning" /> : null}
               {text.approve}
             </Button>
             <Button
@@ -77,10 +81,14 @@ export function InboxLinkedApproval({
               disabled={isPending}
               onClick={() => void onApprovalDecision(linkedApproval.id, false)}
             >
+              {isPending ? <Loader2 size={14} className="icon-spinning" /> : null}
               {text.reject}
             </Button>
           </div>
         </>
+      ) : null}
+      {inlineError ? (
+        <p className="desk-feedback desk-feedback--error">{inlineError}</p>
       ) : null}
       {linkedApproval.decisionNote ? (
         <div className="metric-item">

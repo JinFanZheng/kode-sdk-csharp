@@ -58,6 +58,7 @@ const automationFixture = {
   prompt: "Review unresolved inbox items and summarize the queue.",
   source: "Heartbeat",
   sourcePath: "workspace/HEARTBEAT.md",
+  cronExpression: "0 9 * * 1,3,5",
   schedule: {
     kind: "Weekly",
     interval: null,
@@ -375,6 +376,23 @@ describe("App shell", () => {
       if (url.endsWith("/api/onboarding/state")) {
         return jsonResponse(onboardingCompleted);
       }
+      if (url.includes("/api/settings")) {
+        return jsonResponse({ automationsEnabled: true });
+      }
+      if (url.includes("/api/memory/stats")) {
+        return jsonResponse({ activeCount: 0, dormantCount: 0, archivedCount: 0, topicsCount: 0, sessionsCount: 0 });
+      }
+      if (url.includes("/api/memory/entries")) {
+        return jsonResponse({ count: 0, entries: [] });
+      }
+      if (url.includes("/api/system/storage-usage")) {
+        return jsonResponse({ main: { count: 0, sizeBytes: 0 }, auto: { count: 0, sizeBytes: 0 }, channel: { count: 0, sizeBytes: 0 }, totalSizeBytes: 0 });
+      }
+      if (url.includes("/api/sessions")) return jsonResponse({ sessions: [] });
+      if (url.includes("/api/workspace/file")) return jsonResponse({ target: "identity", content: "" });
+      if (url.includes("/api/channels/accounts")) return jsonResponse([]);
+      if (url.includes("/api/provider-accounts")) return jsonResponse([]);
+      if (url.includes("/api/workspace/git/log")) return jsonResponse({ commits: [], hasMore: false });
       return jsonResponse({});
     });
 
@@ -582,6 +600,14 @@ describe("App shell", () => {
       }
 
       if (url.includes("/api/channels/threads/binding-telegram-001/audit")) {
+        return jsonResponse([]);
+      }
+
+      if (url.includes("/api/settings")) {
+        return jsonResponse({ automationsEnabled: true });
+      }
+
+      if (url.includes("/api/provider-accounts")) {
         return jsonResponse([]);
       }
 

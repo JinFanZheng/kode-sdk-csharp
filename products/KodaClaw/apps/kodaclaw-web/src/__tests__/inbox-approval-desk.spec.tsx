@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom";
 import React from "react";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InboxApprovalDesk } from "../components/inbox/InboxApprovalDesk";
@@ -384,5 +384,216 @@ describe("InboxApprovalDesk", () => {
     expect(detail).toHaveTextContent("/api/channels/threads/binding-chan-001");
     expect(detail).toHaveTextContent("/api/channels/threads/binding-chan-001/audit?limit=20");
     expect(detail).toHaveTextContent("Approve channel delivery");
+  });
+
+  it("supports keyboard navigation with ArrowDown and ArrowUp", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = resolveRequestUrl(input);
+      if (url.includes("/api/inbox")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "inbox-kb-1", kind: "Approval", status: "Open",
+              title: "First item", summary: "First", source: "src",
+              createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+              requiresAction: false, approvalId: "apr-1",
+            } satisfies InboxItem,
+            {
+              id: "inbox-kb-2", kind: "Approval", status: "Open",
+              title: "Second item", summary: "Second", source: "src",
+              createdAt: "2026-01-02T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z",
+              requiresAction: false, approvalId: "apr-2",
+            } satisfies InboxItem,
+          ],
+        });
+      }
+      if (url.includes("/api/approvals")) {
+        return jsonResponse({
+          items: [
+            { id: "apr-1", kind: "ExternalAction", status: "Pending", title: "Apr 1", summary: "", source: "src", requestedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", inboxItemId: "inbox-kb-1" } satisfies Approval,
+            { id: "apr-2", kind: "ExternalAction", status: "Pending", title: "Apr 2", summary: "", source: "src", requestedAt: "2026-01-02T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z", inboxItemId: "inbox-kb-2" } satisfies Approval,
+          ],
+        });
+      }
+      throw new Error(`Unexpected: ${url}`);
+    });
+
+    renderWithI18n(<InboxApprovalDesk />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-item-inbox-kb-1")).toBeInTheDocument();
+      expect(screen.getByTestId("inbox-item-inbox-kb-2")).toBeInTheDocument();
+    });
+
+    const listbox = screen.getByTestId("inbox-list").querySelector('[role="listbox"]')!;
+    expect(listbox).toBeInTheDocument();
+
+    // First item auto-selected
+    expect(screen.getByTestId("inbox-item-inbox-kb-1")).toHaveAttribute("aria-selected", "true");
+
+    // ArrowDown moves to second item
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-item-inbox-kb-2")).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByTestId("inbox-item-inbox-kb-1")).toHaveAttribute("aria-selected", "false");
+    });
+
+    // ArrowDown at last item stays put
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-item-inbox-kb-2")).toHaveAttribute("aria-selected", "true");
+    });
+
+    // ArrowUp moves back
+    fireEvent.keyDown(listbox, { key: "ArrowUp" });
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-item-inbox-kb-1")).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+  it("filters inbox items by search query", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = resolveRequestUrl(input);
+      if (url.includes("/api/inbox")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "inbox-s-1", kind: "Approval", status: "Open",
+              title: "Deploy request", summary: "Production deploy", source: "src",
+              createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+              requiresAction: false, approvalId: "apr-s-1",
+            } satisfies InboxItem,
+            {
+              id: "inbox-s-2", kind: "AutomationResult", status: "Open",
+              title: "Daily report", summary: "Automated summary", source: "src",
+              createdAt: "2026-01-02T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z",
+              requiresAction: false,
+            } satisfies InboxItem,
+          ],
+        });
+      }
+      if (url.includes("/api/approvals")) {
+        return jsonResponse({
+          items: [
+            { id: "apr-s-1", kind: "ExternalAction", status: "Pending", title: "Apr", summary: "", source: "src", requestedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", inboxItemId: "inbox-s-1" } satisfies Approval,
+          ],
+        });
+      }
+      throw new Error(`Unexpected: ${url}`);
+    });
+
+    renderWithI18n(<InboxApprovalDesk />);
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-item-inbox-s-1")).toBeInTheDocument();
+      expect(screen.getByTestId("inbox-item-inbox-s-2")).toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByTestId("inbox-search");
+    await user.type(searchInput, "deploy");
+
+    // Wait for debounce + render — "Deploy request" stays, "Daily report" hides
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-item-inbox-s-1")).toBeInTheDocument();
+      expect(screen.queryByTestId("inbox-item-inbox-s-2")).not.toBeInTheDocument();
+    });
+
+    // Clear search restores both
+    await user.clear(searchInput);
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-item-inbox-s-1")).toBeInTheDocument();
+      expect(screen.getByTestId("inbox-item-inbox-s-2")).toBeInTheDocument();
+    });
+  });
+
+  it("renders copy buttons on API paths in delivery context", async () => {
+    const payloadJson = JSON.stringify({
+      draftId: "d-1", bindingId: "b-1", connectorKind: "Slack",
+      accountId: "slack-1", externalThreadId: "C01", deliveryMode: "DraftApproval",
+      messageText: "Hello",
+    });
+
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = resolveRequestUrl(input);
+      if (url.includes("/api/inbox")) {
+        return jsonResponse({
+          items: [{
+            id: "inbox-copy-1", kind: "ChannelUpdate", status: "Open",
+            title: "Copy test", summary: "Test", source: "ch",
+            createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+            requiresAction: true, approvalId: "apr-copy-1", payloadJson,
+          } satisfies InboxItem],
+        });
+      }
+      if (url.includes("/api/approvals")) {
+        return jsonResponse({
+          items: [{
+            id: "apr-copy-1", kind: "ChannelDelivery", status: "Pending",
+            title: "Apr copy", summary: "", source: "ch",
+            requestedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+            inboxItemId: "inbox-copy-1", payloadJson,
+          } satisfies Approval],
+        });
+      }
+      throw new Error(`Unexpected: ${url}`);
+    });
+
+    renderWithI18n(<InboxApprovalDesk />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("copy-thread-detail-api")).toBeInTheDocument();
+      expect(screen.getByTestId("copy-thread-audit-api")).toBeInTheDocument();
+    });
+  });
+
+  it("shows inline error when approval decision fails", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = resolveRequestUrl(input);
+      const method = init?.method ?? "GET";
+
+      if (url.includes("/api/approvals/approval-err/approve") && method === "POST") {
+        return jsonResponse({ message: "decision rejected by server" }, 500);
+      }
+      if (url.includes("/api/inbox")) {
+        return jsonResponse({
+          items: [{
+            id: "inbox-err", kind: "Approval", status: "Open",
+            title: "Error test", summary: "Test", source: "src",
+            createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+            requiresAction: true, approvalId: "approval-err",
+          } satisfies InboxItem],
+        });
+      }
+      if (url.includes("/api/approvals")) {
+        return jsonResponse({
+          items: [{
+            id: "approval-err", kind: "ExternalAction", status: "Pending",
+            title: "Should fail", summary: "", source: "src",
+            requestedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+            inboxItemId: "inbox-err",
+          } satisfies Approval],
+        });
+      }
+      throw new Error(`Unexpected: ${method} ${url}`);
+    });
+
+    renderWithI18n(<InboxApprovalDesk />);
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("approval-approve")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("approval-approve"));
+
+    // Inline error appears (not global error banner)
+    await waitFor(() => {
+      const detail = screen.getByTestId("inbox-detail");
+      expect(within(detail).getByText("decision rejected by server")).toBeInTheDocument();
+    });
+
+    // Global error banner should NOT appear for operation errors
+    expect(screen.queryByTestId("inbox-approval-error")).not.toBeInTheDocument();
   });
 });

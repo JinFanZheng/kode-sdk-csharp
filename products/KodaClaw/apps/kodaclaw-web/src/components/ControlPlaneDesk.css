@@ -796,6 +796,20 @@
   border-left: 3px solid var(--accent);
 }
 
+/* Action-required badge on inbox cards (static, no animation) */
+.inbox-action-badge {
+  display: inline-block;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border: 1px solid rgba(202, 138, 4, 0.25);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-2);
+  margin-top: var(--space-1);
+  width: fit-content;
+}
+
 /* Card list: clamp summary to 3 lines */
 .inbox-card-summary {
   overflow: hidden;
@@ -816,7 +830,8 @@
   font-size: var(--font-size-sm);
   line-height: 1.65;
   color: var(--text-secondary);
-  height: clamp(160px, calc(100vh - 640px), 420px);
+  max-height: clamp(160px, calc(100vh - 640px), 420px);
+  height: auto;
   overflow-y: auto;
 }
 
@@ -957,6 +972,25 @@
   gap: var(--space-3);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-subtle);
+}
+
+/* Inbox copy button for API paths */
+.inbox-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: color var(--duration-fast), background var(--duration-fast);
+}
+.inbox-copy-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 /* ── Inbox media thumbnail ── */
