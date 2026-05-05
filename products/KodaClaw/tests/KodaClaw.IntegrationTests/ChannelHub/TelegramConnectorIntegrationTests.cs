@@ -144,6 +144,93 @@ public sealed class TelegramConnectorIntegrationTests
     }
 
     [Fact]
+    public async Task Start_should_map_reply_to_message_id()
+    {
+        var fakeApiClient = new FakeTelegramApiClient(
+            [
+                [
+                    new TelegramUpdate
+                    {
+                        UpdateId = 2001,
+                        Message = new TelegramMessage
+                        {
+                            MessageId = 12,
+                            DateUnixSeconds = 1_773_904_800,
+                            Text = "follow-up",
+                            Chat = new TelegramChat { Id = 10001, Type = "private" },
+                            From = new TelegramUser { Id = 20001, FirstName = "Alice" },
+                            ReplyToMessage = new TelegramMessage
+                            {
+                                MessageId = 11,
+                                DateUnixSeconds = 1_773_904_700,
+                                Text = "original",
+                                Chat = new TelegramChat { Id = 10001, Type = "private" },
+                            },
+                        },
+                    },
+                ],
+            ]);
+        var connector = new TelegramConnector(
+            fakeApiClient,
+            new TelegramConnectorOptions(
+                IdleDelay: TimeSpan.FromMilliseconds(10),
+                ErrorRetryDelay: TimeSpan.FromMilliseconds(10),
+                IgnoreNonTextMessages: true));
+        var account = BuildAccount(
+            accountId: "telegram-reply",
+            configurationJson: """{"botToken":"inline-reply-token"}""");
+        var captured = new ConcurrentQueue<ChannelEventEnvelope>();
+
+        await connector.StartAsync(account, (evt, _) =>
+        {
+            captured.Enqueue(evt);
+            return Task.CompletedTask;
+        });
+
+        await WaitUntilAsync(() => captured.Count >= 1, TimeSpan.FromSeconds(3));
+        await connector.StopAsync(account.Id);
+
+        captured.Should().ContainSingle();
+        captured.TryDequeue(out var evt).Should().BeTrue();
+        evt!.ExternalMessageId.Should().Be("12");
+        evt.ReplyToExternalMessageId.Should().Be("11");
+        evt.RootExternalMessageId.Should().Be("11");
+    }
+
+    [Fact]
+    public async Task Send_should_pass_reply_to_message_id()
+    {
+        var fakeApiClient = new FakeTelegramApiClient();
+        var connector = new TelegramConnector(
+            fakeApiClient,
+            new TelegramConnectorOptions(
+                IdleDelay: TimeSpan.FromMilliseconds(10),
+                ErrorRetryDelay: TimeSpan.FromMilliseconds(10),
+                IgnoreNonTextMessages: true));
+        var account = BuildAccount(
+            accountId: "telegram-send-reply",
+            configurationJson: """{"botToken":"inline-send-token"}""");
+
+        await connector.StartAsync(account, (_, _) => Task.CompletedTask);
+
+        await connector.SendAsync(new ChannelOutboundDraft(
+            DraftId: "draft-reply-001",
+            BindingId: "binding-001",
+            ConnectorKind: ChannelConnectorKind.Telegram,
+            AccountId: account.Id,
+            ExternalThreadId: "-100778899",
+            MessageText: "outbound follow-up",
+            DeliveryMode: DeliveryMode.AutoSend,
+            CreatedAt: DateTimeOffset.UtcNow,
+            ReplyToExternalMessageId: "4567"));
+
+        await connector.StopAsync(account.Id);
+
+        fakeApiClient.SendCalls.Should().ContainSingle();
+        fakeApiClient.SendCalls[0].ReplyToMessageId.Should().Be(4567);
+    }
+
+    [Fact]
     public async Task Start_should_resolve_env_credential_reference()
     {
         const string environmentKey = "KODACLAW_TELEGRAM_TOKEN_KC0505";
@@ -286,9 +373,10 @@ public sealed class TelegramConnectorIntegrationTests
             long chatId,
             string text,
             string? parseMode = null,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
-            SendCalls.Add(new SendCall(botToken, chatId, text));
+            SendCalls.Add(new SendCall(botToken, chatId, text, replyToMessageId));
             return Task.FromResult(new TelegramSendMessageResult
             {
                 MessageId = 99001,
@@ -301,9 +389,10 @@ public sealed class TelegramConnectorIntegrationTests
             Stream photo,
             string contentType,
             string? caption,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
-            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
+            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty, replyToMessageId));
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 99002 });
         }
 
@@ -313,9 +402,10 @@ public sealed class TelegramConnectorIntegrationTests
             Stream audio,
             string contentType,
             string? caption,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
-            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
+            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty, replyToMessageId));
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 99003 });
         }
 
@@ -326,9 +416,10 @@ public sealed class TelegramConnectorIntegrationTests
             string contentType,
             string? caption,
             int? durationSeconds = null,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
-            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
+            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty, replyToMessageId));
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 99004 });
         }
 
@@ -344,7 +435,7 @@ public sealed class TelegramConnectorIntegrationTests
         }
     }
 
-    private sealed record SendCall(string Token, long ChatId, string Text);
+    private sealed record SendCall(string Token, long ChatId, string Text, long? ReplyToMessageId = null);
 
     private sealed class FakeSecretStore : ISecretStore
     {

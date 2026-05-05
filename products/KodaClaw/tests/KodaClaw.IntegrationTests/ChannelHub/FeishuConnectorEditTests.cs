@@ -96,6 +96,40 @@ public sealed class FeishuConnectorEditTests
     }
 
     [Fact]
+    public async Task SendWithReceiptAsync_WithReplyTarget_CallsReplyTextMessage()
+    {
+        var mockApi = BuildMockApiClient();
+        mockApi.Setup(c => c.ReplyTextMessageAsync(
+                "tenant-token-v1", "om_parent_42", "🔄 思考中…", true,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("om_reply_43");
+
+        var connector = new FeishuConnector(
+            NullLogger<FeishuConnector>.Instance,
+            mockApi.Object);
+
+        var account = BuildAccount("feishu-reply-test");
+        await connector.StartAsync(account, (_, _) => Task.CompletedTask);
+
+        var receipt = await connector.SendWithReceiptAsync(
+            BuildDraft(account.Id) with { ReplyToExternalMessageId = "om_parent_42" });
+
+        receipt.ExternalMessageId.Should().Be("om_reply_43");
+        mockApi.Verify(
+            c => c.SendTextMessageAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        mockApi.Verify(
+            c => c.ReplyTextMessageAsync(
+                "tenant-token-v1", "om_parent_42", "🔄 思考中…", true,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        await connector.StopAsync(account.Id);
+    }
+
+    [Fact]
     public async Task EditAsync_CallsPatchTextMessageWithTenantToken()
     {
         var mockApi = BuildMockApiClient();

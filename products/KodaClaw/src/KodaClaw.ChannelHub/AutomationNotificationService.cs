@@ -10,13 +10,16 @@ public sealed class AutomationNotificationService : IAutomationNotificationServi
     private const string DiagnosticSource = "koda.automation";
 
     private readonly IChannelSendService _sendService;
+    private readonly IThreadBindingRepository? _threadBindingRepository;
     private readonly IDiagnosticsService? _diagnosticsService;
 
     public AutomationNotificationService(
         IChannelSendService sendService,
+        IThreadBindingRepository? threadBindingRepository = null,
         IDiagnosticsService? diagnosticsService = null)
     {
         _sendService = sendService ?? throw new ArgumentNullException(nameof(sendService));
+        _threadBindingRepository = threadBindingRepository;
         _diagnosticsService = diagnosticsService;
     }
 
@@ -31,7 +34,19 @@ public sealed class AutomationNotificationService : IAutomationNotificationServi
             try
             {
                 var sendResult = await _sendService.SendAsync(bindingId, text, cancellationToken: cancellationToken);
-                results.Add(new ChannelPushResult(bindingId, Ok: sendResult.Ok, ErrorMessage: null, SentAt: sendResult.SentAt));
+                var binding = _threadBindingRepository is null
+                    ? null
+                    : await _threadBindingRepository.GetByIdAsync(bindingId, cancellationToken)
+                        .ConfigureAwait(false);
+                results.Add(new ChannelPushResult(
+                    bindingId,
+                    Ok: sendResult.Ok,
+                    ErrorMessage: null,
+                    SentAt: sendResult.SentAt,
+                    ExternalMessageId: sendResult.ExternalMessageId,
+                    ConnectorKind: binding?.ConnectorKind,
+                    AccountId: binding?.AccountId,
+                    ExternalThreadId: binding?.ExternalThreadId));
             }
             catch (Exception ex)
             {

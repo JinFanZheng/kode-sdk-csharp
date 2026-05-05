@@ -37,13 +37,25 @@ internal static class RuntimeConfigurationBootstrap
         var resolvedApiKey = ResolveAccountApiKey(defaultModel, secretStore, configuration);
         return defaultModel.ProviderKind switch
         {
-            ModelProviderKind.OpenAI or ModelProviderKind.OpenAICompatible => directResult with
+            ModelProviderKind.OpenAI or ModelProviderKind.OpenAICompatible when !IsDeepSeekBaseUrl(defaultModel.BaseUrl) => directResult with
             {
                 DefaultModel = defaultModel.ModelId,
                 OpenAIApiKey = resolvedApiKey,
                 OpenAIBaseUrl = NormalizeBaseUrl(defaultModel.BaseUrl),
                 AnthropicApiKey = null,
                 AnthropicBaseUrl = null,
+                DeepSeekApiKey = null,
+                DeepSeekBaseUrl = null,
+            },
+            ModelProviderKind.OpenAI or ModelProviderKind.OpenAICompatible when IsDeepSeekBaseUrl(defaultModel.BaseUrl) => directResult with
+            {
+                DefaultModel = defaultModel.ModelId,
+                OpenAIApiKey = null,
+                OpenAIBaseUrl = null,
+                AnthropicApiKey = null,
+                AnthropicBaseUrl = null,
+                DeepSeekApiKey = resolvedApiKey,
+                DeepSeekBaseUrl = NormalizeBaseUrl(defaultModel.BaseUrl),
             },
             ModelProviderKind.Anthropic or ModelProviderKind.AnthropicCompatible => directResult with
             {
@@ -52,6 +64,8 @@ internal static class RuntimeConfigurationBootstrap
                 OpenAIBaseUrl = null,
                 AnthropicApiKey = resolvedApiKey,
                 AnthropicBaseUrl = NormalizeBaseUrl(defaultModel.BaseUrl),
+                DeepSeekApiKey = null,
+                DeepSeekBaseUrl = null,
             },
             ModelProviderKind.OpenAIResponses => directResult with
             {
@@ -60,6 +74,8 @@ internal static class RuntimeConfigurationBootstrap
                 OpenAIBaseUrl = NormalizeBaseUrl(defaultModel.BaseUrl),
                 AnthropicApiKey = null,
                 AnthropicBaseUrl = null,
+                DeepSeekApiKey = null,
+                DeepSeekBaseUrl = null,
             },
             _ => directResult,
         };
@@ -82,7 +98,13 @@ internal static class RuntimeConfigurationBootstrap
                 secretStore,
                 secretRefKeys: ["ANTHROPIC_API_KEY_SECRET_REF", "Runtime:AnthropicApiKeySecretRef"],
                 valueKeys: ["ANTHROPIC_API_KEY", "Runtime:AnthropicApiKey"]),
-            AnthropicBaseUrl: NormalizeBaseUrl(configuration["Runtime:AnthropicBaseUrl"]));
+            AnthropicBaseUrl: NormalizeBaseUrl(configuration["Runtime:AnthropicBaseUrl"]),
+            DeepSeekApiKey: ResolveSecretOrValue(
+                configuration,
+                secretStore,
+                secretRefKeys: ["DEEPSEEK_API_KEY_SECRET_REF", "Runtime:DeepSeekApiKeySecretRef"],
+                valueKeys: ["DEEPSEEK_API_KEY", "Runtime:DeepSeekApiKey"]),
+            DeepSeekBaseUrl: NormalizeBaseUrl(configuration["Runtime:DeepSeekBaseUrl"]));
     }
 
     private static string? ResolveSecretOrValue(
@@ -292,6 +314,12 @@ internal static class RuntimeConfigurationBootstrap
     {
         var normalized = Normalize(value);
         return normalized?.TrimEnd('/');
+    }
+
+    private static bool IsDeepSeekBaseUrl(string? baseUrl)
+    {
+        return !string.IsNullOrWhiteSpace(baseUrl)
+            && baseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed record StoredDefaultModel(

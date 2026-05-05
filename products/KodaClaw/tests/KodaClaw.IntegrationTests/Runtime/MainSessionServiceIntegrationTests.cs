@@ -532,6 +532,8 @@ public sealed class MainSessionServiceIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 
     private sealed class ApprovalDrivenModelProvider : IModelProvider
@@ -634,6 +636,8 @@ public sealed class MainSessionServiceIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 
     private sealed class DangerTool : ToolBase<DangerToolArgs>

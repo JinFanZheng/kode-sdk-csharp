@@ -121,6 +121,23 @@ public sealed class TelegramConnector : IChannelConnector
         await SendAsync(draft, cancellationToken);
     }
 
+    public async Task<ChannelSendReceipt> EnsureStartedAndSendWithReceiptAsync(
+        ChannelAccount account,
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await StartAsync(account, static (_, _) => Task.CompletedTask, cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // Already started by inbound path
+        }
+
+        return await SendWithReceiptAsync(draft, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default)
         => await SendInternalAsync(draft, cancellationToken).ConfigureAwait(false);
 
@@ -208,6 +225,8 @@ public sealed class TelegramConnector : IChannelConnector
             throw new ArgumentException("Telegram outbound draft message text is required.", nameof(draft));
         }
 
+        var replyToMessageId = ParseOptionalReplyToMessageId(draft.ReplyToExternalMessageId);
+
         var imageAttachment = draft.MediaAttachments?.FirstOrDefault(
             static a => a.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase));
 
@@ -225,6 +244,7 @@ public sealed class TelegramConnector : IChannelConnector
                         stream,
                         imageAttachment.ContentType,
                         caption: draft.MessageText,
+                        replyToMessageId: replyToMessageId,
                         cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -247,6 +267,7 @@ public sealed class TelegramConnector : IChannelConnector
                         stream,
                         audioAttachment.ContentType,
                         caption: draft.MessageText,
+                        replyToMessageId: replyToMessageId,
                         cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -286,6 +307,7 @@ public sealed class TelegramConnector : IChannelConnector
                             videoAttachment.ContentType,
                             caption: draft.MessageText,
                             durationSeconds: durationSeconds,
+                            replyToMessageId: replyToMessageId,
                             cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -301,6 +323,7 @@ public sealed class TelegramConnector : IChannelConnector
                         chatId,
                         $"[视频发送失败，请检查 Telegram 文件上传权限]\n{draft.MessageText}",
                         parseMode: null,
+                        replyToMessageId: replyToMessageId,
                         cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -312,6 +335,7 @@ public sealed class TelegramConnector : IChannelConnector
             chatId,
             draft.MessageText,
             parseMode,
+            replyToMessageId,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -488,7 +512,26 @@ public sealed class TelegramConnector : IChannelConnector
             ExternalMessageId: externalMessageId,
             Text: text,
             DefaultDeliveryMode: configuration.DefaultDeliveryMode,
-            MediaAttachments: mediaAttachments);
+            MediaAttachments: mediaAttachments,
+            ReplyToExternalMessageId: message.ReplyToMessage?.MessageId.ToString(CultureInfo.InvariantCulture),
+            RootExternalMessageId: message.ReplyToMessage?.MessageId.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static long? ParseOptionalReplyToMessageId(string? externalMessageId)
+    {
+        if (string.IsNullOrWhiteSpace(externalMessageId))
+        {
+            return null;
+        }
+
+        if (!long.TryParse(externalMessageId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var messageId))
+        {
+            throw new ArgumentException(
+                "Telegram reply target requires a numeric external message id.",
+                nameof(externalMessageId));
+        }
+
+        return messageId;
     }
 
     private static ChannelThreadType ResolveThreadType(string? chatType)

@@ -182,6 +182,11 @@ public static partial class GatewayApp
             options.OpenAIBaseUrl = runtimeBootstrap.OpenAIBaseUrl;
             options.AnthropicApiKey = runtimeBootstrap.AnthropicApiKey;
             options.AnthropicBaseUrl = runtimeBootstrap.AnthropicBaseUrl;
+            options.DeepSeekApiKey = runtimeBootstrap.DeepSeekApiKey;
+            options.DeepSeekBaseUrl = runtimeBootstrap.DeepSeekBaseUrl;
+
+            // Bind ModelCapabilitiesOverride from appsettings.json
+            BindModelCapabilitiesFromConfiguration(builder.Configuration, options);
         });
 
         // MetricsBridgeService bridges SDK Meter events to IDiagnosticsService.
@@ -321,5 +326,37 @@ public static partial class GatewayApp
                 ?? configuration["Gateway:StartupRepairEnabled"],
             "false",
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Binds <c>KodaClaw:ModelCapabilitiesOverride</c> from configuration
+    /// (appsettings.json / env vars) into <see cref="KodaClawRuntimeOptions.ModelCapabilitiesOverride"/>.
+    /// <br/>
+    /// Example appsettings.json:
+    /// <code>
+    /// {
+    ///   "KodaClaw": {
+    ///     "ModelCapabilitiesOverride": {
+    ///       "my-fine-tuned-model": {
+    ///         "ContextWindow": 64000,
+    ///         "SupportsPrefixCache": true,
+    ///         "CacheControlType": "Ephemeral"
+    ///       }
+    ///     }
+    ///   }
+    /// }
+    /// </code>
+    /// </summary>
+    private static void BindModelCapabilitiesFromConfiguration(
+        IConfiguration configuration,
+        KodaClawRuntimeOptions options)
+    {
+        var section = configuration.GetSection("KodaClaw:ModelCapabilitiesOverride");
+        if (!section.Exists()) return;
+
+        var dict = new Dictionary<string, ModelCapabilities>(StringComparer.OrdinalIgnoreCase);
+        section.Bind(dict);
+        if (dict.Count > 0)
+            options.ModelCapabilitiesOverride = dict;
     }
 }

@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IPluginRegistryRepository>(_ => new JsonPluginRegistryRepository(workspaceRoot));
         services.TryAddSingleton<IAutomationDefinitionRepository>(_ => new JsonAutomationDefinitionRepository(workspaceRoot));
         services.TryAddSingleton<IAutomationRunRepository>(_ => new JsonAutomationRunRepository(workspaceRoot));
+        services.TryAddSingleton<IAutomationChannelMessageLinkRepository>(_ => new JsonAutomationChannelMessageLinkRepository(workspaceRoot));
         services.TryAddSingleton<IChannelAuditRepository>(_ => new JsonChannelAuditRepository(workspaceRoot));
         services.TryAddSingleton<IPluginLogRepository>(_ => new JsonPluginLogRepository(workspaceRoot));
         services.TryAddSingleton<IInboxRepository>(_ => new JsonInboxRepository(workspaceRoot));

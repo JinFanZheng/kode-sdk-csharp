@@ -131,13 +131,14 @@ public sealed class ChannelDeliveryDispatchService
     /// an outbound draft. Does not update ThreadBinding timestamps or append audit entries.
     /// Best-effort: callers should catch and swallow exceptions.
     /// </summary>
-    public async Task SendNotificationAsync(
+    public async Task<ChannelSendReceipt> SendNotificationAsync(
         ChannelAccount account,
         ThreadBinding binding,
         string text,
         IReadOnlyList<MediaReference>? mediaAttachments = null,
         string? metadataJson = null,
         OutboundMessageFormat format = OutboundMessageFormat.Auto,
+        string? replyToExternalMessageId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
@@ -162,9 +163,11 @@ public sealed class ChannelDeliveryDispatchService
             CorrelationId: _correlationContextAccessor?.CorrelationId,
             MediaAttachments: mediaAttachments,
             MetadataJson: metadataJson,
-            Format: format);
+            Format: format,
+            ReplyToExternalMessageId: replyToExternalMessageId);
 
-        await SendAsync(account, notificationDraft, cancellationToken);
+        return await SendWithReceiptAsync(account, notificationDraft, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async Task SendAsync(
@@ -179,6 +182,21 @@ public sealed class ChannelDeliveryDispatchService
         }
 
         await connector!.EnsureStartedAndSendAsync(account, draft, cancellationToken);
+    }
+
+    private async Task<ChannelSendReceipt> SendWithReceiptAsync(
+        ChannelAccount account,
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken)
+    {
+        if (!_resolver.TryGet(account.ConnectorKind, out var connector))
+        {
+            throw new NotSupportedException(
+                $"Connector '{account.ConnectorKind}' does not support channel delivery dispatch.");
+        }
+
+        return await connector!.EnsureStartedAndSendWithReceiptAsync(account, draft, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

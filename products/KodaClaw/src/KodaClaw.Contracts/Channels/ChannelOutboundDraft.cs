@@ -17,4 +17,5 @@ public sealed record ChannelOutboundDraft(
     string? ApprovalId = null,
     string? MetadataJson = null,
     IReadOnlyList<MediaReference>? MediaAttachments = null,
-    OutboundMessageFormat Format = OutboundMessageFormat.Auto);
+    OutboundMessageFormat Format = OutboundMessageFormat.Auto,
+    string? ReplyToExternalMessageId = null);

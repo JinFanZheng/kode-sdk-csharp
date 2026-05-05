@@ -80,6 +80,18 @@ public sealed class AccountAwareModelProvider : IModelProvider
         return await _fallback.ValidateAsync(cancellationToken);
     }
 
+    public ModelCapabilities? GetModelCapabilities(string modelId)
+    {
+        try
+        {
+            return _fallback.GetModelCapabilities(modelId);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // ── internals ─────────────────────────────────────────────────────────────
 
     private async Task<(IModelProvider Provider, ModelRequest Request)> ResolveAsync(
@@ -136,16 +148,30 @@ public sealed class AccountAwareModelProvider : IModelProvider
                     OpenAIBaseUrl: null,
                     AnthropicApiKey: apiKey,
                     AnthropicBaseUrl: account.BaseUrl,
+                    DeepSeekApiKey: null,
+                    DeepSeekBaseUrl: null,
                     CustomHeaders: account.CustomHeaders)),
 
             ModelProviderKind.OpenAI or ModelProviderKind.OpenAICompatible =>
-                (RuntimeProviderKind.OpenAI, new RuntimeConfigurationSnapshot(
-                    DefaultModel: null,
-                    OpenAIApiKey: apiKey,
-                    OpenAIBaseUrl: account.BaseUrl,
-                    AnthropicApiKey: null,
-                    AnthropicBaseUrl: null,
-                    CustomHeaders: account.CustomHeaders)),
+                IsDeepSeekBaseUrl(account.BaseUrl)
+                    ? (RuntimeProviderKind.DeepSeek, new RuntimeConfigurationSnapshot(
+                        DefaultModel: null,
+                        OpenAIApiKey: null,
+                        OpenAIBaseUrl: null,
+                        AnthropicApiKey: null,
+                        AnthropicBaseUrl: null,
+                        DeepSeekApiKey: apiKey,
+                        DeepSeekBaseUrl: account.BaseUrl,
+                        CustomHeaders: account.CustomHeaders))
+                    : (RuntimeProviderKind.OpenAI, new RuntimeConfigurationSnapshot(
+                        DefaultModel: null,
+                        OpenAIApiKey: apiKey,
+                        OpenAIBaseUrl: account.BaseUrl,
+                        AnthropicApiKey: null,
+                        AnthropicBaseUrl: null,
+                        DeepSeekApiKey: null,
+                        DeepSeekBaseUrl: null,
+                        CustomHeaders: account.CustomHeaders)),
 
             ModelProviderKind.OpenAIResponses =>
                 (RuntimeProviderKind.OpenAIResponses, new RuntimeConfigurationSnapshot(
@@ -154,6 +180,8 @@ public sealed class AccountAwareModelProvider : IModelProvider
                     OpenAIBaseUrl: account.BaseUrl,
                     AnthropicApiKey: null,
                     AnthropicBaseUrl: null,
+                    DeepSeekApiKey: null,
+                    DeepSeekBaseUrl: null,
                     CustomHeaders: account.CustomHeaders)),
 
             _ => throw new InvalidOperationException(
@@ -257,6 +285,12 @@ public sealed class AccountAwareModelProvider : IModelProvider
             .ToList();
 
         return request with { Messages = messages };
+    }
+
+    private static bool IsDeepSeekBaseUrl(string? baseUrl)
+    {
+        return !string.IsNullOrWhiteSpace(baseUrl)
+            && baseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase);
     }
 
     private void RecordDegradationEvent(

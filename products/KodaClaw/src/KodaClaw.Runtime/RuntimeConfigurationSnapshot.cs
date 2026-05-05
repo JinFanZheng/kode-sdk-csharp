@@ -1,3 +1,5 @@
+using Kode.Agent.Sdk.Core.Abstractions;
+
 namespace KodaClaw.Runtime;
 
 public sealed record RuntimeConfigurationSnapshot(
@@ -6,7 +8,10 @@ public sealed record RuntimeConfigurationSnapshot(
     string? OpenAIBaseUrl,
     string? AnthropicApiKey,
     string? AnthropicBaseUrl,
-    IReadOnlyDictionary<string, string>? CustomHeaders = null)
+    string? DeepSeekApiKey,
+    string? DeepSeekBaseUrl,
+    IReadOnlyDictionary<string, string>? CustomHeaders = null,
+    IReadOnlyDictionary<string, ModelCapabilities>? ModelCapabilitiesOverride = null)
 {
     public static RuntimeConfigurationSnapshot FromOptions(KodaClawRuntimeOptions options)
     {
@@ -17,7 +22,10 @@ public sealed record RuntimeConfigurationSnapshot(
             OpenAIApiKey: Normalize(options.OpenAIApiKey),
             OpenAIBaseUrl: NormalizeBaseUrl(options.OpenAIBaseUrl),
             AnthropicApiKey: Normalize(options.AnthropicApiKey),
-            AnthropicBaseUrl: NormalizeBaseUrl(options.AnthropicBaseUrl));
+            AnthropicBaseUrl: NormalizeBaseUrl(options.AnthropicBaseUrl),
+            DeepSeekApiKey: Normalize(options.DeepSeekApiKey),
+            DeepSeekBaseUrl: NormalizeBaseUrl(options.DeepSeekBaseUrl),
+            ModelCapabilitiesOverride: options.ModelCapabilitiesOverride);
     }
 
     private static string? Normalize(string? value)

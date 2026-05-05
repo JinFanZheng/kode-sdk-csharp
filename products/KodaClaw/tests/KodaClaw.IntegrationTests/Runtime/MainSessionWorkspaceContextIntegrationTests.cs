@@ -168,5 +168,7 @@ public sealed class MainSessionWorkspaceContextIntegrationTests : IDisposable
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 }

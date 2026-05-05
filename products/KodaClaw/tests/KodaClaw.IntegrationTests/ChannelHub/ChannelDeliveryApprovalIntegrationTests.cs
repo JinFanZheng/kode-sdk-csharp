@@ -255,6 +255,7 @@ public sealed class ChannelDeliveryApprovalIntegrationTests
             long chatId,
             string text,
             string? parseMode = null,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, text));
@@ -270,6 +271,7 @@ public sealed class ChannelDeliveryApprovalIntegrationTests
             Stream photo,
             string contentType,
             string? caption,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
@@ -282,6 +284,7 @@ public sealed class ChannelDeliveryApprovalIntegrationTests
             Stream audio,
             string contentType,
             string? caption,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
@@ -295,6 +298,7 @@ public sealed class ChannelDeliveryApprovalIntegrationTests
             string contentType,
             string? caption,
             int? durationSeconds = null,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));

@@ -314,5 +314,7 @@ public sealed class SubAgentProgressTests
             });
 
         public Task<bool> ValidateAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 }

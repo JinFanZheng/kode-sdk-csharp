@@ -8,6 +8,7 @@ public enum RuntimeProviderKind
     OpenAI,
     Anthropic,
     OpenAIResponses,
+    DeepSeek,
 }
 
 internal sealed record RuntimeProviderSelection(
@@ -25,6 +26,7 @@ internal static class RuntimeProviderSelector
 
         var hasOpenAi = !string.IsNullOrWhiteSpace(snapshot.OpenAIApiKey);
         var hasAnthropic = !string.IsNullOrWhiteSpace(snapshot.AnthropicApiKey);
+        var hasDeepSeek = !string.IsNullOrWhiteSpace(snapshot.DeepSeekApiKey);
         var model = snapshot.DefaultModel;
 
         if (string.IsNullOrWhiteSpace(model))
@@ -34,53 +36,80 @@ internal static class RuntimeProviderSelector
                 "KodaClaw chat is not configured. Set KODACLAW_DEFAULT_MODEL and one provider API key.");
         }
 
-        if (!hasOpenAi && !hasAnthropic)
+        if (!hasOpenAi && !hasAnthropic && !hasDeepSeek)
         {
             return new RuntimeProviderSelection(
                 RuntimeProviderKind.None,
-                "KodaClaw chat is not configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.");
+                "KodaClaw chat is not configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY or DEEPSEEK_API_KEY.");
         }
 
         var looksLikeOpenAi = LooksLikeOpenAiModel(model);
         var looksLikeAnthropic = LooksLikeAnthropicModel(model);
+        var looksLikeDeepSeek = LooksLikeDeepSeekModel(model);
 
-        if (hasOpenAi && !hasAnthropic)
+        // DeepSeek-first: if model looks like DeepSeek and key is set
+        if (looksLikeDeepSeek && hasDeepSeek)
+            return new RuntimeProviderSelection(RuntimeProviderKind.DeepSeek);
+
+        // DeepSeek model with wrong key
+        if (looksLikeDeepSeek && !hasDeepSeek)
         {
-            if (looksLikeAnthropic)
+            if (hasOpenAi || hasAnthropic)
             {
                 return new RuntimeProviderSelection(
                     RuntimeProviderKind.None,
-                    "KODACLAW_DEFAULT_MODEL looks like an Anthropic model, but only OPENAI_API_KEY is configured.");
+                    "KODACLAW_DEFAULT_MODEL looks like a DeepSeek model, but only OPENAI_API_KEY/ANTHROPIC_API_KEY is configured. " +
+                    "Set DEEPSEEK_API_KEY for DeepSeek models, or use KODACLAW_DEFAULT_MODEL with a matching provider model.");
+            }
+        }
+
+        if (hasOpenAi && !hasAnthropic && !hasDeepSeek)
+        {
+            if (looksLikeAnthropic || looksLikeDeepSeek)
+            {
+                return new RuntimeProviderSelection(
+                    RuntimeProviderKind.None,
+                    "KODACLAW_DEFAULT_MODEL looks like an Anthropic or DeepSeek model, but only OPENAI_API_KEY is configured.");
             }
 
             return new RuntimeProviderSelection(RuntimeProviderKind.OpenAI);
         }
 
-        if (hasAnthropic && !hasOpenAi)
+        if (hasAnthropic && !hasOpenAi && !hasDeepSeek)
         {
-            if (looksLikeOpenAi)
+            if (looksLikeOpenAi || looksLikeDeepSeek)
             {
                 return new RuntimeProviderSelection(
                     RuntimeProviderKind.None,
-                    "KODACLAW_DEFAULT_MODEL looks like an OpenAI model, but only ANTHROPIC_API_KEY is configured.");
+                    "KODACLAW_DEFAULT_MODEL looks like an OpenAI or DeepSeek model, but only ANTHROPIC_API_KEY is configured.");
             }
 
             return new RuntimeProviderSelection(RuntimeProviderKind.Anthropic);
         }
 
+        if (hasDeepSeek && !hasOpenAi && !hasAnthropic)
+        {
+            if (looksLikeOpenAi || looksLikeAnthropic)
+            {
+                return new RuntimeProviderSelection(
+                    RuntimeProviderKind.None,
+                    "KODACLAW_DEFAULT_MODEL looks like an OpenAI or Anthropic model, but only DEEPSEEK_API_KEY is configured.");
+            }
+
+            return new RuntimeProviderSelection(RuntimeProviderKind.DeepSeek);
+        }
+
+        // Multiple keys set — disambiguate by model name
         if (looksLikeAnthropic)
-        {
             return new RuntimeProviderSelection(RuntimeProviderKind.Anthropic);
-        }
-
         if (looksLikeOpenAi)
-        {
             return new RuntimeProviderSelection(RuntimeProviderKind.OpenAI);
-        }
+        if (looksLikeDeepSeek)
+            return new RuntimeProviderSelection(RuntimeProviderKind.DeepSeek);
 
         return new RuntimeProviderSelection(
             RuntimeProviderKind.None,
-            "Both OPENAI_API_KEY and ANTHROPIC_API_KEY are configured. Use KODACLAW_DEFAULT_MODEL to disambiguate the provider.");
+            "Multiple API keys are configured. Use KODACLAW_DEFAULT_MODEL to disambiguate the provider.");
     }
 
     public static string ResolveModelOrThrow(
@@ -147,5 +176,10 @@ internal static class RuntimeProviderSelector
     private static bool LooksLikeAnthropicModel(string model)
     {
         return model.StartsWith("claude", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeDeepSeekModel(string model)
+    {
+        return model.StartsWith("deepseek", StringComparison.OrdinalIgnoreCase);
     }
 }

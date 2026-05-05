@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Channels;
 using KodaClaw.Contracts.Settings;
 using Xunit;
 
@@ -61,6 +62,51 @@ public sealed class AutomationContractsTests
 
         json.Should().Contain("\"status\":\"Succeeded\"");
         roundTrip.Should().BeEquivalentTo(payload);
+    }
+
+    [Fact]
+    public void Automation_channel_message_link_should_json_round_trip()
+    {
+        var payload = new AutomationChannelMessageLink(
+            Id: "automation-channel-link-001",
+            AutomationId: "auto-digest",
+            RunId: "run-001",
+            SessionId: "auto-20260318090000-digest-abcd1234",
+            BindingId: "binding-telegram-001",
+            ConnectorKind: ChannelConnectorKind.Telegram,
+            AccountId: "telegram-main",
+            ExternalThreadId: "12345",
+            ExternalMessageId: "67890",
+            CreatedAt: new DateTimeOffset(2026, 3, 18, 9, 1, 0, TimeSpan.Zero),
+            ExpiresAt: new DateTimeOffset(2026, 4, 17, 9, 1, 0, TimeSpan.Zero),
+            Summary: "Digest posted.");
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<AutomationChannelMessageLink>(json, JsonOptions);
+
+        json.Should().Contain("\"connectorKind\":\"Telegram\"");
+        json.Should().Contain("\"externalMessageId\":\"67890\"");
+        roundTrip.Should().Be(payload);
+    }
+
+    [Fact]
+    public void Channel_push_result_should_json_round_trip_external_message_metadata()
+    {
+        var payload = new ChannelPushResult(
+            BindingId: "binding-telegram-001",
+            Ok: true,
+            ErrorMessage: null,
+            SentAt: new DateTimeOffset(2026, 3, 18, 9, 1, 0, TimeSpan.Zero),
+            ExternalMessageId: "67890",
+            ConnectorKind: ChannelConnectorKind.Telegram,
+            AccountId: "telegram-main",
+            ExternalThreadId: "12345");
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<ChannelPushResult>(json, JsonOptions);
+
+        json.Should().Contain("\"externalMessageId\":\"67890\"");
+        roundTrip.Should().Be(payload);
     }
 
     [Fact]

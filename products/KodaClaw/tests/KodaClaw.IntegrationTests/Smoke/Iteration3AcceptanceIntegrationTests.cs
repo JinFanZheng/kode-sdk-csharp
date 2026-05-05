@@ -257,5 +257,7 @@ public sealed class Iteration3AcceptanceIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 }

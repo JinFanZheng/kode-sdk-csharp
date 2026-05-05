@@ -558,5 +558,7 @@ public sealed class GatewaySessionsIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 }

@@ -20,6 +20,9 @@ public sealed class ChannelSendArgs
 
     [ToolParameter(Description = "Message format preference. Options: auto (default, connector decides), plain_text (force plain text), markdown (render Markdown formatting).", Required = false)]
     public string? Format { get; init; }
+
+    [ToolParameter(Description = "Optional external message ID to reply to. Usually set by the channel runtime; omit for normal sends.", Required = false)]
+    public string? ReplyToExternalMessageId { get; init; }
 }
 
 public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
@@ -58,12 +61,22 @@ public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
             "markdown" => OutboundMessageFormat.Markdown,
             _ => OutboundMessageFormat.Auto,
         };
-        var result = await _sendService.SendAsync(args.BindingId, args.Text, args.MediaId, args.Metadata, format, cancellationToken);
+        var result = string.IsNullOrWhiteSpace(args.ReplyToExternalMessageId)
+            ? await _sendService.SendAsync(args.BindingId, args.Text, args.MediaId, args.Metadata, format, cancellationToken)
+            : await _sendService.SendReplyAsync(
+                args.BindingId,
+                args.Text,
+                args.ReplyToExternalMessageId,
+                args.MediaId,
+                args.Metadata,
+                format,
+                cancellationToken);
         return ToolResult.Ok(new
         {
             ok = result.Ok,
             bindingId = result.BindingId,
             sentAt = result.SentAt.ToString("O"),
+            externalMessageId = result.ExternalMessageId,
         });
     }
 }

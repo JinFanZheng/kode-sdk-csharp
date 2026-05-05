@@ -48,6 +48,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         long chatId,
         string text,
         string? parseMode = null,
+        long? replyToMessageId = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -55,9 +56,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
             throw new ArgumentException("A non-empty telegram message text is required.", nameof(text));
         }
 
-        object payload = string.IsNullOrEmpty(parseMode)
-            ? new { chat_id = chatId, text }
-            : new { chat_id = chatId, text, parse_mode = parseMode };
+        object payload = BuildTextPayload(chatId, text, parseMode, replyToMessageId);
 
         return await SendAsync<TelegramSendMessageResult>(
             botToken,
@@ -72,6 +71,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         Stream photo,
         string contentType,
         string? caption,
+        long? replyToMessageId = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(botToken))
@@ -91,6 +91,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         {
             form.Add(new StringContent(caption), "caption");
         }
+        AddReplyParameters(form, replyToMessageId);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(botToken, "sendPhoto"))
         {
@@ -119,6 +120,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         Stream audio,
         string contentType,
         string? caption,
+        long? replyToMessageId = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(botToken))
@@ -137,6 +139,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         {
             form.Add(new StringContent(caption), "caption");
         }
+        AddReplyParameters(form, replyToMessageId);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(botToken, "sendAudio"))
         {
@@ -166,6 +169,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         string contentType,
         string? caption,
         int? durationSeconds = null,
+        long? replyToMessageId = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(botToken))
@@ -195,6 +199,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
                 new StringContent(durationSeconds.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 "duration");
         }
+        AddReplyParameters(form, replyToMessageId);
         // supports_streaming=true 让 Telegram 客户端对 MP4 采取流式播放（未知容器会被忽略）。
         form.Add(new StringContent("true"), "supports_streaming");
 
@@ -286,5 +291,40 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
     {
         return $"https://api.telegram.org/bot{botToken.Trim()}/{method}";
     }
-}
 
+    private static object BuildTextPayload(
+        long chatId,
+        string text,
+        string? parseMode,
+        long? replyToMessageId)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["chat_id"] = chatId,
+            ["text"] = text,
+        };
+        if (!string.IsNullOrEmpty(parseMode))
+        {
+            payload["parse_mode"] = parseMode;
+        }
+        if (replyToMessageId.HasValue)
+        {
+            payload["reply_parameters"] = new { message_id = replyToMessageId.Value };
+        }
+
+        return payload;
+    }
+
+    private static void AddReplyParameters(
+        MultipartFormDataContent form,
+        long? replyToMessageId)
+    {
+        if (!replyToMessageId.HasValue)
+        {
+            return;
+        }
+
+        var value = JsonSerializer.Serialize(new { message_id = replyToMessageId.Value }, JsonOptions);
+        form.Add(new StringContent(value), "reply_parameters");
+    }
+}

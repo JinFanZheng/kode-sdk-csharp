@@ -38,6 +38,17 @@ public sealed class KodaClawRuntimeOptions
 
     public string? AnthropicBaseUrl { get; set; }
 
+    public string? DeepSeekApiKey { get; set; }
+
+    public string? DeepSeekBaseUrl { get; set; }
+
+    /// <summary>
+    /// Optional per-model capability overrides. Entries here override the SDK's
+    /// built-in registry, so new or custom models can be configured without an SDK
+    /// upgrade. Key is the model ID (case-insensitive).
+    /// </summary>
+    public IReadOnlyDictionary<string, ModelCapabilities>? ModelCapabilitiesOverride { get; set; }
+
     public string? SystemPrompt { get; set; }
 
     public int MainMaxIterations { get; set; } = 30;
@@ -70,6 +81,8 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(nameof(OpenAIProvider))
             .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
         services.AddHttpClient(nameof(OpenAIResponsesProvider))
+            .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
+        services.AddHttpClient(nameof(DeepSeekProvider))
             .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
         var anthropicBuilder = services.AddHttpClient(nameof(AnthropicProvider))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler())

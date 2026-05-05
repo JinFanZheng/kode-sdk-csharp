@@ -36,6 +36,7 @@ internal sealed class DefaultRuntimeModelProviderFactory : IRuntimeModelProvider
                     BaseUrl = snapshot.OpenAIBaseUrl,
                     CustomHeaders = snapshot.CustomHeaders,
                     RetryPolicy = RetryPolicy.Default,
+                    ModelCapabilitiesOverride = snapshot.ModelCapabilitiesOverride,
                 },
                 _loggerFactory?.CreateLogger<OpenAIProvider>()),
             RuntimeProviderKind.OpenAIResponses => new OpenAIResponsesProvider(
@@ -46,6 +47,7 @@ internal sealed class DefaultRuntimeModelProviderFactory : IRuntimeModelProvider
                     BaseUrl = snapshot.OpenAIBaseUrl,
                     CustomHeaders = snapshot.CustomHeaders,
                     RetryPolicy = RetryPolicy.Default,
+                    ModelCapabilitiesOverride = snapshot.ModelCapabilitiesOverride,
                 },
                 _loggerFactory?.CreateLogger<OpenAIResponsesProvider>()),
             RuntimeProviderKind.Anthropic => new AnthropicProvider(
@@ -57,8 +59,21 @@ internal sealed class DefaultRuntimeModelProviderFactory : IRuntimeModelProvider
                     ModelId = snapshot.DefaultModel,
                     CustomHeaders = snapshot.CustomHeaders,
                     RetryPolicy = RetryPolicy.Default,
+                    ModelCapabilitiesOverride = snapshot.ModelCapabilitiesOverride,
                 },
                 _loggerFactory?.CreateLogger<AnthropicProvider>()),
+            RuntimeProviderKind.DeepSeek => new DeepSeekProvider(
+                _httpClientFactory.CreateClient(nameof(DeepSeekProvider)),
+                new DeepSeekOptions
+                {
+                    ApiKey = snapshot.DeepSeekApiKey!,
+                    BaseUrl = snapshot.DeepSeekBaseUrl,
+                    ModelId = snapshot.DefaultModel,
+                    CustomHeaders = snapshot.CustomHeaders,
+                    RetryPolicy = RetryPolicy.Default,
+                    ModelCapabilitiesOverride = snapshot.ModelCapabilitiesOverride,
+                },
+                _loggerFactory?.CreateLogger<DeepSeekProvider>()),
             _ => throw new InvalidOperationException("KodaClaw chat is not configured. Set KODACLAW_DEFAULT_MODEL and one provider API key."),
         };
     }
@@ -87,6 +102,7 @@ public sealed class DynamicModelProvider : IModelProvider
                 RuntimeProviderKind.OpenAI => "openai",
                 RuntimeProviderKind.OpenAIResponses => "openai-responses",
                 RuntimeProviderKind.Anthropic => "anthropic",
+                RuntimeProviderKind.DeepSeek => "deepseek",
                 _ => "unconfigured",
             };
         }
@@ -118,6 +134,19 @@ public sealed class DynamicModelProvider : IModelProvider
         catch (InvalidOperationException)
         {
             return Task.FromResult(false);
+        }
+    }
+
+    public ModelCapabilities? GetModelCapabilities(string modelId)
+    {
+        try
+        {
+            var (provider, _) = CreateProvider();
+            return provider.GetModelCapabilities(modelId);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
         }
     }
 

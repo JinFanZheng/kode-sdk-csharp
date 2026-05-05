@@ -79,7 +79,8 @@ public static class ServiceCollectionExtensions
                 provider.GetService<ICorrelationContextAccessor>(),
                 provider.GetService<IDiagnosticsService>(),
                 provider.GetService<ILogger<AutomationScheduler>>(),
-                provider.GetService<IHostApplicationLifetime>());
+                provider.GetService<IHostApplicationLifetime>(),
+                provider.GetService<IAutomationChannelMessageLinkRepository>());
         });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, AutomationSchedulerHostedService>());
         return services;

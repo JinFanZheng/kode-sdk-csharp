@@ -353,6 +353,8 @@ public sealed class ChatSessionServiceIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 
     private sealed class FailingModelProvider : IModelProvider
@@ -383,6 +385,8 @@ public sealed class ChatSessionServiceIntegrationTests
             return Task.FromResult(false);
         }
 
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
+
         private async IAsyncEnumerable<StreamChunk> Fail(
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -393,5 +397,6 @@ public sealed class ChatSessionServiceIntegrationTests
             yield break;
 #pragma warning restore CS0162
         }
+
     }
 }

@@ -54,7 +54,7 @@ public sealed class TelegramConnectorVideoTests
             .Setup(c => c.SendVideoAsync(
                 "video-test-token", 12345678L,
                 It.IsAny<Stream>(), "video/mp4", "视频简报",
-                It.IsAny<int?>(),
+                It.IsAny<int?>(), It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramSendMessageResult { MessageId = 2001 });
 
@@ -87,12 +87,12 @@ public sealed class TelegramConnectorVideoTests
             c => c.SendVideoAsync(
                 "video-test-token", 12345678L,
                 It.IsAny<Stream>(), "video/mp4", "视频简报",
-                8,
+                8, It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
 
         mockApiClient.Verify(
-            c => c.SendMessageAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            c => c.SendMessageAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -107,7 +107,7 @@ public sealed class TelegramConnectorVideoTests
             .Setup(c => c.SendVideoAsync(
                 It.IsAny<string>(), It.IsAny<long>(),
                 It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string?>(),
-                It.IsAny<int?>(),
+                It.IsAny<int?>(), It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramSendMessageResult { MessageId = 2002 });
 
@@ -150,7 +150,7 @@ public sealed class TelegramConnectorVideoTests
             c => c.SendVideoAsync(
                 It.IsAny<string>(), It.IsAny<long>(),
                 It.IsAny<Stream>(), "video/mp4", "视频简报",
-                12,
+                12, It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -166,12 +166,12 @@ public sealed class TelegramConnectorVideoTests
             .Setup(c => c.SendVideoAsync(
                 It.IsAny<string>(), It.IsAny<long>(),
                 It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string?>(),
-                It.IsAny<int?>(),
+                It.IsAny<int?>(), It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("upload blocked by telegram"));
         mockApiClient
             .Setup(c => c.SendMessageAsync(
-                It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramSendMessageResult { MessageId = 2003 });
 
@@ -204,7 +204,7 @@ public sealed class TelegramConnectorVideoTests
             c => c.SendMessageAsync(
                 "video-test-token", 12345678L,
                 It.Is<string>(t => t.Contains("视频发送失败") && t.Contains("视频简报")),
-                It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -217,7 +217,7 @@ public sealed class TelegramConnectorVideoTests
             .Setup(c => c.GetMeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramUser { Id = 1, IsBot = true, FirstName = "Bot", Username = "bot" });
         mockApiClient
-            .Setup(c => c.SendMessageAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Setup(c => c.SendMessageAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramSendMessageResult { MessageId = 2004 });
 
         var connector = new TelegramConnector(
@@ -242,12 +242,12 @@ public sealed class TelegramConnectorVideoTests
             c => c.SendVideoAsync(
                 It.IsAny<string>(), It.IsAny<long>(),
                 It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string?>(),
-                It.IsAny<int?>(),
+                It.IsAny<int?>(), It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
 
         mockApiClient.Verify(
-            c => c.SendMessageAsync("video-test-token", 12345678L, "视频简报", It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            c => c.SendMessageAsync("video-test-token", 12345678L, "视频简报", It.IsAny<string?>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 }

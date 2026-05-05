@@ -124,6 +124,23 @@ public sealed class FeishuConnector : IChannelConnector
     public async Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default)
         => await SendInternalAsync(draft, cancellationToken).ConfigureAwait(false);
 
+    public async Task<ChannelSendReceipt> EnsureStartedAndSendWithReceiptAsync(
+        ChannelAccount account,
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await StartAsync(account, static (_, _) => Task.CompletedTask, cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // Already started by inbound path
+        }
+
+        return await SendWithReceiptAsync(draft, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<ChannelSendReceipt> SendWithReceiptAsync(
         ChannelOutboundDraft draft,
         CancellationToken cancellationToken = default)
@@ -197,6 +214,17 @@ public sealed class FeishuConnector : IChannelConnector
             startedAccount.Configuration.AppId,
             startedAccount.Configuration.AppSecret,
             cancellationToken).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(draft.ReplyToExternalMessageId)
+            && (draft.MediaAttachments is null || draft.MediaAttachments.Count == 0))
+        {
+            return await _apiClient.ReplyTextMessageAsync(
+                tenantToken,
+                draft.ReplyToExternalMessageId,
+                draft.MessageText,
+                replyInThread: true,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         var imageAttachment = draft.MediaAttachments?.FirstOrDefault(
             static a => a.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase));
@@ -435,6 +463,8 @@ public sealed class FeishuConnector : IChannelConnector
             ExternalMessageId: message.MessageId,
             Text: cleanText,
             DefaultDeliveryMode: configuration.DefaultDeliveryMode,
+            ReplyToExternalMessageId: message.ParentId,
+            RootExternalMessageId: message.RootId,
             MetadataJson: hasMention
                 ? """{"feishu_has_mention":true}"""
                 : null);
@@ -682,6 +712,8 @@ public sealed class FeishuConnector : IChannelConnector
                 ExternalMessageId: message.MessageId,
                 Text: placeholderText,
                 DefaultDeliveryMode: configuration.DefaultDeliveryMode,
+                ReplyToExternalMessageId: message.ParentId,
+                RootExternalMessageId: message.RootId,
                 MediaAttachments: [
                     new MediaReference(
                         MediaId: storedMeta.Id,

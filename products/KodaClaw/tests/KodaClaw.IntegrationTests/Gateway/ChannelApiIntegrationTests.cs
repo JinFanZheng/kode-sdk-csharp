@@ -597,6 +597,8 @@ public sealed class ChannelApiIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 
     private sealed class FakeTelegramApiClient : ITelegramApiClient
@@ -642,6 +644,7 @@ public sealed class ChannelApiIntegrationTests
             long chatId,
             string text,
             string? parseMode = null,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new TelegramSendMessageResult
@@ -656,6 +659,7 @@ public sealed class ChannelApiIntegrationTests
             Stream photo,
             string contentType,
             string? caption,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 2 });
@@ -667,6 +671,7 @@ public sealed class ChannelApiIntegrationTests
             Stream audio,
             string contentType,
             string? caption,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 3 });
@@ -679,6 +684,7 @@ public sealed class ChannelApiIntegrationTests
             string contentType,
             string? caption,
             int? durationSeconds = null,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 4 });

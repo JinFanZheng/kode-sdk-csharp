@@ -55,7 +55,7 @@ public sealed class TelegramConnectorEditTests
             .ReturnsAsync(new TelegramUser { Id = 1, IsBot = true, FirstName = "Bot", Username = "bot" });
         mockApiClient
             .Setup(c => c.SendMessageAsync(
-                "edit-test-token", 7788L, "🔄 思考中…", null,
+                "edit-test-token", 7788L, "🔄 思考中…", null, null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramSendMessageResult { MessageId = 4242 });
 

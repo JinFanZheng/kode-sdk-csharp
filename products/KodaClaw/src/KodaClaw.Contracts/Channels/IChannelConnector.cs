@@ -21,6 +21,15 @@ public interface IChannelConnector
         CancellationToken cancellationToken = default)
         => SendAsync(draft, cancellationToken);
 
+    async Task<ChannelSendReceipt> EnsureStartedAndSendWithReceiptAsync(
+        ChannelAccount account,
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureStartedAndSendAsync(account, draft, cancellationToken).ConfigureAwait(false);
+        return new ChannelSendReceipt(null, DateTimeOffset.UtcNow);
+    }
+
     async Task<ChannelSendReceipt> SendWithReceiptAsync(
         ChannelOutboundDraft draft,
         CancellationToken cancellationToken = default)

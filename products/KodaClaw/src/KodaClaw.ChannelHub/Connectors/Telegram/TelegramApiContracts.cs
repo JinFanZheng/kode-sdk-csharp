@@ -40,6 +40,9 @@ public sealed class TelegramMessage
     [JsonPropertyName("document")]
     public TelegramDocument? Document { get; init; }
 
+    [JsonPropertyName("reply_to_message")]
+    public TelegramMessage? ReplyToMessage { get; init; }
+
     public string? GetText()
     {
         if (!string.IsNullOrWhiteSpace(Text))
@@ -130,4 +133,3 @@ internal sealed class TelegramApiResponse<T>
     [JsonPropertyName("description")]
     public string? Description { get; init; }
 }
-

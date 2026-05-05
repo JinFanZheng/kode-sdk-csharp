@@ -167,5 +167,7 @@ public sealed class BootstrapDraftApiIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 }

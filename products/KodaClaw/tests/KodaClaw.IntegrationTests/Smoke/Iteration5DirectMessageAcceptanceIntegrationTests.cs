@@ -377,6 +377,8 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 
     private sealed class FakeTelegramApiClient : ITelegramApiClient
@@ -424,6 +426,7 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
             long chatId,
             string text,
             string? parseMode = null,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, text));
@@ -439,6 +442,7 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
             Stream photo,
             string contentType,
             string? caption,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
@@ -451,6 +455,7 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
             Stream audio,
             string contentType,
             string? caption,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
@@ -464,6 +469,7 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
             string contentType,
             string? caption,
             int? durationSeconds = null,
+            long? replyToMessageId = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));

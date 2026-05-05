@@ -17,6 +17,7 @@ public interface ITelegramApiClient
         long chatId,
         string text,
         string? parseMode = null,
+        long? replyToMessageId = null,
         CancellationToken cancellationToken = default);
 
     Task<TelegramSendMessageResult> SendPhotoAsync(
@@ -25,6 +26,7 @@ public interface ITelegramApiClient
         Stream photo,
         string contentType,
         string? caption,
+        long? replyToMessageId = null,
         CancellationToken cancellationToken = default);
 
     Task<TelegramSendMessageResult> SendAudioAsync(
@@ -33,6 +35,7 @@ public interface ITelegramApiClient
         Stream audio,
         string contentType,
         string? caption,
+        long? replyToMessageId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -47,6 +50,7 @@ public interface ITelegramApiClient
         string contentType,
         string? caption,
         int? durationSeconds = null,
+        long? replyToMessageId = null,
         CancellationToken cancellationToken = default);
 
     Task<TelegramSendMessageResult> EditMessageTextAsync(
@@ -57,4 +61,3 @@ public interface ITelegramApiClient
         string? parseMode = null,
         CancellationToken cancellationToken = default);
 }
-

@@ -489,6 +489,8 @@ public sealed class ApprovalApiIntegrationTests
         }
 
         public Task<bool> ValidateAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 
     private sealed class DangerTool : ToolBase<DangerToolArgs>

@@ -59,7 +59,7 @@ public sealed class TelegramConnectorAudioTests
             .Setup(c => c.SendAudioAsync(
                 "audio-test-token", 12345678L,
                 It.IsAny<Stream>(), "audio/mpeg", "语音简报内容",
-                It.IsAny<CancellationToken>()))
+                It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramSendMessageResult { MessageId = 1001 });
 
         var mockMediaStore = new Mock<IMediaStore>();
@@ -90,11 +90,11 @@ public sealed class TelegramConnectorAudioTests
             c => c.SendAudioAsync(
                 "audio-test-token", 12345678L,
                 It.IsAny<Stream>(), "audio/mpeg", "语音简报内容",
-                It.IsAny<CancellationToken>()),
+                It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Once);
 
         mockApiClient.Verify(
-            c => c.SendMessageAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            c => c.SendMessageAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -109,7 +109,7 @@ public sealed class TelegramConnectorAudioTests
         mockApiClient
             .Setup(c => c.SendPhotoAsync(
                 It.IsAny<string>(), It.IsAny<long>(),
-                It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<long?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramSendMessageResult { MessageId = 1002 });
 
@@ -141,11 +141,11 @@ public sealed class TelegramConnectorAudioTests
             c => c.SendPhotoAsync(
                 It.IsAny<string>(), It.IsAny<long>(),
                 It.IsAny<Stream>(), "image/jpeg", It.IsAny<string?>(),
-                It.IsAny<CancellationToken>()),
+                It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Once);
 
         mockApiClient.Verify(
-            c => c.SendAudioAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            c => c.SendAudioAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -157,7 +157,7 @@ public sealed class TelegramConnectorAudioTests
             .Setup(c => c.GetMeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramUser { Id = 1, IsBot = true, FirstName = "Bot", Username = "bot" });
         mockApiClient
-            .Setup(c => c.SendMessageAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Setup(c => c.SendMessageAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramSendMessageResult { MessageId = 1003 });
 
         var connector = new TelegramConnector(
@@ -173,7 +173,7 @@ public sealed class TelegramConnectorAudioTests
         await connector.StopAsync(account.Id);
 
         mockApiClient.Verify(
-            c => c.SendMessageAsync("audio-test-token", 12345678L, "语音简报内容", It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            c => c.SendMessageAsync("audio-test-token", 12345678L, "语音简报内容", It.IsAny<string?>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 }

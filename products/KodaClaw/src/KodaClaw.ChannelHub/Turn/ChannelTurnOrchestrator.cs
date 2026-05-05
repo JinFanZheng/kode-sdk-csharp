@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using KodaClaw.Contracts.Automations;
 using KodaClaw.ChannelHub.Commands;
 using KodaClaw.ChannelHub.Common;
 using KodaClaw.ChannelHub.Delivery;
@@ -50,6 +51,8 @@ public sealed class ChannelTurnOrchestrator
     private readonly IModelProvider? _modelProvider;
     private readonly ChannelCommandDispatcher? _commandDispatcher;
     private readonly IChannelSessionStatsTracker? _statsTracker;
+    private readonly IAutomationChannelMessageLinkRepository? _automationMessageLinkRepository;
+    private readonly IAutomationSessionService? _automationSessionService;
     private readonly ChannelSessionOptions _sessionOptions;
     private readonly ILogger<ChannelTurnOrchestrator> _logger;
     private readonly string? _dedupeFilePath;
@@ -71,6 +74,8 @@ public sealed class ChannelTurnOrchestrator
         IModelProvider? modelProvider = null,
         ChannelCommandDispatcher? commandDispatcher = null,
         IChannelSessionStatsTracker? statsTracker = null,
+        IAutomationChannelMessageLinkRepository? automationMessageLinkRepository = null,
+        IAutomationSessionService? automationSessionService = null,
         ChannelSessionOptions? sessionOptions = null,
         KodaClawWorkspaceOptions? workspaceOptions = null,
         ChannelConnectorKindResolver? connectorResolver = null,
@@ -92,6 +97,8 @@ public sealed class ChannelTurnOrchestrator
         _modelProvider = modelProvider;
         _commandDispatcher = commandDispatcher;
         _statsTracker = statsTracker;
+        _automationMessageLinkRepository = automationMessageLinkRepository;
+        _automationSessionService = automationSessionService;
         _sessionOptions = sessionOptions ?? new ChannelSessionOptions();
         _connectorResolver = connectorResolver;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelTurnOrchestrator>.Instance;
@@ -110,6 +117,22 @@ public sealed class ChannelTurnOrchestrator
         var account = await _channelAccountRepository.GetByIdAsync(processing.Binding.AccountId, cancellationToken)
             ?? throw new InvalidOperationException(
                 $"Channel account '{processing.Binding.AccountId}' was not found.");
+
+        var duplicate = TrySuppressDuplicateMessage(processing, envelope);
+        if (duplicate is not null)
+        {
+            return duplicate;
+        }
+
+        var automationFollowUp = await TryHandleAutomationFollowUpAsync(
+            processing,
+            account,
+            envelope,
+            cancellationToken).ConfigureAwait(false);
+        if (automationFollowUp is not null)
+        {
+            return automationFollowUp;
+        }
 
         // Pre-check: if the message looks like an approval response and there are pending
         // channel delivery approvals for this thread, handle the decision without running
@@ -224,40 +247,6 @@ public sealed class ChannelTurnOrchestrator
             await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.no_action", outcome, cancellationToken);
             RecordDiagnosticEvent("channel.turn.no_action", "info", outcome.Summary, processing.Binding, outcome);
             return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: false);
-        }
-
-        // 短时间窗口去重：同一 ExternalMessageId 在 60 秒内只处理一次，
-        // 防止 iLink 等渠道的 at-least-once 重复投递触发多次 Agent turn。
-        if (!string.IsNullOrEmpty(envelope.ExternalMessageId))
-        {
-            var dedupKey = $"{envelope.ConnectorKind}::{envelope.AccountId}::{envelope.ExternalMessageId}";
-            var now = DateTimeOffset.UtcNow;
-
-            // 懒清理：移除超过去重窗口的旧记录
-            foreach (var stale in _recentMessageIds
-                .Where(kv => now - kv.Value > MessageDeduplicationWindow)
-                .Select(kv => kv.Key)
-                .ToList())
-            {
-                _recentMessageIds.TryRemove(stale, out _);
-            }
-
-            if (!_recentMessageIds.TryAdd(dedupKey, now))
-            {
-                var dupOutcome = CreateOutcome(
-                    ChannelTurnOutcomeKind.NoAction,
-                    summary: $"Duplicate message suppressed (externalMessageId={envelope.ExternalMessageId}).",
-                    processing,
-                    envelope,
-                    reasonCode: "duplicate_message");
-                _logger.LogInformation(
-                    "Suppressed duplicate channel turn for binding {BindingId} externalMessageId={ExternalMessageId}",
-                    processing.Binding.Id, envelope.ExternalMessageId);
-                RecordDiagnosticEvent("channel.turn.duplicate_suppressed", "info", dupOutcome.Summary, processing.Binding, dupOutcome);
-                return new ChannelTurnOrchestrationResult(processing, dupOutcome, ExecutedTurn: false);
-            }
-
-            SaveDedupeState();
         }
 
         var hasExplicitMention = DetectExplicitMention(envelope, account);
@@ -741,6 +730,234 @@ public sealed class ChannelTurnOrchestrator
         {
             _logger.LogWarning(ex, "Summary write failed for binding {BindingId} (best-effort)", binding.Id);
         }
+    }
+
+    private async Task<ChannelTurnOrchestrationResult?> TryHandleAutomationFollowUpAsync(
+        ChannelInboundProcessingResult processing,
+        ChannelAccount account,
+        ChannelEventEnvelope envelope,
+        CancellationToken cancellationToken)
+    {
+        if (_automationMessageLinkRepository is null
+            || _automationSessionService is null
+            || (string.IsNullOrWhiteSpace(envelope.ReplyToExternalMessageId)
+                && string.IsNullOrWhiteSpace(envelope.RootExternalMessageId)))
+        {
+            return null;
+        }
+
+        var link = await TryResolveAutomationMessageLinkAsync(envelope, cancellationToken)
+            .ConfigureAwait(false);
+        if (link is null)
+        {
+            return null;
+        }
+
+        if (link.ExpiresAt is not null && link.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            return null;
+        }
+
+        var text = envelope.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var followUp = await _automationSessionService.RunFollowUpAsync(
+            new AutomationFollowUpRequest(link, processing.Binding, envelope, text),
+            cancellationToken).ConfigureAwait(false);
+
+        var reply = followUp.Success && !string.IsNullOrWhiteSpace(followUp.Response)
+            ? followUp.Response!
+            : FormatChannelError(followUp.ErrorMessage ?? "automation_follow_up_failed");
+        var sent = false;
+        ChannelSendReceipt? receipt = null;
+        var replyTarget = envelope.ExternalMessageId ?? envelope.ReplyToExternalMessageId ?? link.ExternalMessageId;
+        try
+        {
+            receipt = await _deliveryDispatchService.SendNotificationAsync(
+                account,
+                processing.Binding,
+                reply,
+                replyToExternalMessageId: replyTarget,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            sent = true;
+
+            await PersistFollowUpReplyLinkAsync(
+                link,
+                processing.Binding,
+                account,
+                envelope,
+                receipt,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Automation follow-up delivery failed for binding {BindingId} session {SessionId}",
+                processing.Binding.Id,
+                link.SessionId);
+        }
+
+        var kind = followUp.Success && sent
+            ? ChannelTurnOutcomeKind.Delivered
+            : ChannelTurnOutcomeKind.Failed;
+        var summary = followUp.Success
+            ? BuildPreview(reply)
+            : $"Automation follow-up failed: {followUp.ErrorMessage}";
+        var outcome = CreateOutcome(
+            kind,
+            summary,
+            processing,
+            envelope,
+            replyText: sent ? reply : null,
+            reasonCode: "automation_follow_up");
+
+        await AppendOutcomeAuditAsync(
+            processing.Binding,
+            processing.DeliveryRule.Mode,
+            followUp.Success ? "automation.follow_up.delivered" : "automation.follow_up.failed",
+            outcome,
+            cancellationToken).ConfigureAwait(false);
+
+        RecordDiagnosticEvent(
+            followUp.Success ? "channel.turn.automation_follow_up" : "channel.turn.automation_follow_up_failed",
+            followUp.Success ? "info" : "warning",
+            summary,
+            processing.Binding,
+            outcome);
+
+        return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: true);
+    }
+
+    private async Task<AutomationChannelMessageLink?> TryResolveAutomationMessageLinkAsync(
+        ChannelEventEnvelope envelope,
+        CancellationToken cancellationToken)
+    {
+        foreach (var messageId in EnumerateDistinctMessageIds(
+            envelope.ReplyToExternalMessageId,
+            envelope.RootExternalMessageId))
+        {
+            var link = await _automationMessageLinkRepository!.GetByExternalMessageAsync(
+                envelope.ConnectorKind,
+                envelope.AccountId,
+                envelope.ExternalThreadId,
+                messageId,
+                cancellationToken).ConfigureAwait(false);
+            if (link is not null)
+            {
+                return link;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task PersistFollowUpReplyLinkAsync(
+        AutomationChannelMessageLink sourceLink,
+        ThreadBinding binding,
+        ChannelAccount account,
+        ChannelEventEnvelope envelope,
+        ChannelSendReceipt? receipt,
+        CancellationToken cancellationToken)
+    {
+        if (_automationMessageLinkRepository is null
+            || receipt is null
+            || string.IsNullOrWhiteSpace(receipt.ExternalMessageId))
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var expiresAt = sourceLink.ExpiresAt is not null && sourceLink.ExpiresAt > now
+            ? sourceLink.ExpiresAt
+            : now.AddDays(30);
+        var replyLink = sourceLink with
+        {
+            Id = BuildAutomationChannelLinkId(
+                account.ConnectorKind,
+                account.Id,
+                binding.ExternalThreadId,
+                receipt.ExternalMessageId),
+            BindingId = binding.Id,
+            AccountId = account.Id,
+            ExternalThreadId = binding.ExternalThreadId,
+            ExternalMessageId = receipt.ExternalMessageId,
+            CreatedAt = now,
+            ExpiresAt = expiresAt,
+            Summary = string.IsNullOrWhiteSpace(envelope.Text)
+                ? sourceLink.Summary
+                : BuildPreview(envelope.Text),
+        };
+
+        await _automationMessageLinkRepository.UpsertAsync(replyLink, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static IEnumerable<string> EnumerateDistinctMessageIds(params string?[] messageIds)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var messageId in messageIds)
+        {
+            if (!string.IsNullOrWhiteSpace(messageId) && seen.Add(messageId))
+            {
+                yield return messageId;
+            }
+        }
+    }
+
+    private static string BuildAutomationChannelLinkId(
+        ChannelConnectorKind connectorKind,
+        string accountId,
+        string externalThreadId,
+        string externalMessageId)
+    {
+        var raw = string.Join("::", connectorKind, accountId, externalThreadId, externalMessageId);
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw));
+        return $"automation-channel-link-{Convert.ToHexString(bytes[..16]).ToLowerInvariant()}";
+    }
+
+    private ChannelTurnOrchestrationResult? TrySuppressDuplicateMessage(
+        ChannelInboundProcessingResult processing,
+        ChannelEventEnvelope envelope)
+    {
+        // 短时间窗口去重：同一 ExternalMessageId 在窗口内只处理一次，
+        // 防止 at-least-once 重复投递触发多次 Agent turn 或 automation follow-up。
+        if (string.IsNullOrEmpty(envelope.ExternalMessageId))
+        {
+            return null;
+        }
+
+        var dedupKey = $"{envelope.ConnectorKind}::{envelope.AccountId}::{envelope.ExternalMessageId}";
+        var now = DateTimeOffset.UtcNow;
+
+        // 懒清理：移除超过去重窗口的旧记录
+        foreach (var stale in _recentMessageIds
+            .Where(kv => now - kv.Value > MessageDeduplicationWindow)
+            .Select(kv => kv.Key)
+            .ToList())
+        {
+            _recentMessageIds.TryRemove(stale, out _);
+        }
+
+        if (!_recentMessageIds.TryAdd(dedupKey, now))
+        {
+            var dupOutcome = CreateOutcome(
+                ChannelTurnOutcomeKind.NoAction,
+                summary: $"Duplicate message suppressed (externalMessageId={envelope.ExternalMessageId}).",
+                processing,
+                envelope,
+                reasonCode: "duplicate_message");
+            _logger.LogInformation(
+                "Suppressed duplicate channel turn for binding {BindingId} externalMessageId={ExternalMessageId}",
+                processing.Binding.Id, envelope.ExternalMessageId);
+            RecordDiagnosticEvent("channel.turn.duplicate_suppressed", "info", dupOutcome.Summary, processing.Binding, dupOutcome);
+            return new ChannelTurnOrchestrationResult(processing, dupOutcome, ExecutedTurn: false);
+        }
+
+        SaveDedupeState();
+        return null;
     }
 
     private async Task<string> BuildConversationSummaryAsync(

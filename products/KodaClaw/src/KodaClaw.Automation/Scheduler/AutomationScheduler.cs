@@ -1,5 +1,6 @@
 using System.Text.Json;
 using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Channels;
 using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.Contracts.Inbox;
 using KodaClaw.Contracts.Sessions;
@@ -32,6 +33,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ILogger<AutomationScheduler>? _logger;
     private readonly IHostApplicationLifetime? _hostApplicationLifetime;
+    private readonly IAutomationChannelMessageLinkRepository? _messageLinkRepository;
 
     public AutomationScheduler(
         IAutomationDefinitionRepository definitionRepository,
@@ -47,7 +49,8 @@ public sealed class AutomationScheduler : IAutomationScheduler
         ICorrelationContextAccessor? correlationContextAccessor = null,
         IDiagnosticsService? diagnosticsService = null,
         ILogger<AutomationScheduler>? logger = null,
-        IHostApplicationLifetime? hostApplicationLifetime = null)
+        IHostApplicationLifetime? hostApplicationLifetime = null,
+        IAutomationChannelMessageLinkRepository? messageLinkRepository = null)
     {
         _definitionRepository = definitionRepository ?? throw new ArgumentNullException(nameof(definitionRepository));
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
@@ -63,6 +66,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         _diagnosticsService = diagnosticsService;
         _logger = logger;
         _hostApplicationLifetime = hostApplicationLifetime;
+        _messageLinkRepository = messageLinkRepository;
     }
 
     public Task<int> RunOnceAsync(CancellationToken cancellationToken = default)
@@ -307,6 +311,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 await _runRepository.UpdateAsync(successfulRun, cancellationToken);
                 await PersistDefinitionSuccessAsync(definition, successfulRun.CompletedAt!.Value, cancellationToken);
                 var pushResults = await PushToChannelsIfAutoAsync(definition, successfulRun.Summary!, cancellationToken);
+                await PersistAutomationChannelLinksAsync(definition, successfulRun, pushResults, cancellationToken);
                 await RunPostConsolidationIfApplicableAsync(definition, cancellationToken);
                 await UpsertResultInboxItemAsync(successfulRun, definition, pushResults, runCorrelationId, cancellationToken);
                 RecordDiagnosticEvent("automation.run_succeeded", "info",
@@ -458,6 +463,51 @@ public sealed class AutomationScheduler : IAutomationScheduler
         }
     }
 
+    private async Task PersistAutomationChannelLinksAsync(
+        AutomationDefinition definition,
+        AutomationRunRecord run,
+        IReadOnlyList<ChannelPushResult>? pushResults,
+        CancellationToken cancellationToken)
+    {
+        if (_messageLinkRepository is null || pushResults is null || string.IsNullOrWhiteSpace(run.SessionId))
+        {
+            return;
+        }
+
+        foreach (var result in pushResults)
+        {
+            if (!result.Ok
+                || string.IsNullOrWhiteSpace(result.ExternalMessageId)
+                || result.ConnectorKind is null
+                || string.IsNullOrWhiteSpace(result.AccountId)
+                || string.IsNullOrWhiteSpace(result.ExternalThreadId))
+            {
+                continue;
+            }
+
+            var now = _clock.UtcNow;
+            var link = new AutomationChannelMessageLink(
+                Id: BuildAutomationChannelLinkId(
+                    result.ConnectorKind.Value,
+                    result.AccountId,
+                    result.ExternalThreadId,
+                    result.ExternalMessageId),
+                AutomationId: definition.Id,
+                RunId: run.RunId,
+                SessionId: run.SessionId,
+                BindingId: result.BindingId,
+                ConnectorKind: result.ConnectorKind.Value,
+                AccountId: result.AccountId,
+                ExternalThreadId: result.ExternalThreadId,
+                ExternalMessageId: result.ExternalMessageId,
+                CreatedAt: now,
+                ExpiresAt: now.AddDays(30),
+                Summary: run.Summary);
+
+            await _messageLinkRepository.UpsertAsync(link, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task UpsertResultInboxItemAsync(
         AutomationRunRecord run,
         AutomationDefinition? definition,
@@ -546,6 +596,17 @@ public sealed class AutomationScheduler : IAutomationScheduler
     private static bool IsDue(AutomationDefinition definition, DateTimeOffset now)
     {
         return definition.NextRunAt is null || definition.NextRunAt <= now;
+    }
+
+    private static string BuildAutomationChannelLinkId(
+        ChannelConnectorKind connectorKind,
+        string accountId,
+        string externalThreadId,
+        string externalMessageId)
+    {
+        var raw = string.Join("::", connectorKind, accountId, externalThreadId, externalMessageId);
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw));
+        return $"automation-channel-link-{Convert.ToHexString(bytes[..16]).ToLowerInvariant()}";
     }
 
     private static DateTimeOffset ComputeNextRunAt(string cronExpression, DateTimeOffset after)

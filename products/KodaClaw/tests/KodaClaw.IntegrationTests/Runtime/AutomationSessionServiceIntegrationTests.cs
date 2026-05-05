@@ -325,6 +325,8 @@ public sealed class AutomationSessionServiceIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 
     private static AutomationDefinitionContract CreateDefinition(

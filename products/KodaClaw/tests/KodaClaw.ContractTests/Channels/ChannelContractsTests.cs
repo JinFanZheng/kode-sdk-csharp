@@ -128,7 +128,9 @@ public sealed class ChannelContractsTests
             ExternalMessageId: "message-001",
             Text: "payload text",
             CorrelationId: "corr-001",
-            MetadataJson: """{"eventName":"issue.opened"}""");
+            MetadataJson: """{"eventName":"issue.opened"}""",
+            ReplyToExternalMessageId: "message-parent-001",
+            RootExternalMessageId: "message-root-001");
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var roundTrip = JsonSerializer.Deserialize<ChannelEventEnvelope>(json, JsonOptions);
@@ -139,6 +141,51 @@ public sealed class ChannelContractsTests
         roundTrip.ThreadType.Should().Be(ChannelThreadType.Group);
         roundTrip.Sender.Should().NotBeNull();
         roundTrip.Sender!.DisplayName.Should().Be("Webhook Sender");
+        roundTrip.ReplyToExternalMessageId.Should().Be("message-parent-001");
+        roundTrip.RootExternalMessageId.Should().Be("message-root-001");
+    }
+
+    [Fact]
+    public void Channel_event_envelope_should_deserialize_without_reply_fields()
+    {
+        var json = """
+            {
+                "eventId":"event-legacy",
+                "eventType":"MessageReceived",
+                "connectorKind":"Telegram",
+                "accountId":"telegram-main",
+                "externalThreadId":"12345",
+                "threadType":"DirectMessage",
+                "occurredAt":"2026-03-19T01:00:00+00:00",
+                "externalMessageId":"message-legacy",
+                "text":"legacy payload"
+            }
+            """;
+
+        var roundTrip = JsonSerializer.Deserialize<ChannelEventEnvelope>(json, JsonOptions);
+
+        roundTrip.Should().NotBeNull();
+        roundTrip!.ReplyToExternalMessageId.Should().BeNull();
+        roundTrip.RootExternalMessageId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Channel_outbound_draft_should_json_round_trip_reply_target()
+    {
+        var payload = new ChannelOutboundDraft(
+            DraftId: "draft-001",
+            BindingId: "binding-001",
+            ConnectorKind: ChannelConnectorKind.Telegram,
+            AccountId: "telegram-main",
+            ExternalThreadId: "12345",
+            MessageText: "follow-up",
+            ReplyToExternalMessageId: "message-parent-001");
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<ChannelOutboundDraft>(json, JsonOptions);
+
+        json.Should().Contain("\"replyToExternalMessageId\":\"message-parent-001\"");
+        roundTrip.Should().Be(payload);
     }
 
     [Fact]

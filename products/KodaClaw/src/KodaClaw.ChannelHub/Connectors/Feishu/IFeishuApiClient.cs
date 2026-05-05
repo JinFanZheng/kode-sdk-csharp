@@ -33,6 +33,14 @@ public interface IFeishuApiClient
         string text,
         CancellationToken cancellationToken = default);
 
+    /// <summary>回复一条已有飞书消息（v1 follow-up 只要求文本回复）。</summary>
+    Task<string> ReplyTextMessageAsync(
+        string accessToken,
+        string messageId,
+        string text,
+        bool replyInThread = false,
+        CancellationToken cancellationToken = default);
+
     /// <summary>上传图片，返回 image_key</summary>
     Task<string> UploadImageAsync(
         string accessToken,

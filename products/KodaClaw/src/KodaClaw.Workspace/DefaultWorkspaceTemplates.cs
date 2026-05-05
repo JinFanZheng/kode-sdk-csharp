@@ -337,7 +337,7 @@ Protect user interests, question unreasonable rules, be honest but not naive.
   - inbox
 
 ## Daily Conversation Review
-- cron: "30 23 * * *"
+- cron: "0 23 * * *"
 - prompt: >
     Review today's conversations for a deep retrospective.
 

@@ -104,6 +104,42 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         return await ParseSendMessageResponse(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<string> ReplyTextMessageAsync(
+        string accessToken,
+        string messageId,
+        string text,
+        bool replyInThread = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("Text is required.", nameof(text));
+        }
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            throw new ArgumentException("Message id is required.", nameof(messageId));
+        }
+
+        var content = JsonSerializer.Serialize(new { text }, JsonOptions);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/open-apis/im/v1/messages/{Uri.EscapeDataString(messageId)}/reply");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Content = JsonContent.Create(
+            new
+            {
+                msg_type = "text",
+                content,
+                reply_in_thread = replyInThread,
+            },
+            options: JsonOptions);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        return await ParseSendMessageResponse(response, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<string> UploadImageAsync(
         string accessToken,
         Stream image,

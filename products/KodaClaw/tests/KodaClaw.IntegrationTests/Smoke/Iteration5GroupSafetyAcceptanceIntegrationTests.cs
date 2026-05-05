@@ -336,6 +336,8 @@ public sealed class Iteration5GroupSafetyAcceptanceIntegrationTests
             return Task.FromResult(true);
         }
 
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
+
         public void Clear() => LastRequest = null;
     }
 

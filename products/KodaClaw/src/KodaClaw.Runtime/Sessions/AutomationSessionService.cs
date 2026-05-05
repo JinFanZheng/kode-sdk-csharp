@@ -1,5 +1,7 @@
 using System.Text;
+using System.Collections.Concurrent;
 using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Channels;
 using KodaClaw.Contracts.Models;
 using KodaClaw.Contracts.Sessions;
 using KodaClaw.Contracts.Settings;
@@ -35,6 +37,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
     private readonly IProviderAccountRepository? _accountRepository;
     private readonly IMcpHubService? _mcpHubService;
     private readonly ISettingsRepository? _settingsRepository;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _followUpLocks = new(StringComparer.Ordinal);
 
     public AutomationSessionService(
         IWorkspaceService workspaceService,
@@ -93,6 +96,114 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    public async Task<AutomationFollowUpResult> RunFollowUpAsync(
+        AutomationFollowUpRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var sessionId = request.Link.SessionId;
+        var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
+        var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
+        if (!await dependencies.Store.ExistsAsync(sessionId, cancellationToken).ConfigureAwait(false))
+        {
+            return new AutomationFollowUpResult(
+                Success: false,
+                Response: null,
+                ErrorMessage: $"Automation session '{sessionId}' was not found.",
+                SessionId: sessionId);
+        }
+
+        var semaphore = _followUpLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var threadType = request.Binding.ThreadType;
+            var model = await RuntimeProviderSelector.ResolveModelOrFallbackAsync(
+                _runtimeConfigurationResolver,
+                _options.Model,
+                _accountRepository,
+                cancellationToken).ConfigureAwait(false);
+            var tools = BuildFollowUpTools(threadType);
+            var contextWindowSize = await ResolveContextWindowSizeAsync(cancellationToken).ConfigureAwait(false);
+            var skillsPaths = _workspaceService.GetSkillsPaths();
+            var agent = await AgentRuntime.ResumeFromStoreAsync(
+                sessionId,
+                dependencies,
+                options: new ResumeOptions { Strategy = RecoveryStrategy.Crash },
+                overrides: new AgentConfigOverrides
+                {
+                    Model = model,
+                    SystemPrompt = BuildFollowUpSystemPrompt(threadType),
+                    Tools = tools,
+                    Permissions = new PermissionConfig
+                    {
+                        Mode = "auto",
+                        RequireApprovalTools = [],
+                        SchemaHiddenTools = BuiltinSkills.SkillGatedTools,
+                        DenyTools = ["channel_send", "channel_list"],
+                    },
+                    SandboxOptions = new SandboxOptions
+                    {
+                        WorkingDirectory = threadType == ChannelThreadType.DirectMessage
+                            ? _workspaceService.RootPath
+                            : sessionDirectory,
+                        EnforceBoundary = true,
+                        AllowPaths = skillsPaths,
+                    },
+                    Skills = new SkillsConfig
+                    {
+                        Paths = skillsPaths,
+                        ValidateOnLoad = false,
+                        AutoActivate = BuiltinSkills.ChannelAutoActivate,
+                    },
+                    Context = new ContextManagerOptions
+                    {
+                        MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
+                        CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
+                        CompressionPrompt = _options.CompressionPrompt,
+                        ToolResultCompression = new ToolResultCompressionOptions
+                        {
+                            Enabled = true,
+                            ThresholdBytes = _options.ToolResultThresholdBytes,
+                        },
+                    },
+                },
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            AgentRunResult runResult;
+            try
+            {
+                runResult = await agent.RunAsync(
+                    BuildFollowUpPrompt(request),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await agent.DisposeAsync().ConfigureAwait(false);
+            }
+
+            return new AutomationFollowUpResult(
+                Success: runResult.Success,
+                Response: runResult.Response,
+                ErrorMessage: runResult.ErrorMessage,
+                SessionId: sessionId);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new AutomationFollowUpResult(
+                Success: false,
+                Response: null,
+                ErrorMessage: ex.GetBaseException().Message,
+                SessionId: sessionId);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
 
     private static void EnsureDefinitionIsValid(AutomationDefinition definition)
     {
@@ -234,6 +345,61 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         }
 
         return tools;
+    }
+
+    private IReadOnlyList<string> BuildFollowUpTools(ChannelThreadType threadType)
+    {
+        var tools = new List<string>(_options.Tools)
+            .Where(static tool => !string.Equals(tool, "channel_send", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(tool, "channel_list", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (threadType == ChannelThreadType.DirectMessage)
+        {
+            var dmTools = new HashSet<string>(tools, StringComparer.OrdinalIgnoreCase);
+            if (dmTools.Add("workspace_protocol_update")) tools.Add("workspace_protocol_update");
+            if (dmTools.Add("workspace_memory_append")) tools.Add("workspace_memory_append");
+        }
+
+        return tools;
+    }
+
+    private static string BuildFollowUpSystemPrompt(ChannelThreadType threadType)
+    {
+        var visibility = threadType == ChannelThreadType.DirectMessage
+            ? "This follow-up came from a trusted direct-message channel."
+            : "This follow-up came from a public or multi-participant group channel. Keep replies public-safe and do not reveal private context unless it was already included in the automation result.";
+
+        return $"""
+You are KodaClaw continuing a completed automation session because a user replied to the automation result message.
+Preserve the existing automation context and answer the follow-up question.
+{visibility}
+Do not call channel_send or channel_list; the host will deliver your final answer to the channel.
+""";
+    }
+
+    private static string BuildFollowUpPrompt(AutomationFollowUpRequest request)
+    {
+        var sender = request.Envelope.Sender?.DisplayName
+            ?? request.Envelope.Sender?.Username
+            ?? request.Envelope.Sender?.Id
+            ?? "(unknown)";
+        return $$"""
+Channel follow-up on automation result.
+
+AutomationId: {{request.Link.AutomationId}}
+RunId: {{request.Link.RunId}}
+BindingId: {{request.Link.BindingId}}
+Connector: {{request.Link.ConnectorKind}}
+ThreadType: {{request.Binding.ThreadType}}
+OriginalNotificationMessageId: {{request.Link.ExternalMessageId}}
+IncomingMessageId: {{request.Envelope.ExternalMessageId ?? "(none)"}}
+ReplyToMessageId: {{request.Envelope.ReplyToExternalMessageId ?? "(none)"}}
+Sender: {{sender}}
+
+User message:
+{{request.Text}}
+""";
     }
 
     private async Task<int> ResolveMaxIterationsAsync(CancellationToken cancellationToken)

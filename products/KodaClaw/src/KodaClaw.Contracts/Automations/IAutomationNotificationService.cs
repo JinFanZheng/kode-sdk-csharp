@@ -12,4 +12,8 @@ public sealed record ChannelPushResult(
     string BindingId,
     bool Ok,
     string? ErrorMessage,
-    DateTimeOffset? SentAt);
+    DateTimeOffset? SentAt,
+    string? ExternalMessageId = null,
+    Channels.ChannelConnectorKind? ConnectorKind = null,
+    string? AccountId = null,
+    string? ExternalThreadId = null);

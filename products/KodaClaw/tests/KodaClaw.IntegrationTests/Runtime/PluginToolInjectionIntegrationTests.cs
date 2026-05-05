@@ -445,5 +445,7 @@ public sealed class PluginToolInjectionIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 }

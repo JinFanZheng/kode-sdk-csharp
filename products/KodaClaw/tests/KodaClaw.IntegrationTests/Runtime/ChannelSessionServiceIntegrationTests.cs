@@ -390,6 +390,8 @@ public sealed class ChannelSessionServiceIntegrationTests
         {
             return Task.FromResult(true);
         }
+
+        public ModelCapabilities? GetModelCapabilities(string modelId) => null;
     }
 
     private static ThreadBinding CreateBinding(

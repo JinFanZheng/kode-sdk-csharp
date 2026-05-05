@@ -19,4 +19,6 @@ public sealed record ChannelEventEnvelope(
     string? SessionId = null,
     string? MetadataJson = null,
     DeliveryMode? DefaultDeliveryMode = null,
-    IReadOnlyList<MediaReference>? MediaAttachments = null);
+    IReadOnlyList<MediaReference>? MediaAttachments = null,
+    string? ReplyToExternalMessageId = null,
+    string? RootExternalMessageId = null);

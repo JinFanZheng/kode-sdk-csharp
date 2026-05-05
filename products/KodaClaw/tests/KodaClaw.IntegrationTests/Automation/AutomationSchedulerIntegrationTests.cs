@@ -4,6 +4,7 @@ using KodaClaw.Automation;
 using KodaClaw.Automation.Scheduler;
 using KodaClaw.Contracts;
 using KodaClaw.Contracts.Automations;
+using KodaClaw.Contracts.Channels;
 using KodaClaw.Contracts.Inbox;
 using KodaClaw.Contracts.Sessions;
 using KodaClaw.Contracts.Settings;
@@ -324,6 +325,44 @@ public sealed class AutomationSchedulerIntegrationTests
     }
 
     [Fact]
+    public async Task Auto_notify_success_with_external_message_id_should_create_channel_message_link()
+    {
+        var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);
+        var notificationService = new CapturingNotificationService(
+            successMetadata: new ChannelPushSuccessMetadata(
+                ExternalMessageId: "msg-telegram-001",
+                ConnectorKind: ChannelConnectorKind.Telegram,
+                AccountId: "telegram-main",
+                ExternalThreadId: "12345"));
+        using var fixture = new SchedulerFixture(now, notificationService: notificationService);
+        fixture.SessionService.SetResult(
+            "auto-push-link",
+            new AgentRunResult { Success = true, Response = "Push summary.", StopReason = StopReason.EndTurn });
+
+        var definition = fixture.BuildDefinition(
+            id: "auto-push-link",
+            notificationChannels: ["tg-main-abc"],
+            notifyMode: AutomationNotifyMode.Auto);
+        await fixture.Definitions.UpsertAsync(definition);
+
+        await fixture.Scheduler.TickAsync();
+
+        var runs = await fixture.Runs.ListAsync(new AutomationRunQuery(AutomationId: "auto-push-link", Limit: 10));
+        runs.Should().ContainSingle();
+        var link = await fixture.MessageLinks.GetByExternalMessageAsync(
+            ChannelConnectorKind.Telegram,
+            "telegram-main",
+            "12345",
+            "msg-telegram-001");
+        link.Should().NotBeNull();
+        link!.AutomationId.Should().Be("auto-push-link");
+        link.RunId.Should().Be(runs[0].RunId);
+        link.SessionId.Should().Be(runs[0].SessionId);
+        link.BindingId.Should().Be("tg-main-abc");
+        link.ExpiresAt.Should().Be(now.AddDays(30));
+    }
+
+    [Fact]
     public async Task None_notify_mode_should_not_call_notification_service()
     {
         var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);
@@ -453,6 +492,7 @@ public sealed class AutomationSchedulerIntegrationTests
             _provider = services.BuildServiceProvider();
             Definitions = _provider.GetRequiredService<IAutomationDefinitionRepository>();
             Runs = _provider.GetRequiredService<IAutomationRunRepository>();
+            MessageLinks = _provider.GetRequiredService<IAutomationChannelMessageLinkRepository>();
             Inbox = _provider.GetRequiredService<IInboxRepository>();
             Settings = _provider.GetRequiredService<ISettingsRepository>();
             Scheduler = _provider.GetRequiredService<IAutomationScheduler>();
@@ -475,6 +515,8 @@ public sealed class AutomationSchedulerIntegrationTests
         public IAutomationDefinitionRepository Definitions { get; }
 
         public IAutomationRunRepository Runs { get; }
+
+        public IAutomationChannelMessageLinkRepository MessageLinks { get; }
 
         public IInboxRepository Inbox { get; }
 
@@ -522,10 +564,14 @@ public sealed class AutomationSchedulerIntegrationTests
     private sealed class CapturingNotificationService : IAutomationNotificationService
     {
         private readonly string? _failureMessage;
+        private readonly ChannelPushSuccessMetadata? _successMetadata;
 
-        public CapturingNotificationService(string? failureMessage = null)
+        public CapturingNotificationService(
+            string? failureMessage = null,
+            ChannelPushSuccessMetadata? successMetadata = null)
         {
             _failureMessage = failureMessage;
+            _successMetadata = successMetadata;
         }
 
         public IReadOnlyList<string>? LastBindingIds { get; private set; }
@@ -541,13 +587,27 @@ public sealed class AutomationSchedulerIntegrationTests
             LastText = text;
 
             var results = bindingIds.Select(id => _failureMessage is null
-                ? new ChannelPushResult(id, Ok: true, ErrorMessage: null, SentAt: DateTimeOffset.UtcNow)
+                ? new ChannelPushResult(
+                    id,
+                    Ok: true,
+                    ErrorMessage: null,
+                    SentAt: DateTimeOffset.UtcNow,
+                    ExternalMessageId: _successMetadata?.ExternalMessageId,
+                    ConnectorKind: _successMetadata?.ConnectorKind,
+                    AccountId: _successMetadata?.AccountId,
+                    ExternalThreadId: _successMetadata?.ExternalThreadId)
                 : new ChannelPushResult(id, Ok: false, ErrorMessage: _failureMessage, SentAt: null))
                 .ToArray();
 
             return Task.FromResult<IReadOnlyList<ChannelPushResult>>(results);
         }
     }
+
+    private sealed record ChannelPushSuccessMetadata(
+        string ExternalMessageId,
+        ChannelConnectorKind ConnectorKind,
+        string AccountId,
+        string ExternalThreadId);
 
     private sealed class StubAutomationSessionService : IAutomationSessionService
     {

@@ -35,6 +35,48 @@ public sealed class ChannelSendService : IChannelSendService
         string? metadataJson = null,
         OutboundMessageFormat format = OutboundMessageFormat.Auto,
         CancellationToken cancellationToken = default)
+        => await SendCoreAsync(
+            bindingId,
+            text,
+            replyToExternalMessageId: null,
+            mediaId,
+            metadataJson,
+            format,
+            cancellationToken).ConfigureAwait(false);
+
+    public async Task<ChannelSendResult> SendReplyAsync(
+        string bindingId,
+        string text,
+        string replyToExternalMessageId,
+        string? mediaId = null,
+        string? metadataJson = null,
+        OutboundMessageFormat format = OutboundMessageFormat.Auto,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(replyToExternalMessageId))
+        {
+            throw new ArgumentException(
+                "replyToExternalMessageId is required.", nameof(replyToExternalMessageId));
+        }
+
+        return await SendCoreAsync(
+            bindingId,
+            text,
+            replyToExternalMessageId,
+            mediaId,
+            metadataJson,
+            format,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ChannelSendResult> SendCoreAsync(
+        string bindingId,
+        string text,
+        string? replyToExternalMessageId,
+        string? mediaId,
+        string? metadataJson,
+        OutboundMessageFormat format,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(bindingId))
         {
@@ -64,9 +106,21 @@ public sealed class ChannelSendService : IChannelSendService
             }
         }
 
-        await _dispatchService.SendNotificationAsync(account, binding, text, mediaAttachments, metadataJson, format, cancellationToken);
+        var receipt = await _dispatchService.SendNotificationAsync(
+            account,
+            binding,
+            text,
+            mediaAttachments,
+            metadataJson,
+            format,
+            replyToExternalMessageId,
+            cancellationToken);
         _capture?.Record(bindingId, text);
 
-        return new ChannelSendResult(Ok: true, BindingId: bindingId, SentAt: DateTimeOffset.UtcNow);
+        return new ChannelSendResult(
+            Ok: true,
+            BindingId: bindingId,
+            SentAt: receipt.SentAt,
+            ExternalMessageId: receipt.ExternalMessageId);
     }
 }
