@@ -16,6 +16,20 @@ public sealed class JobSchedulerHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // 启动时 zombie 检测：进程重启后所有 running Session 已死
+        try
+        {
+            await _scheduler.DetectZombiesAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "JobScheduler zombie detection failed.");
+        }
+
         using var timer = new PeriodicTimer(_scheduler.TickInterval);
         do
         {
