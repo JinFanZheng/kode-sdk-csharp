@@ -202,7 +202,10 @@ function ActivityRow({ item, totalCounts }: ActivityRowProps) {
       </div>
 
       {canExpand && param && (
-        <div className="activity-row__body-outer">
+        <div className="activity-row__body-outer" onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+        }}>
           <div className="activity-row__body">
             <code className="activity-row__full-param">{param}</code>
             <button

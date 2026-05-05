@@ -23,9 +23,9 @@ public sealed record JobDefinition
     public DateTimeOffset UpdatedAt { get; init; }
 
     /// <summary>
-    /// 校验 JobDefinition 字段合法性。返回错误消息列表，空列表表示校验通过。
+    /// 创建校验：仅允许 Pending 状态（用户只能创建 pending Job）。
     /// </summary>
-    public IReadOnlyList<string> Validate(DateTimeOffset now)
+    public IReadOnlyList<string> ValidateForCreate(DateTimeOffset now)
     {
         var errors = new List<string>();
 
@@ -42,8 +42,8 @@ public sealed record JobDefinition
         else if (Prompt.Length > 50000)
             errors.Add("prompt 不能超过 50000 字符");
 
-        if (Status != JobStatus.Pending && Status != JobStatus.Cancelled)
-            errors.Add("status 必须是 pending 或 cancelled");
+        if (Status != JobStatus.Pending)
+            errors.Add("创建时 status 必须是 pending");
 
         if (Type == JobType.Recurring)
         {
@@ -85,6 +85,62 @@ public sealed record JobDefinition
 
         return errors.AsReadOnly();
     }
+
+    /// <summary>
+    /// 更新校验：允许所有状态（调度器和工具内部更新用）。
+    /// </summary>
+    public IReadOnlyList<string> ValidateForUpdate()
+    {
+        var errors = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(Name))
+            errors.Add("name 不能为空");
+        else if (Name.Length > 200)
+            errors.Add("name 不能超过 200 字符");
+
+        if (Type != JobType.OneShot && Type != JobType.Recurring && Type != JobType.SelfDriven)
+            errors.Add("type 必须是 one-shot / recurring / self-driven");
+
+        if (string.IsNullOrWhiteSpace(Prompt))
+            errors.Add("prompt 不能为空");
+        else if (Prompt.Length > 50000)
+            errors.Add("prompt 不能超过 50000 字符");
+
+        if (Type == JobType.Recurring)
+        {
+            if (string.IsNullOrWhiteSpace(Cron))
+                errors.Add("type 为 recurring 时必须提供 cron");
+            else if (!IsValidCronFormat(Cron))
+                errors.Add("cron 格式不合法，需要 5 字段 cron 表达式");
+        }
+
+        if (Type == JobType.SelfDriven && FallbackIntervalMinutes.HasValue)
+        {
+            if (FallbackIntervalMinutes.Value < 5 || FallbackIntervalMinutes.Value > 10080)
+                errors.Add("fallback_interval_minutes 必须在 5-10080 之间");
+        }
+
+        if (TimeoutMinutes < 1 || TimeoutMinutes > 1440)
+            errors.Add("timeout_minutes 必须在 1-1440 之间");
+
+        if (MaxRetries < 0 || MaxRetries > 5)
+            errors.Add("max_retries 必须在 0-5 之间");
+
+        if (MaxConsecutiveFailures < 1 || MaxConsecutiveFailures > 100)
+            errors.Add("max_consecutive_failures 必须在 1-100 之间");
+
+        if (DeliveryMode != JobDeliveryMode.Auto &&
+            DeliveryMode != JobDeliveryMode.Approval &&
+            DeliveryMode != JobDeliveryMode.None)
+            errors.Add("delivery_mode 必须是 auto / approval / none");
+
+        return errors.AsReadOnly();
+    }
+
+    /// <summary>
+    /// 向后兼容：委托到 ValidateForCreate。新代码应直接调用 ValidateForCreate 或 ValidateForUpdate。
+    /// </summary>
+    public IReadOnlyList<string> Validate(DateTimeOffset now) => ValidateForCreate(now);
 
     public static bool IsValidCronFormat(string cron)
     {

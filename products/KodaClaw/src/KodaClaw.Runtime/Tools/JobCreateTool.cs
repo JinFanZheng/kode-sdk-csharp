@@ -73,7 +73,7 @@ public sealed class JobCreateTool : ToolBase<JobCreateArgs>
             ConcurrencyKey = "",
         };
 
-        var errors = job.Validate(now);
+        var errors = job.ValidateForCreate(now);
         if (errors.Count > 0)
             return ToolResult.Fail($"validation_failed: {errors[0]}");
 
@@ -117,6 +117,10 @@ public sealed class JobCreateTool : ToolBase<JobCreateArgs>
     {
         JobStatus.Pending => "pending",
         JobStatus.Cancelled => "cancelled",
+        JobStatus.Running => "running",
+        JobStatus.Completed => "completed",
+        JobStatus.Failed => "failed",
+        JobStatus.Paused => "paused",
         _ => "unknown",
     };
 }

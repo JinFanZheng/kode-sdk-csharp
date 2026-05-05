@@ -3,6 +3,7 @@ using KodaClaw.Contracts;
 using KodaClaw.Contracts.Automations;
 using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Jobs;
 using KodaClaw.Contracts.Sessions;
 using KodaClaw.Contracts.Settings;
 using KodaClaw.Contracts.Timers;
@@ -83,6 +84,12 @@ public static class ServiceCollectionExtensions
                 provider.GetService<IAutomationChannelMessageLinkRepository>());
         });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, AutomationSchedulerHostedService>());
+
+        // JobScheduler registrations (Phase 1b-1)
+        services.TryAddSingleton<JobSchedulerOptions>();
+        services.TryAddSingleton<JobScheduler>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, JobSchedulerHostedService>());
+
         return services;
     }
 
