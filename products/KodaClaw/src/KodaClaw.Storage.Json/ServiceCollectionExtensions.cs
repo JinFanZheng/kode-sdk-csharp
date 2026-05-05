@@ -1,5 +1,6 @@
 using KodaClaw.Contracts;
 using KodaClaw.Contracts.Approvals;
+using KodaClaw.Contracts.Jobs;
 using KodaClaw.Contracts.Automations;
 using KodaClaw.Contracts.Canvas;
 using KodaClaw.Contracts.Channels;
@@ -42,6 +43,7 @@ public static class ServiceCollectionExtensions
         // ThreadBindingRepository 需要单例保证内存字典唯一
         services.TryAddSingleton<IThreadBindingRepository>(_ => new JsonThreadBindingRepository(workspaceRoot));
         services.TryAddSingleton<IOneShotTimerRepository>(_ => new JsonOneShotTimerRepository(workspaceRoot));
+        services.TryAddSingleton<IJobRepository>(_ => new JsonJobRepository(workspaceRoot));
 
         return services;
     }

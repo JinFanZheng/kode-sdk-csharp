@@ -6,6 +6,7 @@ using KodaClaw.Contracts.Channels;
 using KodaClaw.Contracts.Chat;
 using KodaClaw.Contracts.Diagnostics;
 using KodaClaw.Contracts.Inbox;
+using KodaClaw.Contracts.Jobs;
 using KodaClaw.Contracts.Models;
 using KodaClaw.Contracts.Secrets;
 using KodaClaw.Contracts.Sessions;
@@ -196,6 +197,18 @@ public static class ServiceCollectionExtensions
             {
                 toolRegistry.Register("schedule_reminder",
                     _ => new ScheduleReminderTool(oneShotTimerRepository, diagnosticsService));
+            }
+
+            var jobRepository = sp.GetService<IJobRepository>();
+            if (jobRepository is not null)
+            {
+                toolRegistry.Register("job_create", _ => new JobCreateTool(jobRepository));
+                toolRegistry.Register("job_list", _ => new JobListTool(jobRepository));
+                toolRegistry.Register("job_status", _ => new JobStatusTool(jobRepository));
+                toolRegistry.Register("job_result", _ => new JobResultTool(jobRepository));
+                toolRegistry.Register("job_update", _ => new JobUpdateTool(jobRepository));
+                toolRegistry.Register("job_cancel", _ => new JobCancelTool(jobRepository));
+                toolRegistry.Register("job_delete", _ => new JobDeleteTool(jobRepository));
             }
 
             var modelProvider = sp.GetRequiredService<IModelProvider>();

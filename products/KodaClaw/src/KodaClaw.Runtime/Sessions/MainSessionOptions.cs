@@ -49,6 +49,13 @@ public sealed class MainSessionOptions
         "context_distill",
         "validate_and_fix",
         "spawn_agent",
+        "job_create",
+        "job_list",
+        "job_status",
+        "job_result",
+        "job_update",
+        "job_cancel",
+        "job_delete",
         // "browser_action"
         // fan_out_fan_in, map_reduce, debate — gated behind koda-orchestration skill
     ];
