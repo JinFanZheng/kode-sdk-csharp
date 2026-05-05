@@ -40,7 +40,7 @@ public sealed class JobSchedulerHostedService : BackgroundService
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                throw;
+                return;
             }
             catch (Exception ex)
             {
