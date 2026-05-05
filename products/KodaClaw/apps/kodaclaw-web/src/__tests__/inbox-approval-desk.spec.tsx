@@ -3,7 +3,7 @@ import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { InboxApprovalDesk } from "../components/InboxApprovalDesk";
+import { InboxApprovalDesk } from "../components/inbox/InboxApprovalDesk";
 import type { Approval, InboxItem } from "../types/contracts";
 import { renderWithI18n } from "./test-utils";
 

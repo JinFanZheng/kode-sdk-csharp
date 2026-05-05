@@ -7,7 +7,7 @@ import type { MainDesk } from '../shell-shared/types';
 import { AutomationsDesk } from '../components/AutomationsDesk';
 import { CanvasDesk } from '../components/CanvasDesk';
 import { ChannelsDesk } from '../components/ChannelsDesk';
-import { InboxApprovalDesk } from '../components/InboxApprovalDesk';
+import { InboxApprovalDesk } from '../components/inbox/InboxApprovalDesk';
 import { ModelsSettingsDesk } from '../components/ModelsSettingsDesk';
 import { PluginsDesk } from '../components/PluginsDesk';
 import { SessionsDiagnosticsDesk } from '../components/SessionsDiagnosticsDesk';
