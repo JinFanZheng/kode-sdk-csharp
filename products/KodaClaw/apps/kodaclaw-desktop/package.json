@@ -1,7 +1,7 @@
 {
   "name": "kodaclaw-desktop",
   "private": true,
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "KodaClaw desktop shell (Electron + TypeScript).",
   "author": "KodaClaw",
   "main": "dist/main.js",

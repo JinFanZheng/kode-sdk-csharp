@@ -1,4 +1,4 @@
-import type { ApprovalStatus, DeliveryMode, InboxItem, InboxItemStatus } from "../types/contracts";
+import type { ApprovalStatus, DeliveryMode, InboxItem, InboxItemStatus } from "../../types/contracts";
 
 export const INBOX_STATUS_OPTIONS: Array<InboxItemStatus> = [
   "Open",
